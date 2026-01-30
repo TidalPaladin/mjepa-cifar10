@@ -140,3 +140,5 @@ coverage.xml
 .pdm-python
 .vscode/*.code-workspace
 **/_version.py
+
+logs/

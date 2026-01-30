@@ -1,0 +1,22 @@
+# Training Configuration Template
+# Copy this file to Makefile.config and fill in your values
+# Makefile.config is gitignored and will not be tracked
+
+# Directory for training logs
+LOG_DIR=./logs
+
+# Number of trainers (1 for single GPU, >1 for distributed training)
+NUM_TRAINERS=3
+
+# Device ID (only used when NUM_TRAINERS=1)
+DEVICE=2
+
+# Path to CIFAR-10 data
+DATA=/mnt/data/cifar10/cifar-10-batches-py
+
+# Path to config file
+CONFIG=config/pretrain/vit-small.yaml
+
+# Experiment name
+NAME=mjepa-vit-s
+

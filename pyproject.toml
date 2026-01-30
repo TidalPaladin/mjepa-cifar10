@@ -6,17 +6,31 @@ requires = [
 build-backend = "hatchling.build"
 
 [project]
-name = "python-template"
+name = "mjepa-cifar10"
 description = ""
-requires-python = ">=3.14"
+requires-python = ">=3.11,<3.14"
 authors = [
     { name = "Scott Chase Waggener", email = "chase.waggener@icloud.com" },
 ]
-dependencies = []
+dependencies = [
+    "torch",
+    "torchvision",
+    "pyyaml",
+    "torchmetrics",
+    "safetensors",
+    "tqdm",
+    "vit @ git+https://github.com/TidalPaladin/vit.git",
+    "mjepa @ git+https://github.com/TidalPaladin/mjepa.git",
+    "wandb>=0.23.0",
+]
+
 readme = "README.md"
 dynamic = [
     "version",
 ]
+
+#[tool.uv]
+#override-dependencies = ["vit @ git+https://github.com/TidalPaladin/vit.git"]
 
 [dependency-groups]
 dev = [
@@ -71,8 +85,7 @@ skip_glob = [
 
 [tool.pyright]
 include = [
-    "project",
-    "tests",
+    "mjepa_cifar10",
 ]
 exclude = [
     "**/node_modules",
@@ -96,8 +109,8 @@ filterwarnings = []
 source = "vcs"
 
 [tool.hatch.build.hooks.vcs]
-version-file = "project/_version.py"
+version-file = "mjepa_cifar10/_version.py"
 
 # Set to true to allow installing git dependencies
 [tool.hatch.metadata]
-allow-direct-references = false
+allow-direct-references = true

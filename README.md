@@ -1,30 +1,23 @@
-# Python Template
+# MJEPA CIFAR-10
 
-Template repository for Python projects. Uses [uv](https://github.com/astral-sh/uv) as the package manager.
+Scripts for training a ViT model on CIFAR-10 using [MJEPA](https://github.com/TidalPaladin/mjepa) 
 
-## Usage
+## Setup
 
-1. Rename [project](./project) to the desired project name
-2. Update the `$PROJECT` variable in [Makefile](./Makefile) to match step 1
-3. Update `pyproject.toml` as needed
-4. Add source code to the renamed `project` folder
-5. Run `make init` to install the project to a virtual environment
-6. You can execute commands from the virtual environment with `uv run`
+1. Run `make init` to set up a virtualenv and install dependencies
+2. Log into Weights and Biases (used for logging)
 
-## Recipes
-* `make style` - Runs code style formatting
-* `make quality` - Tests that code complies with quality standards
-* `make types` - Run static type checking with [pyright](https://github.com/microsoft/pyright)
-* `make test` - Run unit tests
-* `make test-pdb-*` - Run unit tests matching pattern `*` with fallback to [`pdb`](https://docs.python.org/3/library/pdb.html)
-  for debugging.
-* `make deploy` - Install dependencies from `uv` lockfile
+## Training
 
-## Optional steps
-* Setup CI - a template CircleCI config is provided in `.circeci/config.yml`
+To run model training:
 
-## Misc
-
-* Run `make help` to get a partial list of available make recipes
-* A pytest mark, `ci_skip`, is provided to mark tests that should be skipped 
-  during CI pipelines
+1. Create your training configuration:
+   ```bash
+   cp Makefile.config.template Makefile.config
+   ```
+2. Edit `Makefile.config` with your training parameters (data path, device, etc.)
+3. Run training:
+   ```bash
+   make train          # runs distributed or single GPU based on NUM_TRAINERS
+   make train-single   # forces single GPU training
+   ```
