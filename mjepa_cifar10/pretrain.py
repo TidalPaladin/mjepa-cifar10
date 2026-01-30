@@ -24,6 +24,7 @@ from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
+from torch.utils.data import DistributedSampler
 from torchmetrics.wrappers import Running
 from tqdm import tqdm
 from vit import ViTFeatures
@@ -98,6 +99,10 @@ def train(
                 f"Changing size to {size_config.size} and batch size to {size_config.batch_size} "
                 f"(accumulate grad batches: {accumulate_grad_batches}, jepa scale: {jepa_scale})"
             )
+
+        # Update sampler epoch for proper shuffling in DDP
+        if isinstance(train_dataloader.sampler, DistributedSampler):
+            train_dataloader.sampler.set_epoch(epoch)
 
         jepa.train()
         desc = format_pbar_description(step, microbatch, epoch, loss=train_loss, acc=train_acc)

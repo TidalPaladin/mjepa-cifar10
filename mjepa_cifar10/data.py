@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Any, Final, Sequence, cast
 
 import torch
+import torch.distributed as dist
 from torch.utils.data import DataLoader, DistributedSampler
 from torchvision.datasets import CIFAR10
 from torchvision.transforms.v2 import (
@@ -62,7 +63,12 @@ def get_train_dataloader(
     world_size: int,
 ) -> DataLoader:
     transforms = get_train_transforms(size)
-    dataset = CIFAR10(root=root, train=True, transform=transforms, download=True)
+    # Only rank 0 downloads to avoid race conditions
+    if world_size > 1:
+        if local_rank == 0:
+            CIFAR10(root=root, train=True, download=True)
+        dist.barrier()
+    dataset = CIFAR10(root=root, train=True, transform=transforms, download=(world_size == 1))
     if world_size > 1:
         sampler = DistributedSampler(dataset, num_replicas=world_size, rank=local_rank, shuffle=True, drop_last=True)
         return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler)
@@ -84,7 +90,12 @@ def get_val_dataloader(
     num_workers: int,
 ) -> DataLoader:
     transforms = get_val_transforms(size)
-    dataset = CIFAR10(root=root, train=False, transform=transforms, download=True)
+    # Only rank 0 downloads to avoid race conditions
+    if dist.is_initialized():
+        if dist.get_rank() == 0:
+            CIFAR10(root=root, train=False, download=True)
+        dist.barrier()
+    dataset = CIFAR10(root=root, train=False, transform=transforms, download=not dist.is_initialized())
     return DataLoader(
         dataset,
         batch_size=batch_size,
