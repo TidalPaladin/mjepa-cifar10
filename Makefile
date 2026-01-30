@@ -1,15 +1,18 @@
-.PHONY: clean clean-env check quality style tag-version test env upload upload-test
+.PHONY: clean clean-env check quality style tag-version test env upload upload-test train train-single
 
-PROJECT=project
-QUALITY_DIRS=$(PROJECT) tests
-CLEAN_DIRS=$(PROJECT) tests
+PROJECT=mjepa_cifar10 scripts
+QUALITY_DIRS=$(PROJECT)
+CLEAN_DIRS=$(PROJECT)
 PYTHON=uv run python
+
+# Include training configuration if it exists
+-include Makefile.config
 
 check: ## run quality checks and unit tests
 	$(MAKE) style
 	$(MAKE) quality
 	$(MAKE) types
-	$(MAKE) test
+
 
 clean: ## remove cache files
 	find $(CLEAN_DIRS) -path '*/__pycache__/*' -delete
@@ -52,34 +55,42 @@ style:
 	$(PYTHON) -m autopep8 -a $(QUALITY_DIRS)
 	$(PYTHON) -m black $(QUALITY_DIRS)
 
-test: ## run unit tests
-	$(PYTHON) -m pytest \
-		-rs \
-		--cov=./$(PROJECT) \
-		--cov-report=term \
-		./tests/
-
-test-%: ## run unit tests matching a pattern
-	$(PYTHON) -m pytest -s -r fE -k $* ./tests/ --tb=no
-
-test-pdb-%: ## run unit tests matching a pattern with PDB fallback
-	$(PYTHON) -m pytest -rs --pdb -k $* -v ./tests/ 
-
-test-ci: ## runs CI-only tests
-	export "CUDA_VISIBLE_DEVICES=''" && \
-	$(PYTHON) -m pytest \
-		-rs \
-		-m "not ci_skip" \
-		--cov=./$(PROJECT) \
-		--cov-report=xml \
-		--cov-report=term \
-		./tests/
-
 types: node_modules
 	uv run npx --no-install pyright tests $(PROJECT)
 
 update:
 	uv sync --all-groups --all-extras
+
+train: Makefile.config ## run distributed training (requires Makefile.config)
+	@if [ "$(NUM_TRAINERS)" = "1" ]; then \
+		$(MAKE) train-single; \
+	else \
+		uv run torchrun \
+			--standalone \
+			--nnodes=1 \
+			--nproc_per_node=$(NUM_TRAINERS) \
+			scripts/pretrain.py \
+			$(CONFIG) \
+			$(DATA) \
+			--log-dir $(LOG_DIR) \
+			-n $(NAME); \
+	fi
+
+train-single: Makefile.config ## run single GPU training (requires Makefile.config)
+	$(PYTHON) scripts/pretrain.py \
+		$(CONFIG) \
+		$(DATA) \
+		--log-dir $(LOG_DIR) \
+		--local-rank $(DEVICE) \
+		-n $(NAME)
+
+Makefile.config: ## create Makefile.config from template
+	@if [ ! -f Makefile.config ]; then \
+		echo "Creating Makefile.config from template..."; \
+		cp Makefile.config.template Makefile.config; \
+		echo "Please edit Makefile.config to set your training parameters."; \
+		exit 1; \
+	fi
 
 help: ## display this help message
 	@echo "Please use \`make <target>' where <target> is one of"
