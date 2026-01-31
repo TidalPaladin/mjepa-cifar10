@@ -36,7 +36,6 @@ LOG_INTERVAL: Final[int] = 50
 
 
 class CIFAR10MJEPA(MJEPA):
-
     def forward_probe(self, features: ViTFeatures) -> dict[str, Tensor]:
         return {
             "cls": self.student.get_head("cls")(features.cls_tokens.mean(1)).view(features.cls_tokens.shape[0], -1),
@@ -177,7 +176,7 @@ def train(
             jepa.eval()
             val_acc.reset()
 
-            for img, label in tqdm(val_dataloader, desc=f"Validating: ", disable=not is_rank_zero(), leave=False):
+            for img, label in tqdm(val_dataloader, desc="Validating: ", disable=not is_rank_zero(), leave=False):
                 B = img.shape[0]
                 img = img.cuda()
                 label = label.cuda()
@@ -207,7 +206,7 @@ def train(
         # Save checkpoint
         if is_rank_zero() and log_dir:
             save_checkpoint(
-                path=log_dir / f"checkpoint.pt",
+                path=log_dir / "checkpoint.pt",
                 backbone=unwrapped_jepa.student,
                 predictor=unwrapped_jepa.predictor if isinstance(unwrapped_jepa, MJEPA) else None,
                 teacher=unwrapped_jepa.teacher if isinstance(unwrapped_jepa, MJEPA) else None,
@@ -218,12 +217,12 @@ def train(
             )
             st.save_file(
                 {k: v for k, v in unwrapped_jepa.student.state_dict().items() if isinstance(v, torch.Tensor)},
-                str(log_dir / f"backbone.safetensors"),
+                str(log_dir / "backbone.safetensors"),
             )
 
     # Save final checkpoint
     if is_rank_zero() and log_dir:
         st.save_file(
             {k: v for k, v in unwrapped_jepa.student.state_dict().items() if isinstance(v, torch.Tensor)},
-            str(log_dir / f"backbone.safetensors"),
+            str(log_dir / "backbone.safetensors"),
         )
