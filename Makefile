@@ -37,26 +37,17 @@ init: ## pulls submodules and initializes virtual environment
 	which uv || pip install --user uv
 	uv sync --all-groups --all-extras
 
-node_modules: 
-ifeq (, $(shell which npm))
-	$(error "No npm in $(PATH), please install it to run pyright type checking")
-else
-	npm install
-endif
-
 quality:
 	$(MAKE) clean
-	$(PYTHON) -m black --check $(QUALITY_DIRS)
-	$(PYTHON) -m autopep8 -a $(QUALITY_DIRS)
+	uv run ruff check $(QUALITY_DIRS)
+	uv run ruff format --check $(QUALITY_DIRS)
 
 style:
-	$(PYTHON) -m autoflake -r -i $(QUALITY_DIRS)
-	$(PYTHON) -m isort $(QUALITY_DIRS)
-	$(PYTHON) -m autopep8 -a $(QUALITY_DIRS)
-	$(PYTHON) -m black $(QUALITY_DIRS)
+	uv run ruff check --fix $(QUALITY_DIRS)
+	uv run ruff format $(QUALITY_DIRS)
 
-types: node_modules
-	uv run npx --no-install pyright tests $(PROJECT)
+types:
+	uv run basedpyright $(PROJECT)
 
 update:
 	uv sync --all-groups --all-extras

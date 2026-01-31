@@ -74,7 +74,7 @@ def main(args: Namespace) -> None:
 
     # Determine distributed training parameters
     world_size = int(os.environ.get("WORLD_SIZE", 1))
-    local_rank = int(os.environ.get("LOCAL_RANK", args.local_rank))
+    local_rank = int(os.environ.get("LOCAL_RANK") or args.local_rank)
     torch.cuda.set_device(local_rank)
     if world_size > 1:
         ddp_setup()

@@ -19,9 +19,9 @@ make train-single      # Run single GPU training
 
 # Code Quality
 make check             # Run all checks (style + quality + types)
-make style             # Auto-format code (autoflake, isort, autopep8, black)
-make quality           # Check formatting (black --check)
-make types             # Run Pyright static type checking (requires Node.js)
+make style             # Auto-format code with ruff
+make quality           # Check formatting with ruff
+make types             # Run basedpyright static type checking
 
 # Dependency Management
 make update            # Update dependencies to latest versions
@@ -58,4 +58,4 @@ CIFAR-10 Images → ViT-Small/4 Backbone → MJEPA (student/teacher encoders + p
 - Logs metrics to Weights & Biases (wandb)
 - Saves checkpoints in SafeTensors format
 - Supports quantization via torchao (Int8DynamicActivationInt4Weight)
-- Black line length: 120, isort line length: 119
+- Ruff line length: 120
