@@ -3,10 +3,10 @@
 trainer: !!python/object:mjepa.TrainerConfig
   batch_size: 512
   num_workers: 24 
-  num_epochs: 1500
+  num_epochs: 1000
   check_val_every_n_epoch: 10
   sizes:
-    1000: !!python/object:mjepa.ResolutionConfig
+    750: !!python/object:mjepa.ResolutionConfig
       size: [64, 64]
       batch_size: 256
 
@@ -33,6 +33,7 @@ backbone: !!python/object:vit.ViTConfig
   rope_jitter_coords: null
   rope_normalize_coords: "separate"
   layer_scale: 0.00001
+  norm_type: "layernorm"
   dtype: float32
   heads:
     cls: !!python/object:vit.HeadConfig
@@ -47,7 +48,7 @@ jepa: !!python/object:mjepa.JEPAConfig
   scale: 2
   scheduled: false
   gram_teacher_epoch: 300
-  gram_start_epoch: 700
+  gram_start_epoch: 600
   gram_update_interval_epoch: 100
   gram_resolution_scale: 1.0
   gram_remove_neg: false
