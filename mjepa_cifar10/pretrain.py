@@ -1,6 +1,5 @@
-import gc
 from pathlib import Path
-from typing import Final
+from typing import Final, cast
 
 import safetensors.torch as st
 import torch
@@ -8,6 +7,7 @@ import torch.nn.functional as F
 import torchmetrics as tm
 import wandb
 from mjepa.model import MJEPA, MJEPAPredictions
+from mjepa.optimizer import OptimizerLike, SchedulerLike
 from mjepa.trainer import (
     DataLoaderFn,
     TrainerConfig,
@@ -22,8 +22,6 @@ from mjepa.trainer import (
 )
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DistributedSampler
 from torchmetrics.wrappers import Running
 from tqdm import tqdm
@@ -42,12 +40,23 @@ class CIFAR10MJEPA(MJEPA):
         }
 
 
+def get_scheduler_last_lr(scheduler: SchedulerLike) -> float:
+    get_last_lr = getattr(scheduler, "get_last_lr", None)
+    if not callable(get_last_lr):
+        raise TypeError("scheduler must expose get_last_lr() for training metrics")
+
+    last_lr = cast(list[float], get_last_lr())
+    if not last_lr:
+        raise ValueError("scheduler.get_last_lr() returned no learning rates")
+    return float(last_lr[0])
+
+
 def train(
     jepa: MJEPA | DDP,
     train_dataloader_fn: DataLoaderFn,
     val_dataloader_fn: DataLoaderFn,
-    optimizer: Optimizer,
-    scheduler: LRScheduler,
+    optimizer: OptimizerLike,
+    scheduler: SchedulerLike,
     trainer_config: TrainerConfig,
     last_epoch: int = -1,
 ) -> None:
@@ -77,6 +86,9 @@ def train(
     train_loss_jepa_cls = tm.RunningMean(window=WINDOW).cuda()
     train_loss_sigreg = tm.RunningMean(window=WINDOW).cuda()
     train_loss_gram = tm.RunningMean(window=WINDOW).cuda()
+    has_jepa_loss_cls = False
+    has_sigreg_loss = False
+    has_gram_loss = False
     train_acc = Running(tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES), window=WINDOW).cuda()
     val_acc = tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES).cuda()
 
@@ -116,9 +128,22 @@ def train(
             assert isinstance(unwrapped_jepa, MJEPA)
             ssl_losses = unwrapped_jepa.compute_losses(output, step, epoch)
             train_loss_jepa.update(ssl_losses.jepa_loss)
-            train_loss_jepa_cls.update(ssl_losses.jepa_loss_cls)
-            train_loss_sigreg.update(ssl_losses.sigreg_loss)
-            train_loss_gram.update(ssl_losses.gram_loss)
+
+            jepa_loss_cls = getattr(ssl_losses, "jepa_loss_cls", None)
+            if jepa_loss_cls is not None:
+                train_loss_jepa_cls.update(jepa_loss_cls)
+                has_jepa_loss_cls = True
+
+            sigreg_loss = getattr(ssl_losses, "sigreg_loss", None)
+            if sigreg_loss is not None:
+                train_loss_sigreg.update(sigreg_loss)
+                has_sigreg_loss = True
+
+            gram_loss = getattr(ssl_losses, "gram_loss", None)
+            if gram_loss is not None:
+                train_loss_gram.update(gram_loss)
+                has_gram_loss = True
+
             ssl_loss = ssl_losses.reduce()
 
             # Compute linear probe loss
@@ -158,12 +183,15 @@ def train(
                 log_dict = {
                     "train/loss": train_loss.compute().item(),
                     "train/loss_jepa": train_loss_jepa.compute().item(),
-                    "train/loss_jepa_cls": train_loss_jepa_cls.compute().item(),
-                    "train/loss_sigreg": train_loss_sigreg.compute().item(),
-                    "train/loss_gram": train_loss_gram.compute().item(),
                     "train/acc": train_acc.compute().item(),
-                    "train/lr": scheduler.get_last_lr()[0],
+                    "train/lr": get_scheduler_last_lr(scheduler),
                 }
+                if has_jepa_loss_cls:
+                    log_dict["train/loss_jepa_cls"] = train_loss_jepa_cls.compute().item()
+                if has_sigreg_loss:
+                    log_dict["train/loss_sigreg"] = train_loss_sigreg.compute().item()
+                if has_gram_loss:
+                    log_dict["train/loss_gram"] = train_loss_gram.compute().item()
                 if is_rank_zero():
                     wandb.log(log_dict, step=step)
 
@@ -198,10 +226,6 @@ def train(
             # Add histogram logging
             if is_rank_zero():
                 wandb.log(log_dict, step=step)
-
-        gc.collect()
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
 
         # Save checkpoint
         if is_rank_zero() and log_dir:

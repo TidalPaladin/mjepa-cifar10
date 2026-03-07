@@ -24,6 +24,7 @@ from torchvision.transforms.v2 import (
 
 MEAN: Final = (0.4914, 0.4822, 0.4465)
 STD: Final = (0.2470, 0.2434, 0.2616)
+PIN_MEMORY: Final[bool] = True
 
 
 def get_train_transforms(size: Sequence[int]) -> Compose:
@@ -63,6 +64,7 @@ def get_train_dataloader(
     world_size: int,
 ) -> DataLoader:
     transforms = get_train_transforms(size)
+    persistent_workers = num_workers > 0
     # Only rank 0 downloads to avoid race conditions
     if world_size > 1:
         if local_rank == 0:
@@ -71,15 +73,24 @@ def get_train_dataloader(
     dataset = CIFAR10(root=root, train=True, transform=transforms, download=(world_size == 1))
     if world_size > 1:
         sampler = DistributedSampler(dataset, num_replicas=world_size, rank=local_rank, shuffle=True, drop_last=True)
-        return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers, sampler=sampler)
+        return DataLoader(
+            dataset,
+            batch_size=batch_size,
+            num_workers=num_workers,
+            pin_memory=PIN_MEMORY,
+            persistent_workers=persistent_workers,
+            drop_last=True,
+            sampler=sampler,
+        )
     else:
         return DataLoader(
             dataset,
             batch_size=batch_size,
             num_workers=num_workers,
+            pin_memory=PIN_MEMORY,
             shuffle=True,
             drop_last=True,
-            persistent_workers=True,
+            persistent_workers=persistent_workers,
         )
 
 
@@ -90,6 +101,7 @@ def get_val_dataloader(
     num_workers: int,
 ) -> DataLoader:
     transforms = get_val_transforms(size)
+    persistent_workers = num_workers > 0
     # Only rank 0 downloads to avoid race conditions
     if dist.is_initialized():
         if dist.get_rank() == 0:
@@ -100,7 +112,8 @@ def get_val_dataloader(
         dataset,
         batch_size=batch_size,
         num_workers=num_workers,
+        pin_memory=PIN_MEMORY,
         shuffle=False,
         drop_last=False,
-        persistent_workers=True,
+        persistent_workers=persistent_workers,
     )

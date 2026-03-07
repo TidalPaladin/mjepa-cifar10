@@ -12,6 +12,9 @@ resolution-markers = [
     "python_full_version < '3.12' and sys_platform != 'emscripten' and sys_platform != 'linux' and sys_platform != 'win32'",
 ]
 
+[manifest]
+overrides = [{ name = "vit", editable = "../vit" }]
+
 [[package]]
 name = "annotated-types"
 version = "0.7.0"
@@ -459,7 +462,7 @@ requires-dist = [
     { name = "torchmetrics" },
     { name = "torchvision" },
     { name = "tqdm" },
-    { name = "vit", git = "https://github.com/TidalPaladin/vit.git" },
+    { name = "vit", editable = "../vit" },
     { name = "wandb", specifier = ">=0.23.0" },
 ]
 
@@ -1466,13 +1469,38 @@ wheels = [
 
 [[package]]
 name = "vit"
-version = "0.1.1.dev30+gd68ad3e1e"
-source = { git = "https://github.com/TidalPaladin/vit.git#d68ad3e1e0df3960230c89cb3f01ea1b5fe5d551" }
+source = { editable = "../vit" }
 dependencies = [
     { name = "numpy" },
     { name = "pyyaml" },
     { name = "torch" },
     { name = "torchao" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "numpy" },
+    { name = "pyyaml" },
+    { name = "torch" },
+    { name = "torchao" },
+]
+
+[package.metadata.requires-dev]
+benchmarking = [
+    { name = "matplotlib" },
+    { name = "tqdm" },
+]
+dev = [
+    { name = "basedpyright" },
+    { name = "coverage" },
+    { name = "matplotlib" },
+    { name = "pdbpp" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "pytest-env" },
+    { name = "pytest-mock" },
+    { name = "ruff" },
+    { name = "tqdm" },
 ]
 
 [[package]]

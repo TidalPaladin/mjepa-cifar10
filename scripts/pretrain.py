@@ -11,10 +11,8 @@ import wandb
 import yaml
 from mjepa.jepa import CrossAttentionPredictor, JEPAConfig
 from mjepa.optimizer import OptimizerConfig
-from mjepa.trainer import TrainerConfig, calculate_total_steps, ignore_warnings, is_rank_zero
+from mjepa.trainer import TrainerConfig, calculate_total_steps, ignore_warnings, is_rank_zero, setup_logdir
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torchao.quantization import Int8DynamicActivationInt4WeightConfig
-from torchao.quantization.qat import QATConfig
 from tqdm import tqdm
 from vit import ViTConfig
 
@@ -79,11 +77,16 @@ def main(args: Namespace) -> None:
     if world_size > 1:
         ddp_setup()
 
+    # Configure logging handlers/format, and create a timestamped run directory on rank zero.
+    run_log_dir = setup_logdir(
+        args.log_dir if is_rank_zero() else None,
+        config_path if is_rank_zero() else None,
+        args.name if is_rank_zero() else None,
+    )
+
     # Instantiate other model elements and move to device
     device = torch.device("cuda", local_rank)
-    qat_config = QATConfig(Int8DynamicActivationInt4WeightConfig())
     backbone = backbone_config.instantiate(device=device)
-    backbone.apply_quantization(mlp_quantization_config=qat_config)
     predictor = CrossAttentionPredictor(backbone, jepa_config.predictor_depth, device=device)
     jepa = CIFAR10MJEPA(jepa_config, backbone, predictor)
 
@@ -121,7 +124,7 @@ def main(args: Namespace) -> None:
         wandb.init(
             project="mjepa-cifar10",
             name=args.name,
-            dir=args.log_dir,
+            dir=run_log_dir,
             config={
                 "backbone": backbone_config.__dict__,
                 "jepa": jepa_config.__dict__,

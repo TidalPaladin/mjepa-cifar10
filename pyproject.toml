@@ -30,8 +30,11 @@ dynamic = [
 ]
 
 [tool.uv.sources]
-vit = { git = "https://github.com/TidalPaladin/vit.git" }
+vit = { path = "../vit", editable = true }
 mjepa = { path = "../mjepa", editable = true }
+
+[tool.uv]
+override-dependencies = ["vit"]
 
 [dependency-groups]
 dev = [
