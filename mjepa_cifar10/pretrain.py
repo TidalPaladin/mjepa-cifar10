@@ -34,10 +34,19 @@ LOG_INTERVAL: Final[int] = 50
 
 
 class CIFAR10MJEPA(MJEPA):
+    @staticmethod
+    def _flatten_probe_logits(logits: Tensor) -> Tensor:
+        if logits.ndim == 2:
+            return logits
+        if logits.ndim == 3 and logits.shape[1] == 1:
+            return logits[:, 0, :]
+        raise ValueError(f"probe head must return a single embedding per sample, got shape={tuple(logits.shape)}")
+
     def forward_probe(self, features: ViTFeatures) -> dict[str, Tensor]:
-        return {
-            "cls": self.student.get_head("cls")(features.cls_tokens.mean(1)).view(features.cls_tokens.shape[0], -1),
-        }
+        probe_tokens = self._get_probe_tokens(features)
+        probe_input = probe_tokens.mean(1) if self._has_cls_tokens(features) else probe_tokens
+        probe_logits = self.student.get_head("cls")(probe_input)
+        return {"cls": self._flatten_probe_logits(probe_logits)}
 
 
 def get_scheduler_last_lr(scheduler: SchedulerLike) -> float:
