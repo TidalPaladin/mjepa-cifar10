@@ -15,8 +15,11 @@ DEVICE=2
 DATA=/mnt/data/cifar10/cifar-10-batches-py
 
 # Path to config file
+# Use a file under config/pretrain/ for pretraining or config/finetune/ for finetuning
 CONFIG=config/pretrain/vit-small.yaml
+
+# Path to backbone .safetensors checkpoint for finetuning
+CHECKPOINT=./logs/backbone.safetensors
 
 # Experiment name
 NAME=mjepa-vit-s
-

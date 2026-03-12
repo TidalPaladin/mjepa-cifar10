@@ -16,8 +16,13 @@ To run model training:
    cp Makefile.config.template Makefile.config
    ```
 2. Edit `Makefile.config` with your training parameters (data path, device, etc.)
-3. Run training:
+3. Run pretraining:
    ```bash
    make train          # runs distributed or single GPU based on NUM_TRAINERS
    make train-single   # forces single GPU training
+   ```
+4. Run finetuning from a backbone checkpoint:
+   ```bash
+   make finetune        # requires CONFIG to point at config/finetune/* and CHECKPOINT to a backbone.safetensors file
+   make finetune-single # forces single GPU finetuning
    ```

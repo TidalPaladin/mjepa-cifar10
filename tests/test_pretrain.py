@@ -12,27 +12,25 @@ from mjepa import JEPAConfig
 from mjepa.jepa import CrossAttentionPredictor
 from mjepa.metrics import CLSPatchAlignmentMetric
 from mjepa.optimizer import OptimizerConfig
-from torch import Tensor
-from torch import nn
+from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
-from vit import AttentivePoolHeadConfig
-from vit import HeadConfig
-from vit import ViTConfig
-from vit import ViTFeatures
+from vit import AttentivePoolHeadConfig, HeadConfig, ViTConfig, ViTFeatures
 
 import mjepa_cifar10.pretrain as pretrain_module
-from mjepa_cifar10.pretrain import CPA_RESULT_KEYS
-from mjepa_cifar10.pretrain import CIFAR10MJEPA
-from mjepa_cifar10.pretrain import OptimizerStepResult
-from mjepa_cifar10.pretrain import clip_optimizer_grad_norm_
-from mjepa_cifar10.pretrain import compute_and_reset_cpa_metrics
-from mjepa_cifar10.pretrain import compute_and_reset_mean_percentage
-from mjepa_cifar10.pretrain import did_gradient_clip
-from mjepa_cifar10.pretrain import get_gradient_norm_stats
-from mjepa_cifar10.pretrain import get_scheduler_last_lr
-from mjepa_cifar10.pretrain import get_gradient_sync_context
-from mjepa_cifar10.pretrain import run_optimizer_step
-from mjepa_cifar10.pretrain import update_cls_patch_alignment_metric
+from mjepa_cifar10.pretrain import (
+    CIFAR10MJEPA,
+    CPA_RESULT_KEYS,
+    OptimizerStepResult,
+    clip_optimizer_grad_norm_,
+    compute_and_reset_cpa_metrics,
+    compute_and_reset_mean_percentage,
+    did_gradient_clip,
+    get_gradient_norm_stats,
+    get_gradient_sync_context,
+    get_scheduler_last_lr,
+    run_optimizer_step,
+    update_cls_patch_alignment_metric,
+)
 
 
 def test_get_scheduler_last_lr_returns_first_learning_rate() -> None:
@@ -295,7 +293,9 @@ def _ddp_cifar10_mjepa_clip_sync_worker(rank: int, world_size: int, port: int) -
                 step=step,
                 total_steps=DDP_DRIFT_TEST_STEPS,
                 max_grad_norm=optimizer_config.max_grad_norm,
-                update_teacher=lambda current_step=step: ddp_model.module.update_teacher(current_step, DDP_DRIFT_TEST_STEPS),
+                update_teacher=lambda current_step=step: ddp_model.module.update_teacher(
+                    current_step, DDP_DRIFT_TEST_STEPS
+                ),
             )
             assert optimizer_step_result.next_step == step + 1
             assert optimizer_step_result.grad_clip_triggered

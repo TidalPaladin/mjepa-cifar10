@@ -1,9 +1,7 @@
-from collections.abc import Callable, Iterable
-from contextlib import AbstractContextManager, nullcontext
-from dataclasses import dataclass
+from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Final, cast
+from typing import Final
 
 import safetensors.torch as st
 import torch
@@ -32,93 +30,45 @@ from torchmetrics.wrappers import Running
 from tqdm import tqdm
 from vit import ViTFeatures
 
+from .classification import forward_classifier
+from .train_utils import (
+    OptimizerStepResult,
+    clip_optimizer_grad_norm_,
+    compute_and_reset_mean_percentage,
+    did_gradient_clip,
+    get_gradient_norm_stats,
+    get_gradient_sync_context,
+    get_scheduler_last_lr,
+)
+
 
 NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
-PERCENT_SCALE: Final[float] = 100.0
 GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "train/grad_clip_trigger_pct"
 CPA_RESULT_KEYS: Final[tuple[str, ...]] = ("cpa_mean", "cpa_std", "cpa_p90", "cpa_p99")
-
-
-@dataclass(frozen=True)
-class OptimizerStepResult:
-    next_step: int
-    grad_clip_triggered: bool
+__all__ = [
+    "CPA_RESULT_KEYS",
+    "CIFAR10MJEPA",
+    "GRAD_CLIP_TRIGGER_PCT_KEY",
+    "NUM_CLASSES",
+    "OptimizerStepResult",
+    "clip_optimizer_grad_norm_",
+    "compute_and_reset_cpa_metrics",
+    "compute_and_reset_mean_percentage",
+    "did_gradient_clip",
+    "get_gradient_norm_stats",
+    "get_gradient_sync_context",
+    "get_scheduler_last_lr",
+    "run_optimizer_step",
+    "train",
+    "update_cls_patch_alignment_metric",
+]
 
 
 class CIFAR10MJEPA(MJEPA):
-    @staticmethod
-    def _flatten_probe_logits(logits: Tensor) -> Tensor:
-        if logits.ndim == 2:
-            return logits
-        if logits.ndim == 3 and logits.shape[1] == 1:
-            return logits[:, 0, :]
-        raise ValueError(f"probe head must return a single embedding per sample, got shape={tuple(logits.shape)}")
-
     def forward_probe(self, features: ViTFeatures) -> dict[str, Tensor]:
-        probe_tokens = self._get_probe_tokens(features)
-        probe_input = probe_tokens.mean(1) if self._has_cls_tokens(features) else probe_tokens
-        probe_logits = self.student.get_head("cls")(probe_input)
-        return {"cls": self._flatten_probe_logits(probe_logits)}
-
-
-def get_scheduler_last_lr(scheduler: SchedulerLike) -> float:
-    get_last_lr = getattr(scheduler, "get_last_lr", None)
-    if not callable(get_last_lr):
-        raise TypeError("scheduler must expose get_last_lr() for training metrics")
-
-    last_lr = cast(list[float], get_last_lr())
-    if not last_lr:
-        raise ValueError("scheduler.get_last_lr() returned no learning rates")
-    return float(last_lr[0])
-
-
-def get_gradient_norm_stats(parameters: Iterable[torch.nn.Parameter]) -> tuple[float, float] | None:
-    grad_norms = [parameter.grad.detach().norm(2) for parameter in parameters if parameter.grad is not None]
-    if not grad_norms:
-        return None
-
-    grad_norm_tensor = torch.stack(grad_norms)
-    return grad_norm_tensor.mean().item(), grad_norm_tensor.max().item()
-
-
-def get_gradient_sync_context(
-    no_sync: Callable[[], AbstractContextManager[None]] | None,
-    should_sync_gradients: bool,
-) -> AbstractContextManager[None]:
-    if should_sync_gradients or no_sync is None:
-        return nullcontext()
-    return no_sync()
-
-
-def clip_optimizer_grad_norm_(optimizer: OptimizerLike, max_grad_norm: float | None) -> Tensor | None:
-    if max_grad_norm is None:
-        return None
-
-    seen_parameter_ids: set[int] = set()
-    unique_parameters: list[torch.nn.Parameter] = []
-    for group in optimizer.param_groups:
-        for parameter in cast(Iterable[torch.nn.Parameter], group["params"]):
-            parameter_id = id(parameter)
-            if parameter_id in seen_parameter_ids:
-                continue
-            seen_parameter_ids.add(parameter_id)
-            unique_parameters.append(parameter)
-
-    return torch.nn.utils.clip_grad_norm_(unique_parameters, max_norm=max_grad_norm)
-
-
-def did_gradient_clip(total_grad_norm: Tensor | None, max_grad_norm: float | None) -> bool:
-    if total_grad_norm is None or max_grad_norm is None:
-        return False
-    return bool(total_grad_norm.item() > max_grad_norm)
-
-
-def compute_and_reset_mean_percentage(metric: tm.MeanMetric) -> float:
-    percentage = metric.compute().item() * PERCENT_SCALE
-    metric.reset()
-    return percentage
+        return {"cls": forward_classifier(self.student, features)}
 
 
 def compute_and_reset_cpa_metrics(metric: CLSPatchAlignmentMetric, prefix: str) -> dict[str, float]:

@@ -1,4 +1,4 @@
-.PHONY: clean clean-env check quality style tag-version test env upload upload-test train train-single
+.PHONY: clean clean-env check quality style tag-version test env upload upload-test train train-single finetune finetune-single
 
 PROJECT=mjepa_cifar10 scripts
 QUALITY_DIRS=$(PROJECT)
@@ -71,6 +71,31 @@ train-single: Makefile.config ## run single GPU training (requires Makefile.conf
 	$(PYTHON) scripts/pretrain.py \
 		$(CONFIG) \
 		$(DATA) \
+		--log-dir $(LOG_DIR) \
+		--local-rank $(DEVICE) \
+		-n $(NAME)
+
+finetune: Makefile.config ## run distributed finetuning (requires Makefile.config)
+	@if [ "$(NUM_TRAINERS)" = "1" ]; then \
+		$(MAKE) finetune-single DEVICE=$(DEVICE); \
+	else \
+		uv run torchrun \
+			--standalone \
+			--nnodes=1 \
+			--nproc_per_node=$(NUM_TRAINERS) \
+			scripts/finetune.py \
+			$(CONFIG) \
+			$(DATA) \
+			--checkpoint $(CHECKPOINT) \
+			--log-dir $(LOG_DIR) \
+			-n $(NAME); \
+	fi
+
+finetune-single: Makefile.config ## run single GPU finetuning (requires Makefile.config)
+	$(PYTHON) scripts/finetune.py \
+		$(CONFIG) \
+		$(DATA) \
+		--checkpoint $(CHECKPOINT) \
 		--log-dir $(LOG_DIR) \
 		--local-rank $(DEVICE) \
 		-n $(NAME)
