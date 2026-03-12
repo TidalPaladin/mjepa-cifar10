@@ -147,6 +147,7 @@ def main(args: Namespace) -> None:
             optimizer,
             scheduler,
             trainer_config,
+            max_grad_norm=optimizer_config.max_grad_norm,
         )
     except Exception as e:
         logging.error(f"Error in training: {e}")
