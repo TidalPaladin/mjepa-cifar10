@@ -6,6 +6,7 @@ import torch
 import torch.nn.functional as F
 import torchmetrics as tm
 import wandb
+from mjepa.metrics import CLSPatchAlignmentMetric
 from mjepa.model import MJEPA, MJEPAPredictions
 from mjepa.optimizer import OptimizerLike, SchedulerLike
 from mjepa.trainer import (
@@ -31,6 +32,7 @@ from vit import ViTFeatures
 NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
+CPA_RESULT_KEYS: Final[tuple[str, ...]] = ("cpa_mean", "cpa_std", "cpa_p90", "cpa_p99")
 
 
 class CIFAR10MJEPA(MJEPA):
@@ -58,6 +60,19 @@ def get_scheduler_last_lr(scheduler: SchedulerLike) -> float:
     if not last_lr:
         raise ValueError("scheduler.get_last_lr() returned no learning rates")
     return float(last_lr[0])
+
+
+def compute_and_reset_cpa_metrics(metric: CLSPatchAlignmentMetric, prefix: str) -> dict[str, float]:
+    cpa_metrics = metric.compute()
+    metric.reset()
+    return {f"{prefix}/{key}": cpa_metrics[key].item() for key in CPA_RESULT_KEYS}
+
+
+def update_cls_patch_alignment_metric(metric: CLSPatchAlignmentMetric | None, features: ViTFeatures) -> bool:
+    if metric is None or not MJEPA._has_cls_tokens(features):
+        return False
+    metric.update(features.cls_tokens, features.visual_tokens)
+    return True
 
 
 def train(
@@ -100,6 +115,8 @@ def train(
     has_gram_loss = False
     train_acc = Running(tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES), window=WINDOW).cuda()
     val_acc = tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES).cuda()
+    train_cpa = CLSPatchAlignmentMetric().cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
+    val_cpa = CLSPatchAlignmentMetric().cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
 
     img: Tensor
     label: Tensor
@@ -165,6 +182,7 @@ def train(
 
             with torch.no_grad():
                 train_acc.update(probe_pred, label)
+                update_cls_patch_alignment_metric(train_cpa, output.teacher_output)
 
             # Backward
             assert not loss.isnan()
@@ -199,6 +217,8 @@ def train(
                     log_dict["train/loss_jepa_cls"] = train_loss_jepa_cls.compute().item()
                 if has_sigreg_loss:
                     log_dict["train/loss_sigreg"] = train_loss_sigreg.compute().item()
+                if train_cpa is not None:
+                    log_dict.update(compute_and_reset_cpa_metrics(train_cpa, prefix="train"))
                 if has_gram_loss:
                     log_dict["train/loss_gram"] = train_loss_gram.compute().item()
                 if is_rank_zero():
@@ -212,6 +232,8 @@ def train(
         if val_dataloader is not None and (epoch + 1) % trainer_config.check_val_every_n_epoch == 0:
             jepa.eval()
             val_acc.reset()
+            if val_cpa is not None:
+                val_cpa.reset()
 
             for img, label in tqdm(val_dataloader, desc="Validating: ", disable=not is_rank_zero(), leave=False):
                 B = img.shape[0]
@@ -220,6 +242,7 @@ def train(
                 with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     output = unwrapped_jepa.forward_teacher(img)
                     probe_pred = unwrapped_jepa.forward_probe(output)["cls"].view(B, -1)
+                    update_cls_patch_alignment_metric(val_cpa, output)
                     val_acc.update(probe_pred, label)
 
             # Validation epoch end
@@ -231,6 +254,8 @@ def train(
                 "val/acc": val_acc_value.item(),
                 "val/epoch": epoch,
             }
+            if val_cpa is not None:
+                log_dict.update(compute_and_reset_cpa_metrics(val_cpa, prefix="val"))
 
             # Add histogram logging
             if is_rank_zero():

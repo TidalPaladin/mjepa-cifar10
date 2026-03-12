@@ -4,14 +4,18 @@ import pytest
 import torch
 from mjepa import JEPAConfig
 from mjepa.jepa import CrossAttentionPredictor
+from mjepa.metrics import CLSPatchAlignmentMetric
 from torch import Tensor
 from torch import nn
 from vit import AttentivePoolHeadConfig
 from vit import ViTConfig
 from vit import ViTFeatures
 
+from mjepa_cifar10.pretrain import CPA_RESULT_KEYS
 from mjepa_cifar10.pretrain import CIFAR10MJEPA
+from mjepa_cifar10.pretrain import compute_and_reset_cpa_metrics
 from mjepa_cifar10.pretrain import get_scheduler_last_lr
+from mjepa_cifar10.pretrain import update_cls_patch_alignment_metric
 
 
 def test_get_scheduler_last_lr_returns_first_learning_rate() -> None:
@@ -109,3 +113,37 @@ def test_forward_probe_requires_single_embedding_when_cls_tokens_are_disabled(mo
 
     with pytest.raises(ValueError, match="single embedding per sample"):
         model.forward_probe(features)
+
+
+def test_update_cls_patch_alignment_metric_updates_metric_from_features() -> None:
+    metric = CLSPatchAlignmentMetric(num_bins=4096)
+    features = make_features(num_cls_tokens=NUM_CLS_TOKENS)
+
+    assert update_cls_patch_alignment_metric(metric, features) is True
+
+    out = metric.compute()
+    cls_norm = torch.nn.functional.normalize(features.cls_tokens, dim=-1)
+    patch_norm = torch.nn.functional.normalize(features.visual_tokens, dim=-1)
+    expected = torch.einsum("bcd,bnd->bcn", cls_norm, patch_norm).reshape(-1)
+    assert torch.allclose(out["cpa_mean"], expected.mean().to(out["cpa_mean"].dtype), atol=1e-7)
+    assert torch.allclose(out["cpa_std"], expected.std(unbiased=False).to(out["cpa_std"].dtype), atol=1e-7)
+
+
+def test_update_cls_patch_alignment_metric_skips_features_without_cls_tokens() -> None:
+    metric = CLSPatchAlignmentMetric()
+    features = make_features(num_cls_tokens=0)
+
+    assert update_cls_patch_alignment_metric(metric, features) is False
+    assert metric.count.item() == 0
+    assert metric.hist.sum().item() == 0.0
+
+
+def test_compute_and_reset_cpa_metrics_prefixes_keys_and_resets_state() -> None:
+    metric = CLSPatchAlignmentMetric(num_bins=4096)
+    metric.update(torch.tensor([[1.0, 0.0]]), torch.tensor([[[1.0, 0.0], [0.0, 1.0], [-1.0, 0.0]]]))
+    expected_metrics = {key: value.item() for key, value in metric.compute().items()}
+
+    logged_metrics = compute_and_reset_cpa_metrics(metric, prefix="train")
+
+    assert logged_metrics == {f"train/{key}": pytest.approx(value) for key, value in expected_metrics.items()}
+    assert tuple(key.removeprefix("train/") for key in logged_metrics) == CPA_RESULT_KEYS
