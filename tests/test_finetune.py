@@ -1,3 +1,5 @@
+import importlib.util
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 
@@ -27,6 +29,7 @@ NUM_CLS_TOKENS = 2
 NUM_VISUAL_TOKENS = 4
 BATCH_SIZE = 2
 NUM_CLASSES = 10
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class RecordingHead(torch.nn.Module):
@@ -117,6 +120,17 @@ def make_dataloader(size: list[int], batch_size: int) -> DataLoader:
     return DataLoader(dataset, batch_size=batch_size, shuffle=False)
 
 
+def load_finetune_script_module():
+    module_path = REPO_ROOT / "scripts" / "finetune.py"
+    spec = importlib.util.spec_from_file_location("finetune_script_module", module_path)
+    assert spec is not None
+    assert spec.loader is not None
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_validate_finetune_config_rejects_jepa_section() -> None:
     config = {
         "backbone": make_backbone_config(
@@ -129,6 +143,25 @@ def test_validate_finetune_config_rejects_jepa_section() -> None:
 
     with pytest.raises(ValueError, match="must not include"):
         validate_finetune_config(config)
+
+
+def test_finetune_script_defaults_local_rank_to_zero(mocker) -> None:
+    finetune_script = load_finetune_script_module()
+    mocker.patch.object(
+        sys,
+        "argv",
+        [
+            "finetune.py",
+            "config/finetune/vit-small.yaml",
+            "/tmp/cifar10",
+            "--checkpoint",
+            "/tmp/backbone.safetensors",
+        ],
+    )
+
+    args = finetune_script.parse_args()
+
+    assert args.local_rank == 0
 
 
 def test_load_backbone_checkpoint_requires_safetensors_suffix(tmp_path: Path) -> None:

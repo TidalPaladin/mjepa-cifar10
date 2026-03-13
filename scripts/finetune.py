@@ -43,7 +43,7 @@ def parse_args() -> Namespace:
         "-n", "--name", type=str, default=None, help="Name of the run. Will be appended to the log subdirectory."
     )
     parser.add_argument("-l", "--log-dir", type=Path, default=None, help="Directory to save logs")
-    parser.add_argument("--local-rank", type=int, default=1, help="Local rank / device")
+    parser.add_argument("--local-rank", type=int, default=0, help="Local rank / device")
     parser.add_argument("--checkpoint", type=Path, required=True, help="Path to backbone safetensors checkpoint")
     return parser.parse_args()
 
