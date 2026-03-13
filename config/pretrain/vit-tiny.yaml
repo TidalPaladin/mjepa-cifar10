@@ -9,12 +9,12 @@ trainer: !!python/object:mjepa.TrainerConfig
 
 backbone: !!python/object:vit.ViTConfig
   in_channels: 3
-  hidden_size: 384
-  ffn_hidden_size: 1536
+  hidden_size: 192
+  ffn_hidden_size: 768
   patch_size: [4, 4]
   img_size: [32, 32]
   depth: 12
-  num_attention_heads: 12
+  num_attention_heads: 3
   activation: "swiglu"
   mlp_bias: true
   attention_bias: false
@@ -55,12 +55,14 @@ jepa: !!python/object:mjepa.JEPAConfig
 
 optimizer: !!python/object:mjepa.OptimizerConfig
   lr: 0.002
-  weight_decay: 0.2
+  weight_decay: 0.15
   betas: [0.85, 0.95]
   fused: true
   scheduled: false
   div_factor: 10
+  final_div_factor: 100
   skip_weight_decay_on_1d: true
   parameter_groups:
     - params: ["cls_tokens", "register_tokens", "pos_enc_target", "positions"]
       weight_decay: 0.0
+

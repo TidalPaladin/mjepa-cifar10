@@ -19,8 +19,8 @@ dependencies = [
     "torchmetrics",
     "safetensors",
     "tqdm",
-    "vit @ git+https://github.com/TidalPaladin/vit.git",
-    "mjepa @ git+https://github.com/TidalPaladin/mjepa.git",
+    "vit",
+    "mjepa",
     "wandb>=0.23.0",
 ]
 
@@ -29,8 +29,13 @@ dynamic = [
     "version",
 ]
 
-#[tool.uv]
-#override-dependencies = ["vit @ git+https://github.com/TidalPaladin/vit.git"]
+[tool.uv.sources]
+vit = { git = "https://github.com/TidalPaladin/vit.git" }
+mjepa = { git = "https://github.com/TidalPaladin/mjepa.git" }
+
+# For local sibling-repo testing, comment the git sources above and uncomment these:
+# vit = { path = "../vit", editable = true }
+# mjepa = { path = "../mjepa", editable = true }
 
 [dependency-groups]
 dev = [

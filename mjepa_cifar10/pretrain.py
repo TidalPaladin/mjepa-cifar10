@@ -1,4 +1,5 @@
-import gc
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 from typing import Final
 
@@ -7,7 +8,9 @@ import torch
 import torch.nn.functional as F
 import torchmetrics as tm
 import wandb
+from mjepa.metrics import CLSPatchAlignmentMetric
 from mjepa.model import MJEPA, MJEPAPredictions
+from mjepa.optimizer import OptimizerLike, SchedulerLike
 from mjepa.trainer import (
     DataLoaderFn,
     TrainerConfig,
@@ -22,34 +25,96 @@ from mjepa.trainer import (
 )
 from torch import Tensor
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.optim import Optimizer
-from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DistributedSampler
 from torchmetrics.wrappers import Running
 from tqdm import tqdm
 from vit import ViTFeatures
 
+from .classification import forward_classifier
+from .train_utils import (
+    OptimizerStepResult,
+    clip_optimizer_grad_norm_,
+    compute_and_reset_mean_percentage,
+    did_gradient_clip,
+    get_gradient_norm_stats,
+    get_gradient_sync_context,
+    get_scheduler_last_lr,
+)
+
 
 NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
+GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "train/grad_clip_trigger_pct"
+CPA_RESULT_KEYS: Final[tuple[str, ...]] = ("cpa_mean", "cpa_std", "cpa_p90", "cpa_p99")
+__all__ = [
+    "CPA_RESULT_KEYS",
+    "CIFAR10MJEPA",
+    "GRAD_CLIP_TRIGGER_PCT_KEY",
+    "NUM_CLASSES",
+    "OptimizerStepResult",
+    "clip_optimizer_grad_norm_",
+    "compute_and_reset_cpa_metrics",
+    "compute_and_reset_mean_percentage",
+    "did_gradient_clip",
+    "get_gradient_norm_stats",
+    "get_gradient_sync_context",
+    "get_scheduler_last_lr",
+    "run_optimizer_step",
+    "train",
+    "update_cls_patch_alignment_metric",
+]
 
 
 class CIFAR10MJEPA(MJEPA):
     def forward_probe(self, features: ViTFeatures) -> dict[str, Tensor]:
-        return {
-            "cls": self.student.get_head("cls")(features.cls_tokens.mean(1)).view(features.cls_tokens.shape[0], -1),
-        }
+        return {"cls": forward_classifier(self.student, features)}
+
+
+def compute_and_reset_cpa_metrics(metric: CLSPatchAlignmentMetric, prefix: str) -> dict[str, float]:
+    cpa_metrics = metric.compute()
+    metric.reset()
+    return {f"{prefix}/{key}": cpa_metrics[key].item() for key in CPA_RESULT_KEYS}
+
+
+def update_cls_patch_alignment_metric(metric: CLSPatchAlignmentMetric | None, features: ViTFeatures) -> bool:
+    if metric is None or not MJEPA._has_cls_tokens(features):
+        return False
+
+    metric.update(features.cls_tokens, features.visual_tokens)
+    return True
+
+
+def run_optimizer_step(
+    optimizer: OptimizerLike,
+    scheduler: SchedulerLike,
+    step: int,
+    total_steps: int,
+    max_grad_norm: float | None = None,
+    update_teacher: Callable[[], None] | None = None,
+) -> OptimizerStepResult:
+    total_grad_norm = clip_optimizer_grad_norm_(optimizer, max_grad_norm)
+    if step < total_steps:
+        scheduler.step()
+    optimizer.step()
+    optimizer.zero_grad()
+    if update_teacher is not None:
+        update_teacher()
+    return OptimizerStepResult(
+        next_step=step + 1,
+        grad_clip_triggered=did_gradient_clip(total_grad_norm, max_grad_norm),
+    )
 
 
 def train(
     jepa: MJEPA | DDP,
     train_dataloader_fn: DataLoaderFn,
     val_dataloader_fn: DataLoaderFn,
-    optimizer: Optimizer,
-    scheduler: LRScheduler,
+    optimizer: OptimizerLike,
+    scheduler: SchedulerLike,
     trainer_config: TrainerConfig,
     last_epoch: int = -1,
+    max_grad_norm: float | None = None,
 ) -> None:
     # Module setup
     log_dir = Path(wandb.run.dir) if wandb.run is not None else None
@@ -77,8 +142,14 @@ def train(
     train_loss_jepa_cls = tm.RunningMean(window=WINDOW).cuda()
     train_loss_sigreg = tm.RunningMean(window=WINDOW).cuda()
     train_loss_gram = tm.RunningMean(window=WINDOW).cuda()
+    has_jepa_loss_cls = False
+    has_sigreg_loss = False
+    has_gram_loss = False
     train_acc = Running(tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES), window=WINDOW).cuda()
+    train_grad_clip_trigger_pct = tm.MeanMetric().cuda() if max_grad_norm is not None else None
     val_acc = tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES).cuda()
+    train_cpa = CLSPatchAlignmentMetric().cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
+    val_cpa = CLSPatchAlignmentMetric().cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
 
     img: Tensor
     label: Tensor
@@ -110,45 +181,71 @@ def train(
             B = img.shape[0]
             img = img.cuda()
             label = label.cuda()
+            should_step = should_step_optimizer(microbatch + 1, accumulate_grad_batches)
+            with get_gradient_sync_context(jepa.no_sync if isinstance(jepa, DDP) else None, should_step):
+                output = jepa(img, jepa_scale, epoch)
+                assert isinstance(output, MJEPAPredictions)
+                assert isinstance(unwrapped_jepa, MJEPA)
+                ssl_losses = unwrapped_jepa.compute_losses(output, step, epoch)
+                train_loss_jepa.update(ssl_losses.jepa_loss)
 
-            output = jepa(img, jepa_scale, epoch)
-            assert isinstance(output, MJEPAPredictions)
-            assert isinstance(unwrapped_jepa, MJEPA)
-            ssl_losses = unwrapped_jepa.compute_losses(output, step, epoch)
-            train_loss_jepa.update(ssl_losses.jepa_loss)
-            train_loss_jepa_cls.update(ssl_losses.jepa_loss_cls)
-            train_loss_sigreg.update(ssl_losses.sigreg_loss)
-            train_loss_gram.update(ssl_losses.gram_loss)
-            ssl_loss = ssl_losses.reduce()
+                jepa_loss_cls = getattr(ssl_losses, "jepa_loss_cls", None)
+                if jepa_loss_cls is not None:
+                    train_loss_jepa_cls.update(jepa_loss_cls)
+                    has_jepa_loss_cls = True
 
-            # Compute linear probe loss
-            probe_pred = output.probes["cls"]
-            probe_loss = F.cross_entropy(probe_pred, label)
+                sigreg_loss = getattr(ssl_losses, "sigreg_loss", None)
+                if sigreg_loss is not None:
+                    train_loss_sigreg.update(sigreg_loss)
+                    has_sigreg_loss = True
 
-            # Combine losses
-            loss = ssl_loss + probe_loss
-            train_loss.update(loss)
+                gram_loss = getattr(ssl_losses, "gram_loss", None)
+                if gram_loss is not None:
+                    train_loss_gram.update(gram_loss)
+                    has_gram_loss = True
 
-            with torch.no_grad():
-                train_acc.update(probe_pred, label)
+                ssl_loss = ssl_losses.reduce()
 
-            # Backward
-            assert not loss.isnan()
-            loss.backward()
+                # Compute linear probe loss
+                probe_pred = output.probes["cls"]
+                probe_loss = F.cross_entropy(probe_pred, label)
+
+                # Combine losses
+                loss = ssl_loss + probe_loss
+                train_loss.update(loss)
+
+                with torch.no_grad():
+                    train_acc.update(probe_pred, label)
+                    update_cls_patch_alignment_metric(train_cpa, output.teacher_output)
+
+                # Backward
+                assert not loss.isnan()
+                loss.backward()
             unwrapped_jepa.assert_student_params_have_grad(microbatch)
             if isinstance(unwrapped_jepa, MJEPA):
                 unwrapped_jepa.assert_predictor_params_have_grad(microbatch)
             microbatch += 1
+            should_log_train_metrics = should_step and (step + 1) % LOG_INTERVAL == 0
+            grad_norm_stats = None
+            if should_log_train_metrics and is_rank_zero():
+                grad_norm_stats = get_gradient_norm_stats(unwrapped_jepa.parameters())
 
             # Optimizer update and teacher update
-            if should_step_optimizer(microbatch, accumulate_grad_batches):
-                if step < total_steps:
-                    scheduler.step()
-                optimizer.step()
-                optimizer.zero_grad()
+            if should_step:
+                update_teacher = None
                 if isinstance(unwrapped_jepa, MJEPA):
-                    unwrapped_jepa.update_teacher(step, total_steps)
-                step += 1
+                    update_teacher = partial(unwrapped_jepa.update_teacher, step, total_steps)
+                optimizer_step_result = run_optimizer_step(
+                    optimizer,
+                    scheduler,
+                    step,
+                    total_steps,
+                    max_grad_norm=max_grad_norm,
+                    update_teacher=update_teacher,
+                )
+                step = optimizer_step_result.next_step
+                if train_grad_clip_trigger_pct is not None:
+                    train_grad_clip_trigger_pct.update(float(optimizer_step_result.grad_clip_triggered))
 
             desc = format_pbar_description(step, microbatch, epoch, loss=train_loss, acc=train_acc)
             pbar.set_description(desc)
@@ -158,12 +255,23 @@ def train(
                 log_dict = {
                     "train/loss": train_loss.compute().item(),
                     "train/loss_jepa": train_loss_jepa.compute().item(),
-                    "train/loss_jepa_cls": train_loss_jepa_cls.compute().item(),
-                    "train/loss_sigreg": train_loss_sigreg.compute().item(),
-                    "train/loss_gram": train_loss_gram.compute().item(),
                     "train/acc": train_acc.compute().item(),
-                    "train/lr": scheduler.get_last_lr()[0],
+                    "train/lr": get_scheduler_last_lr(scheduler),
                 }
+                if grad_norm_stats is not None:
+                    grad_norm_mean, grad_norm_max = grad_norm_stats
+                    log_dict["train/grad_norm_mean"] = grad_norm_mean
+                    log_dict["train/grad_norm_max"] = grad_norm_max
+                if train_grad_clip_trigger_pct is not None:
+                    log_dict[GRAD_CLIP_TRIGGER_PCT_KEY] = compute_and_reset_mean_percentage(train_grad_clip_trigger_pct)
+                if has_jepa_loss_cls:
+                    log_dict["train/loss_jepa_cls"] = train_loss_jepa_cls.compute().item()
+                if has_sigreg_loss:
+                    log_dict["train/loss_sigreg"] = train_loss_sigreg.compute().item()
+                if has_gram_loss:
+                    log_dict["train/loss_gram"] = train_loss_gram.compute().item()
+                if train_cpa is not None:
+                    log_dict.update(compute_and_reset_cpa_metrics(train_cpa, prefix="train"))
                 if is_rank_zero():
                     wandb.log(log_dict, step=step)
 
@@ -175,6 +283,8 @@ def train(
         if val_dataloader is not None and (epoch + 1) % trainer_config.check_val_every_n_epoch == 0:
             jepa.eval()
             val_acc.reset()
+            if val_cpa is not None:
+                val_cpa.reset()
 
             for img, label in tqdm(val_dataloader, desc="Validating: ", disable=not is_rank_zero(), leave=False):
                 B = img.shape[0]
@@ -184,6 +294,7 @@ def train(
                     output = unwrapped_jepa.forward_teacher(img)
                     probe_pred = unwrapped_jepa.forward_probe(output)["cls"].view(B, -1)
                     val_acc.update(probe_pred, label)
+                    update_cls_patch_alignment_metric(val_cpa, output)
 
             # Validation epoch end
             val_acc_value = val_acc.compute()
@@ -194,14 +305,12 @@ def train(
                 "val/acc": val_acc_value.item(),
                 "val/epoch": epoch,
             }
+            if val_cpa is not None:
+                log_dict.update(compute_and_reset_cpa_metrics(val_cpa, prefix="val"))
 
             # Add histogram logging
             if is_rank_zero():
                 wandb.log(log_dict, step=step)
-
-        gc.collect()
-        torch.cuda.synchronize()
-        torch.cuda.empty_cache()
 
         # Save checkpoint
         if is_rank_zero() and log_dir:
