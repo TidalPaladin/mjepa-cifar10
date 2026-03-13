@@ -30,11 +30,12 @@ dynamic = [
 ]
 
 [tool.uv.sources]
-vit = { path = "../vit", editable = true }
-mjepa = { path = "../mjepa", editable = true }
+vit = { git = "https://github.com/TidalPaladin/vit.git" }
+mjepa = { git = "https://github.com/TidalPaladin/mjepa.git" }
 
-[tool.uv]
-override-dependencies = ["vit"]
+# For local sibling-repo testing, comment the git sources above and uncomment these:
+# vit = { path = "../vit", editable = true }
+# mjepa = { path = "../mjepa", editable = true }
 
 [dependency-groups]
 dev = [
