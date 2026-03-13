@@ -4,6 +4,7 @@ PROJECT=mjepa_cifar10 scripts
 QUALITY_DIRS=$(PROJECT)
 CLEAN_DIRS=$(PROJECT)
 PYTHON=uv run python
+DEVICE ?= 0
 
 # Include training configuration if it exists
 -include Makefile.config
@@ -54,7 +55,7 @@ update:
 
 train: Makefile.config ## run distributed training (requires Makefile.config)
 	@if [ "$(NUM_TRAINERS)" = "1" ]; then \
-		$(MAKE) train-single; \
+		$(MAKE) train-single DEVICE=$(DEVICE); \
 	else \
 		uv run torchrun \
 			--standalone \
