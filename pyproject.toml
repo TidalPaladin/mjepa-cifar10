@@ -1,27 +1,27 @@
 [build-system]
 requires = [
-    "hatchling",
-    "hatch-vcs",
+    "hatchling==1.31.0",
+    "hatch-vcs==0.5.0",
 ]
 build-backend = "hatchling.build"
 
 [project]
 name = "mjepa-cifar10"
 description = ""
-requires-python = ">=3.11,<3.14"
+requires-python = ">=3.11,<3.15"
 authors = [
     { name = "Scott Chase Waggener", email = "chase.waggener@icloud.com" },
 ]
 dependencies = [
-    "torch",
-    "torchvision",
-    "pyyaml",
-    "torchmetrics",
-    "safetensors",
-    "tqdm",
+    "torch==2.13.0",
+    "torchvision==0.28.0",
+    "pyyaml==6.0.3",
+    "torchmetrics==1.9.0",
+    "safetensors==0.8.0",
+    "tqdm==4.68.4",
     "vit",
     "mjepa",
-    "wandb>=0.23.0",
+    "wandb==0.28.1",
 ]
 
 readme = "README.md"
@@ -30,8 +30,8 @@ dynamic = [
 ]
 
 [tool.uv.sources]
-vit = { git = "https://github.com/TidalPaladin/vit.git" }
-mjepa = { git = "https://github.com/TidalPaladin/mjepa.git" }
+vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "f8b40c753d7bea5b9d788b379bda1445af0748aa" }
+mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "0e4414107381927a73419e4b366325b986d8f70d" }
 
 # For local sibling-repo testing, comment the git sources above and uncomment these:
 # vit = { path = "../vit", editable = true }
@@ -39,14 +39,14 @@ mjepa = { git = "https://github.com/TidalPaladin/mjepa.git" }
 
 [dependency-groups]
 dev = [
-    "ruff",
-    "basedpyright",
-    "pytest",
-    "pytest-mock",
-    "pytest-cov",
-    "pytest-env",
-    "coverage",
-    "pdbpp",
+    "ruff==0.15.22",
+    "basedpyright==1.39.9",
+    "pytest==9.1.1",
+    "pytest-mock==3.15.1",
+    "pytest-cov==7.1.0",
+    "pytest-env==1.6.0",
+    "coverage==7.15.2",
+    "pdbpp==0.12.1",
 ]
 
 [project.license]
@@ -71,11 +71,14 @@ lines-after-imports = 2
 force-single-line = false
 
 [tool.basedpyright]
-include = ["mjepa_cifar10"]
+include = ["mjepa_cifar10", "scripts", "tests"]
 exclude = ["**/node_modules", "**/__pycache__", "**/.pytest_cache", "**/_version.py"]
-pythonVersion = "3.13"
+pythonVersion = "3.14"
 pythonPlatform = "Linux"
 typeCheckingMode = "standard"
+
+[tool.uv]
+required-version = "==0.11.28"
 
 [tool.pytest.ini_options]
 markers = [
