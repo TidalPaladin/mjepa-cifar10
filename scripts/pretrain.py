@@ -52,6 +52,18 @@ def parse_args() -> Namespace:
     return parser.parse_args()
 
 
+def instantiate_jepa(backbone_config: ViTConfig, jepa_config: JEPAConfig, device: torch.device) -> CIFAR10MJEPA:
+    backbone = backbone_config.instantiate(device=device)
+    predictor = CrossAttentionPredictor(
+        backbone,
+        jepa_config.predictor_depth,
+        device=device,
+        attention_mode=jepa_config.predictor_attention_mode,
+        disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
+    )
+    return CIFAR10MJEPA(jepa_config, backbone, predictor)
+
+
 def main(args: Namespace) -> None:
     torch.random.manual_seed(SEED)
     if not (config_path := Path(args.config)).is_file():
@@ -86,9 +98,7 @@ def main(args: Namespace) -> None:
 
     # Instantiate other model elements and move to device
     device = torch.device("cuda", local_rank)
-    backbone = backbone_config.instantiate(device=device)
-    predictor = CrossAttentionPredictor(backbone, jepa_config.predictor_depth, device=device)
-    jepa = CIFAR10MJEPA(jepa_config, backbone, predictor)
+    jepa = instantiate_jepa(backbone_config, jepa_config, device)
 
     # Wrap in DDP for distributed training
     if world_size > 1:

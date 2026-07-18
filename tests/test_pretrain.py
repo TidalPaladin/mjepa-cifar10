@@ -1,7 +1,8 @@
 import os
 import socket
+from collections.abc import Callable
 from contextlib import closing
-from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import torch
@@ -34,7 +35,7 @@ from mjepa_cifar10.pretrain import (
 
 
 def test_get_scheduler_last_lr_returns_first_learning_rate() -> None:
-    scheduler = SimpleNamespace(get_last_lr=lambda: [0.2, 0.1])
+    scheduler = RecordingScheduler([], learning_rates=[0.2, 0.1])
 
     assert get_scheduler_last_lr(scheduler) == 0.2
 
@@ -208,7 +209,7 @@ def test_ddp_hybrid_muon_gradient_clipping_keeps_parameters_synced() -> None:
     world_size = 2
     port = _find_free_port()
 
-    mp.spawn(
+    mp.spawn(  # pyright: ignore[reportPrivateImportUsage]
         _ddp_hybrid_muon_clip_sync_worker,
         args=(world_size, port),
         nprocs=world_size,
@@ -333,7 +334,7 @@ def test_ddp_cifar10_mjepa_gradient_clipping_does_not_accumulate_rank_drift() ->
     world_size = 2
     port = _find_free_port()
 
-    mp.spawn(
+    mp.spawn(  # pyright: ignore[reportPrivateImportUsage]
         _ddp_cifar10_mjepa_clip_sync_worker,
         args=(world_size, port),
         nprocs=world_size,
@@ -412,8 +413,10 @@ def test_update_cls_patch_alignment_metric_skips_features_without_cls_tokens() -
     features = make_features(num_cls_tokens=0)
 
     assert update_cls_patch_alignment_metric(metric, features) is False
-    assert metric.count.item() == 0
-    assert metric.hist.sum().item() == 0.0
+    count_state = cast(Tensor, metric.count)
+    hist_state = cast(Tensor, metric.hist)
+    torch.testing.assert_close(count_state, torch.zeros_like(count_state))
+    torch.testing.assert_close(hist_state.sum(), torch.zeros_like(hist_state.sum()))
 
 
 def test_compute_and_reset_cpa_metrics_prefixes_keys_and_resets_state() -> None:
@@ -427,27 +430,49 @@ def test_compute_and_reset_cpa_metrics_prefixes_keys_and_resets_state() -> None:
 
     assert logged_metrics == {f"train/{key}": pytest.approx(value) for key, value in expected_metrics.items()}
     assert tuple(key.removeprefix("train/") for key in logged_metrics) == CPA_RESULT_KEYS
-    assert metric.count.item() == 0
-    assert metric.hist.sum().item() == 0.0
+    count_state = cast(Tensor, metric.count)
+    hist_state = cast(Tensor, metric.hist)
+    torch.testing.assert_close(count_state, torch.zeros_like(count_state))
+    torch.testing.assert_close(hist_state.sum(), torch.zeros_like(hist_state.sum()))
 
 
 class RecordingScheduler:
-    def __init__(self, events: list[str]):
+    def __init__(self, events: list[str], learning_rates: list[float] | None = None):
         self.events = events
+        self.learning_rates = learning_rates or []
 
-    def step(self) -> None:
+    def step(self, epoch: int | None = None) -> None:
+        del epoch
         self.events.append("scheduler.step")
+
+    def state_dict(self) -> dict[str, Any]:
+        return {}
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        del state_dict
+
+    def get_last_lr(self) -> list[float]:
+        return self.learning_rates
 
 
 class RecordingOptimizer:
     def __init__(self, events: list[str]):
         self.events = events
+        self.param_groups: list[dict[str, Any]] = []
 
-    def step(self) -> None:
+    def step(self, closure: Callable[[], float] | None = None) -> None:
+        del closure
         self.events.append("optimizer.step")
 
-    def zero_grad(self) -> None:
+    def zero_grad(self, set_to_none: bool = True) -> None:
+        del set_to_none
         self.events.append("optimizer.zero_grad")
+
+    def state_dict(self) -> dict[str, Any]:
+        return {}
+
+    def load_state_dict(self, state_dict: dict[str, Any]) -> None:
+        del state_dict
 
 
 def test_run_optimizer_step_calls_clip_hook_before_optimizer_step(mocker) -> None:

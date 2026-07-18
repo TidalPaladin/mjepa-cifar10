@@ -1,18 +1,16 @@
-.PHONY: clean clean-env check quality style tag-version test env upload upload-test train train-single finetune finetune-single
+.PHONY: clean clean-env check deploy init quality style test test-ci types update train train-single finetune finetune-single
 
-PROJECT=mjepa_cifar10 scripts
+PROJECT=mjepa_cifar10 scripts tests
 QUALITY_DIRS=$(PROJECT)
 CLEAN_DIRS=$(PROJECT)
 PYTHON=uv run python
+UV_VERSION=0.11.28
 DEVICE ?= 0
 
 # Include training configuration if it exists
 -include Makefile.config
 
-check: ## run quality checks and unit tests
-	$(MAKE) style
-	$(MAKE) quality
-	$(MAKE) types
+check: quality types test ## run non-mutating quality checks and unit tests
 
 
 clean: ## remove cache files
@@ -29,28 +27,34 @@ clean-env: ## remove the virtual environment directory
 
 deploy: ## installs from lockfile
 	git submodule update --init --recursive
-	which uv || pip install --user uv
+	command -v uv >/dev/null || pip install --user uv==$(UV_VERSION)
 	uv sync --frozen --no-dev
 
 
 init: ## pulls submodules and initializes virtual environment
 	git submodule update --init --recursive
-	which uv || pip install --user uv
-	uv sync --all-groups --all-extras
+	command -v uv >/dev/null || pip install --user uv==$(UV_VERSION)
+	uv sync --frozen --all-groups --all-extras
 
-quality:
-	$(MAKE) clean
+quality: ## run Ruff lint and formatting checks
 	uv run ruff check $(QUALITY_DIRS)
 	uv run ruff format --check $(QUALITY_DIRS)
 
-style:
+style: ## apply Ruff lint and formatting fixes
 	uv run ruff check --fix $(QUALITY_DIRS)
 	uv run ruff format $(QUALITY_DIRS)
 
-types:
+types: ## run basedpyright checks
 	uv run basedpyright $(PROJECT)
 
-update:
+test: ## run unit tests suitable for CI
+	uv run pytest -m "not ci_skip"
+
+test-ci: ## run unit tests and write coverage.xml
+	uv run pytest -m "not ci_skip" --cov=mjepa_cifar10 --cov-report=term-missing --cov-report=xml
+
+update: ## upgrade the lockfile and synchronize all dependency groups
+	uv lock --upgrade
 	uv sync --all-groups --all-extras
 
 train: Makefile.config ## run distributed training (requires Makefile.config)
