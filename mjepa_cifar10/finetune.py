@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from contextlib import AbstractContextManager, nullcontext
 from pathlib import Path
+from time import perf_counter
 from typing import Any, Final, cast
 
 import safetensors.torch as st
@@ -31,6 +32,7 @@ from tqdm import tqdm
 from vit import ViT, ViTConfig, ViTFeatures
 
 from .classification import forward_classifier
+from .experiment import append_metric_record, save_safetensors_atomic
 from .train_utils import (
     compute_and_reset_mean_percentage,
     get_gradient_norm_stats,
@@ -42,7 +44,7 @@ from .train_utils import (
 
 NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
-GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "train/grad_clip_trigger_pct"
+GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "sft/grad_clip_trigger_pct"
 SAFETENSORS_SUFFIX: Final[str] = ".safetensors"
 REQUIRED_CONFIG_KEYS: Final[tuple[str, ...]] = ("backbone", "optimizer", "trainer")
 
@@ -114,14 +116,14 @@ def build_train_log_dict(
     train_grad_clip_trigger_pct: tm.MeanMetric | None = None,
 ) -> dict[str, float]:
     log_dict = {
-        "train/loss": train_loss.compute().item(),
-        "train/acc": train_acc.compute().item(),
-        "train/lr": get_scheduler_last_lr(scheduler),
+        "sft/train_loss": train_loss.compute().item(),
+        "sft/train_accuracy": train_acc.compute().item(),
+        "sft/lr": get_scheduler_last_lr(scheduler),
     }
     if grad_norm_stats is not None:
         grad_norm_mean, grad_norm_max = grad_norm_stats
-        log_dict["train/grad_norm_mean"] = grad_norm_mean
-        log_dict["train/grad_norm_max"] = grad_norm_max
+        log_dict["sft/grad_norm_mean"] = grad_norm_mean
+        log_dict["sft/grad_norm_max"] = grad_norm_max
     if train_grad_clip_trigger_pct is not None:
         log_dict[GRAD_CLIP_TRIGGER_PCT_KEY] = compute_and_reset_mean_percentage(train_grad_clip_trigger_pct)
     return log_dict
@@ -129,8 +131,8 @@ def build_train_log_dict(
 
 def build_val_log_dict(val_acc: tm.Metric, epoch: int) -> dict[str, float | int]:
     return {
-        "val/acc": val_acc.compute().item(),
-        "val/epoch": epoch,
+        "sft/validation_accuracy": val_acc.compute().item(),
+        "sft/validation_epoch": epoch,
     }
 
 
@@ -141,10 +143,15 @@ def train(
     optimizer: OptimizerLike,
     scheduler: SchedulerLike,
     trainer_config: TrainerConfig,
+    test_dataloader_fn: DataLoaderFn | None = None,
     last_epoch: int = -1,
+    elapsed_seconds_offset: float = 0.0,
+    wandb_run_id: str | None = None,
+    output_dir: Path | None = None,
     max_grad_norm: float | None = None,
 ) -> None:
-    log_dir = Path(wandb.run.dir) if wandb.run is not None else None
+    training_started_at = perf_counter()
+    log_dir = output_dir if output_dir is not None else (Path(wandb.run.dir) if wandb.run is not None else None)
     unwrapped_model = model.module if isinstance(model, DDP) else model
     assert isinstance(unwrapped_model, CIFAR10FineTuner)
     device = next(unwrapped_model.parameters()).device
@@ -238,6 +245,7 @@ def train(
                     grad_norm_stats=grad_norm_stats,
                     train_grad_clip_trigger_pct=train_grad_clip_trigger_pct,
                 )
+                log_dict["convergence/active_seconds"] = elapsed_seconds_offset + perf_counter() - training_started_at
                 if is_rank_zero():
                     wandb.log(log_dict, step=step)
 
@@ -258,7 +266,12 @@ def train(
             rank_zero_info(f"Epoch: {epoch}, Val Acc: {val_acc_value:.4f}")
 
             if is_rank_zero():
-                wandb.log(build_val_log_dict(val_acc, epoch), step=step)
+                val_log_dict = build_val_log_dict(val_acc, epoch)
+                val_log_dict["convergence/active_seconds"] = (
+                    elapsed_seconds_offset + perf_counter() - training_started_at
+                )
+                wandb.log(val_log_dict, step=step)
+                append_metric_record(log_dir, step, val_log_dict)
 
         if is_rank_zero() and log_dir:
             save_checkpoint(
@@ -270,14 +283,33 @@ def train(
                 scheduler=scheduler,
                 step=step,
                 epoch=epoch,
+                elapsed_seconds=elapsed_seconds_offset + perf_counter() - training_started_at,
+                wandb_run_id=wandb_run_id,
             )
-            st.save_file(
+            save_safetensors_atomic(
+                log_dir / "backbone.safetensors",
                 {k: v for k, v in unwrapped_model.backbone.state_dict().items() if isinstance(v, Tensor)},
-                str(log_dir / "backbone.safetensors"),
             )
 
     if is_rank_zero() and log_dir:
-        st.save_file(
+        save_safetensors_atomic(
+            log_dir / "backbone.safetensors",
             {k: v for k, v in unwrapped_model.backbone.state_dict().items() if isinstance(v, Tensor)},
-            str(log_dir / "backbone.safetensors"),
         )
+
+    if test_dataloader_fn is not None:
+        test_dataloader = test_dataloader_fn(unwrapped_model.img_size, trainer_config.batch_size)
+        test_acc = tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES).to(device)
+        model.eval()
+        for img, label in tqdm(test_dataloader, desc="Testing: ", disable=not is_rank_zero(), leave=False):
+            img = img.to(device, non_blocking=True)
+            label = label.to(device, non_blocking=True)
+            with torch.inference_mode(), get_autocast_context(img.device):
+                test_acc.update(unwrapped_model(img), label)
+        if is_rank_zero():
+            test_log_dict = {
+                "sft/test_accuracy": test_acc.compute().item(),
+                "convergence/active_seconds": elapsed_seconds_offset + perf_counter() - training_started_at,
+            }
+            wandb.log(test_log_dict, step=step)
+            append_metric_record(log_dir, step, test_log_dict)

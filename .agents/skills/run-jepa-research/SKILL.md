@@ -1,0 +1,47 @@
+---
+name: run-jepa-research
+description: Run bounded, recoverable JEPA ablation studies in this repository. Use when a goal-mode Codex agent must form a hypothesis, modify this repository or the sibling mjepa library, launch GPU training, monitor long runs, compare convergence and downstream performance, record results, and apply checkpoint retention.
+---
+
+# Run JEPA Research
+
+Use `scripts/research.py` as the persistent interface for JEPA studies. W&B stores metrics, configs, and provenance. `logs/research/<study-id>/state.json` lets a later goal turn recover the run without transcript context.
+
+## Preconditions
+
+1. Read [references/protocol.md](references/protocol.md) in full.
+2. Confirm that a persistent goal is active. Use the goal status tool when available. If no goal exists, ask the user to start or authorize one before launching a study.
+3. Recover existing work with `status`, `inventory`, and the study's local state before proposing a new run.
+4. Keep the online probe unchanged unless the hypothesis targets probing. The classifier consumes teacher features produced under `torch.inference_mode()`. Probe loss may update the classifier head, but not the teacher, predictor, or non-head encoder parameters.
+
+## Study workflow
+
+1. State one falsifiable question, one mechanism, and the result that would reject the hypothesis.
+2. Create `research/studies/<study-id>.yaml`. Use baseline seed 0 and no more than three seed-0 candidates in the screening phase.
+3. Put CIFAR-10 adapters and experiment wiring here. Put reusable JEPA primitives in the sibling `../mjepa` repository.
+4. Use matching `codex/research/<study-id>` branches in both repositories when `mjepa` changes.
+5. Add regression tests before the implementation. Preserve the fixed 45,000/5,000 train/validation split and reserve the official test set for the confirmed baseline and winner.
+6. Run `preflight`. Do not launch until both repositories are clean, pushed, tested, pinned, and installed from the recorded commits.
+7. Launch with `scripts/research.py launch`. The harness exposes one physical GPU to each process, uses only GPUs 1 and 2, permits two jobs, and stops each job after 24 hours.
+8. Arrange same-task scheduled follow-ups when the automation tool is available. Check at 10 and 20 minutes to catch startup failures, then every 30 minutes. Keep the host and Codex app running. If scheduled tasks are unavailable, rely on persistent goal polling and `status` recovery.
+9. Use Luna 5.6 at medium reasoning for read-only polling when scheduled follow-ups support a model override. The monitor may run `status` or `monitor --no-launch` and report failures. The primary goal agent retains launches, summaries, promotion decisions, code and Git changes, and checkpoint deletion.
+10. Promote, replicate, fine-tune, and record results only through the thresholds in the study protocol. Do not exceed eight pretraining trials.
+11. Append the result to `research/LOG.md`, commit and push the result, then apply eligible retention. Never delete legacy weights.
+
+## Commands
+
+```bash
+uv run python scripts/research.py preflight research/studies/<study-id>.yaml
+uv run python scripts/research.py launch research/studies/<study-id>.yaml
+uv run python scripts/research.py status research/studies/<study-id>.yaml
+uv run python scripts/research.py monitor research/studies/<study-id>.yaml
+uv run python scripts/research.py summarize research/studies/<study-id>.yaml --record
+uv run python scripts/research.py inventory --wandb-entity <entity>
+uv run python scripts/research.py storage-report research/studies/<study-id>.yaml
+```
+
+Use `launch --dry-run` to validate state creation without starting a process. Use `summarize --apply-retention` only after metrics, provenance, decisions, and the result log are committed and pushed.
+
+## Handoff
+
+Report the study ID, phase, active run IDs, W&B URLs, metric summary, checkpoint disposition, branches and SHAs, and the next scheduled follow-up. State censored convergence targets explicitly. For three-seed results, report mean, standard deviation, and paired differences without a statistical-significance claim.

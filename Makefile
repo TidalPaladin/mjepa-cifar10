@@ -1,4 +1,4 @@
-.PHONY: clean clean-env check deploy init quality style test test-ci types update train train-single finetune finetune-single
+.PHONY: clean clean-env check deploy init quality style test test-ci types update train train-single finetune finetune-single research-preflight research-launch research-status research-monitor research-summarize
 
 PROJECT=mjepa_cifar10 scripts tests
 QUALITY_DIRS=$(PROJECT)
@@ -6,6 +6,7 @@ CLEAN_DIRS=$(PROJECT)
 PYTHON=uv run python
 UV_VERSION=0.11.28
 DEVICE ?= 0
+STUDY ?= research/studies/harness-smoke.yaml
 
 # Include training configuration if it exists
 -include Makefile.config
@@ -52,6 +53,21 @@ test: ## run unit tests suitable for CI
 
 test-ci: ## run unit tests and write coverage.xml
 	uv run pytest -m "not ci_skip" --cov=mjepa_cifar10 --cov-report=term-missing --cov-report=xml
+
+research-preflight: ## validate a managed research study before launch
+	$(PYTHON) scripts/research.py preflight $(STUDY)
+
+research-launch: ## launch pending runs for a managed research study
+	$(PYTHON) scripts/research.py launch $(STUDY)
+
+research-status: ## show persistent managed research state
+	$(PYTHON) scripts/research.py status $(STUDY)
+
+research-monitor: ## recover terminal state and launch eligible managed runs
+	$(PYTHON) scripts/research.py monitor $(STUDY)
+
+research-summarize: ## calculate promotion and convergence results
+	$(PYTHON) scripts/research.py summarize $(STUDY) --record
 
 update: ## upgrade the lockfile and synchronize all dependency groups
 	uv lock --upgrade

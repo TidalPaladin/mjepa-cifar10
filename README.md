@@ -48,3 +48,27 @@ To run model training:
    make finetune        # requires CONFIG to point at config/finetune/* and CHECKPOINT to a backbone.safetensors file
    make finetune-single # forces single GPU finetuning
    ```
+
+## Goal-mode research studies
+
+Invoke `$run-jepa-research` when a Codex goal should own a bounded JEPA ablation from hypothesis through evaluation and retention. The workflow uses W&B for metrics and provenance, and stores recoverable local state under `logs/research/<study-id>`.
+
+Create a committed YAML file under `research/studies/`, then use:
+
+```bash
+uv run python scripts/research.py preflight research/studies/<study-id>.yaml
+uv run python scripts/research.py launch research/studies/<study-id>.yaml
+uv run python scripts/research.py status research/studies/<study-id>.yaml
+uv run python scripts/research.py monitor research/studies/<study-id>.yaml
+uv run python scripts/research.py summarize research/studies/<study-id>.yaml --record
+uv run python scripts/research.py storage-report research/studies/<study-id>.yaml
+uv run python scripts/research.py inventory --wandb-entity <entity>
+```
+
+`launch --dry-run` creates the atomic study state without starting training. A real launch uses physical GPUs 1 and 2, exposes one GPU to each process, runs at most two jobs, and enforces a 24-hour job timeout. Before each launch, the harness checks for at least `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free.
+
+For long runs, check at 10 and 20 minutes to catch startup failures, then every 30 minutes. A Luna 5.6 medium follow-up may perform read-only polling. The primary goal agent keeps responsibility for launches, promotion decisions, code and Git changes, and checkpoint deletion.
+
+The fixed CIFAR-10 evaluation protocol uses 45,000 training examples and a stratified 5,000-example validation set with 500 examples per class. The official test set is reserved for the confirmed baseline and winner. The online probe applies the classifier head to teacher features computed under `torch.inference_mode()`, so isolated probe loss updates only the head.
+
+See [.agents/skills/run-jepa-research/SKILL.md](.agents/skills/run-jepa-research/SKILL.md) for the workflow and [research/LOG.md](research/LOG.md) for the append-only result record. Existing weights under `logs/` are legacy artifacts and are not eligible for automatic retention.
