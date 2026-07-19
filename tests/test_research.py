@@ -32,8 +32,10 @@ from mjepa_cifar10.research.runtime import (
     GPULock,
     StateStore,
     available_physical_gpus,
+    build_worker_environment,
     cleanup_run_weights,
     estimate_checkpoint_size,
+    prepare_retryable_runs,
     reconcile_state,
     required_free_bytes,
     run_command_with_timeout,
@@ -192,6 +194,18 @@ def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:
     kill_group.assert_called_once()
 
 
+def test_worker_environment_drops_inherited_wandb_service_socket(tmp_path: Path) -> None:
+    environment = build_worker_environment(
+        {"WANDB_SERVICE": "dead-socket-token", "WANDB_MODE": "offline"},
+        physical_gpu=1,
+        repo_root=tmp_path,
+    )
+
+    assert "WANDB_SERVICE" not in environment
+    assert environment["WANDB_MODE"] == "offline"
+    assert environment["CUDA_VISIBLE_DEVICES"] == "1"
+
+
 def test_state_recovers_terminal_worker_file(tmp_path: Path) -> None:
     spec = make_spec(tmp_path)
     study_dir = tmp_path / "study"
@@ -240,6 +254,26 @@ def test_state_marks_missing_supervisor_as_retryable(mocker, tmp_path: Path) -> 
     assert run.status == "failed"
     assert run.decision == "retryable"
     assert "without writing terminal" in (run.error or "")
+
+
+def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path)
+    runs = {run.id: RunState(run) for run in spec.initial_runs()}
+    retryable = next(iter(runs.values()))
+    retryable.status = "failed"
+    retryable.decision = "retryable"
+    retryable.pid = 123
+    retained = list(runs.values())[1]
+    retained.status = "completed"
+    retained.decision = "rejected"
+    state = StudyState(spec.id, "study.yaml", "now", "now", runs)
+
+    assert prepare_retryable_runs(state) == 1
+
+    assert retryable.status == "pending"
+    assert retryable.decision == "pending"
+    assert retryable.pid is None
+    assert retained.status == "completed"
 
 
 def test_guarded_cleanup_only_deletes_terminal_rejected_managed_run(tmp_path: Path) -> None:

@@ -24,6 +24,7 @@ ACTIVE_STATUSES: Final = frozenset(("launching", "running"))
 TERMINAL_FILENAME: Final[str] = "terminal.json"
 HEARTBEAT_FILENAME: Final[str] = "worker.json"
 RETENTION_LOG_FILENAME: Final[str] = "retention.jsonl"
+WANDB_SERVICE_ENVIRONMENT_VARIABLE: Final[str] = "WANDB_SERVICE"
 
 
 def utc_now() -> str:
@@ -313,6 +314,19 @@ def run_command_with_timeout(
         return 124, True
 
 
+def build_worker_environment(base: Mapping[str, str], physical_gpu: int, repo_root: Path) -> dict[str, str]:
+    environment = dict(base)
+    environment.pop(WANDB_SERVICE_ENVIRONMENT_VARIABLE, None)
+    environment.update(
+        {
+            "CUDA_VISIBLE_DEVICES": str(physical_gpu),
+            "MJEPA_RESEARCH_REPO_ROOT": str(repo_root),
+            "PYTHONUNBUFFERED": "1",
+        }
+    )
+    return environment
+
+
 def run_worker(
     spec_path: Path,
     run_id: str,
@@ -359,14 +373,7 @@ def run_worker(
                 }
             )
             atomic_write_json(provenance_path, provenance)
-            environment = dict(os.environ)
-            environment.update(
-                {
-                    "CUDA_VISIBLE_DEVICES": str(physical_gpu),
-                    "MJEPA_RESEARCH_REPO_ROOT": str(repo_root),
-                    "PYTHONUNBUFFERED": "1",
-                }
-            )
+            environment = build_worker_environment(os.environ, physical_gpu, repo_root)
             with (run_dir / "run.log").open("a", encoding="utf-8") as log_file:
                 exit_code, timed_out = run_command_with_timeout(
                     command,
@@ -512,6 +519,23 @@ def launch_available_runs(
             store.save(state)
         store.save(state)
         return state
+
+
+def prepare_retryable_runs(state: StudyState) -> int:
+    retry_count = 0
+    for run in state.runs.values():
+        if run.status not in ("failed", "timed_out") or run.decision != "retryable":
+            continue
+        run.status = "pending"
+        run.decision = "pending"
+        run.physical_gpu = None
+        run.pid = None
+        run.started_at = None
+        run.finished_at = None
+        run.exit_code = None
+        run.error = None
+        retry_count += 1
+    return retry_count
 
 
 def cleanup_run_weights(

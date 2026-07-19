@@ -13,6 +13,7 @@ from .provenance import assert_launch_provenance, collect_provenance
 from .runtime import (
     StateStore,
     launch_available_runs,
+    prepare_retryable_runs,
     reconcile_state,
     run_worker,
     storage_report,
@@ -41,6 +42,7 @@ def build_parser() -> argparse.ArgumentParser:
     launch_parser = subparsers.add_parser("launch", help="Launch pending managed runs on physical GPUs 1 and 2")
     _add_common_arguments(launch_parser)
     launch_parser.add_argument("--dry-run", action="store_true", help="Create recoverable state without starting jobs")
+    launch_parser.add_argument("--retry-failed", action="store_true", help="Retry terminal runs marked retryable")
 
     status_parser = subparsers.add_parser("status", help="Read persistent study/run state")
     _add_common_arguments(status_parser)
@@ -167,6 +169,11 @@ def command_launch(args: argparse.Namespace) -> int:
         payload = {"study_id": spec.id, "dry_run": True, "state": str(store.path), "runs": list(state.runs)}
     else:
         preflight_payload(spec, repo_root, development=False)
+        if args.retry_failed:
+            with StateStore(study_directory(spec, repo_root)) as store:
+                retry_state = store.load()
+                prepare_retryable_runs(retry_state)
+                store.save(retry_state)
         state = launch_available_runs(spec, args.study, repo_root)
         payload = _state_payload(state)
     print(json.dumps(payload, indent=2))

@@ -85,6 +85,8 @@ Use W&B namespaces consistently:
 
 Training runs in a detached supervisor. The supervisor writes `worker.json` while active and atomically writes `terminal.json` on completion, failure, or timeout. `monitor` merges terminal files into `state.json` and launches eligible pending work only after the same launch checks pass.
 
+If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
+
 Use adaptive same-task polling if the Codex automation tool is available:
 
 - check 10 minutes after launch;

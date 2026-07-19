@@ -42,6 +42,8 @@ uv run python scripts/research.py storage-report research/studies/<study-id>.yam
 
 Use `launch --dry-run` to validate state creation without starting a process. Use `summarize --apply-retention` only after metrics, provenance, decisions, and the result log are committed and pushed.
 
+Use `launch --retry-failed` only after inspecting the terminal log and fixing the recorded failure. It preserves the W&B run ID and any retryable checkpoint.
+
 ## Handoff
 
 Report the study ID, phase, active run IDs, W&B URLs, metric summary, checkpoint disposition, branches and SHAs, and the next scheduled follow-up. State censored convergence targets explicitly. For three-seed results, report mean, standard deviation, and paired differences without a statistical-significance claim.
