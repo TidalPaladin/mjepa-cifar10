@@ -448,21 +448,69 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
     if marker in existing:
         return False
     winner = summary.get("winner") or "none"
-    variant_lines = [
-        f"- `{variant.id}` mechanism: {variant.mechanism or 'not recorded'}; "
-        f"changes: {', '.join(variant.changes) or 'not recorded'}"
-        for variant in (spec.baseline, *spec.variants)
-    ]
-    run_lines = [
-        f"- `{run_id}`: status={value['status']}, decision={value['decision']}, "
-        f"W&B={value['wandb_url'] or 'unavailable'}"
-        for run_id, value in summary["runs"].items()
-    ]
+    variant_lines = []
+    for variant in (spec.baseline, *spec.variants):
+        mechanism = (variant.mechanism or "not recorded").rstrip(".")
+        changes = ("; ".join(variant.changes) or "not recorded").rstrip(".")
+        variant_lines.append(f"  - `{variant.id}`: Mechanism: {mechanism}. Changes: {changes}.")
+    state = StateStore(study_directory(spec, repo_root)).load()
+    provenance_lines: list[str] = []
+    run_lines: list[str] = []
+    pretraining = summary.get("pretraining", {})
+    sft_runs = summary.get("sft", {}).get("runs", {})
+    for run_id, value in summary["runs"].items():
+        run = state.runs.get(run_id)
+        if run is not None and run.run_dir is not None:
+            provenance_path = Path(run.run_dir) / "provenance.json"
+            if provenance_path.is_file():
+                provenance = json.loads(provenance_path.read_text())
+                repositories = []
+                for repository_name in ("parent", "mjepa", "vit"):
+                    repository = provenance.get(repository_name, {})
+                    sha = repository.get("sha", "unknown")
+                    branch = repository.get("branch", "unknown")
+                    repositories.append(f"{repository_name}=`{sha}` (`{branch}`)")
+                provenance_lines.append(f"  - `{run_id}`: " + ", ".join(repositories))
+
+        metrics = pretraining.get(run_id) or sft_runs.get(run_id) or {}
+        metric_parts: list[str] = []
+        for key, digits in (
+            ("peak_accuracy", 6),
+            ("final_accuracy", 6),
+            ("step_to_90", 0),
+            ("step_to_95", 0),
+            ("active_seconds_to_90", 3),
+            ("active_seconds_to_95", 3),
+            ("step_auc", 6),
+            ("active_time_auc", 6),
+            ("test_accuracy", 6),
+        ):
+            if key not in metrics:
+                continue
+            metric_value = metrics[key]
+            rendered = "censored" if metric_value is None else f"{metric_value:.{digits}f}"
+            metric_parts.append(f"{key}={rendered}")
+        wandb_url = value.get("wandb_url")
+        if wandb_url:
+            wandb_reference = f"[run]({wandb_url})"
+        elif run is not None and run.wandb_run_id:
+            wandb_reference = f"offline/unlinked (`{run.wandb_run_id}`)"
+        else:
+            wandb_reference = "unavailable"
+        run_lines.append(
+            f"- `{run_id}`: status={value['status']}; decision={value['decision']}; "
+            f"W&B={wandb_reference}; checkpoint={value['checkpoint_disposition']}; "
+            f"metrics={', '.join(metric_parts) or 'unavailable'}"
+        )
     conclusion_by_phase = {
         "complete": f"{winner} completed confirmation and downstream evaluation.",
         "evaluation": f"{winner} passed confirmation; downstream evaluation is still running.",
         "not-confirmed": f"{winner} did not meet the three-seed confirmation rule.",
-        "no-promotion": "No seed-0 candidate met a promotion threshold.",
+        "no-promotion": (
+            "No seed-0 candidate met a promotion threshold."
+            if spec.variants
+            else "The baseline smoke run completed; no candidates were configured for promotion."
+        ),
     }
     conclusion = conclusion_by_phase.get(str(summary["phase"]), f"Study stopped in phase {summary['phase']}.")
     entry = (
@@ -471,6 +519,7 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
         f"- Question: {spec.question}\n"
         f"- Hypothesis: {spec.hypothesis}\n"
         "- Mechanisms and exact changes:\n" + "\n".join(variant_lines) + "\n"
+        "- Launch code provenance:\n" + ("\n".join(provenance_lines) if provenance_lines else "  - unavailable") + "\n"
         f"- Phase: {summary['phase']}\n"
         f"- Winner: {winner}\n"
         f"- Conclusion: {conclusion}\n"
@@ -480,6 +529,8 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
         + "\n"
     )
     log_path.parent.mkdir(parents=True, exist_ok=True)
+    if not log_path.exists():
+        log_path.write_text(existing, encoding="utf-8")
     with log_path.open("a", encoding="utf-8") as output:
         output.write(entry)
     return True

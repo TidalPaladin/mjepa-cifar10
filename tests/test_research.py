@@ -40,7 +40,7 @@ from mjepa_cifar10.research.runtime import (
     required_free_bytes,
     run_command_with_timeout,
 )
-from mjepa_cifar10.research.summary import advance_study, publish_summaries_to_wandb
+from mjepa_cifar10.research.summary import advance_study, append_research_log, publish_summaries_to_wandb
 
 
 def make_summary(
@@ -393,3 +393,60 @@ def test_summary_publishes_standardized_fields_to_wandb(mocker, monkeypatch, tmp
     assert remote_run.summary["probe/peak_validation_accuracy"] == 0.8
     assert remote_run.summary["convergence/active_seconds_to_95"] == 100
     remote_run.update.assert_called_once_with()
+
+
+def test_research_log_records_provenance_metrics_and_checkpoint_disposition(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path, variants=0)
+    run_spec = spec.initial_runs()[0]
+    run_dir = spec.log_root / spec.id / "runs" / run_spec.id
+    run_dir.mkdir(parents=True)
+    (run_dir / "provenance.json").write_text(
+        json.dumps(
+            {
+                "parent": {"sha": "parent-sha", "branch": "codex/research/test-study"},
+                "mjepa": {"sha": "mjepa-sha", "branch": "codex/research/test-study"},
+                "vit": {"sha": "vit-sha", "branch": "master"},
+            }
+        )
+    )
+    state = StudyState(
+        spec.id,
+        "study.yaml",
+        "now",
+        "now",
+        {
+            run_spec.id: RunState(
+                run_spec,
+                status="completed",
+                decision="baseline",
+                run_dir=str(run_dir),
+                checkpoint_disposition="retained",
+                wandb_run_id="offline-id",
+            )
+        },
+    )
+    StateStore(spec.log_root / spec.id).save(state)
+    summary = {
+        "phase": "no-promotion",
+        "winner": None,
+        "pretraining": {run_spec.id: make_summary(peak=0.8, time_to_95=100, time_auc=0.5).to_dict()},
+        "sft": {"runs": {}},
+        "runs": {
+            run_spec.id: {
+                "status": "completed",
+                "decision": "baseline",
+                "wandb_url": "https://wandb.ai/entity/project/runs/id",
+                "checkpoint_disposition": "retained",
+            }
+        },
+    }
+
+    assert append_research_log(spec, summary, tmp_path)
+
+    research_log = (tmp_path / "research" / "LOG.md").read_text()
+    assert "  - `baseline`: Mechanism: not recorded. Changes: not recorded." in research_log
+    assert "parent=`parent-sha` (`codex/research/test-study`)" in research_log
+    assert "peak_accuracy=0.800000" in research_log
+    assert "active_seconds_to_95=100.000" in research_log
+    assert "checkpoint=retained" in research_log
+    assert "[run](https://wandb.ai/entity/project/runs/id)" in research_log
