@@ -263,6 +263,10 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     retryable.status = "failed"
     retryable.decision = "retryable"
     retryable.pid = 123
+    retryable_run_dir = tmp_path / "runs" / retryable.spec.id
+    retryable_run_dir.mkdir(parents=True)
+    retryable.run_dir = str(retryable_run_dir)
+    (retryable_run_dir / "terminal.json").write_text('{"status": "failed"}')
     retained = list(runs.values())[1]
     retained.status = "completed"
     retained.decision = "rejected"
@@ -273,6 +277,8 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     assert retryable.status == "pending"
     assert retryable.decision == "pending"
     assert retryable.pid is None
+    assert not (retryable_run_dir / "terminal.json").exists()
+    assert len(tuple((retryable_run_dir / "attempts").glob("terminal-*.json"))) == 1
     assert retained.status == "completed"
 
 

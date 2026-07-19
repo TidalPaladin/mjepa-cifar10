@@ -526,6 +526,15 @@ def prepare_retryable_runs(state: StudyState) -> int:
     for run in state.runs.values():
         if run.status not in ("failed", "timed_out") or run.decision != "retryable":
             continue
+        if run.run_dir is not None:
+            run_dir = Path(run.run_dir)
+            attempts_dir = run_dir / "attempts"
+            for artifact_name in (TERMINAL_FILENAME, HEARTBEAT_FILENAME):
+                artifact = run_dir / artifact_name
+                if artifact.is_file():
+                    attempts_dir.mkdir(parents=True, exist_ok=True)
+                    archived_path = attempts_dir / f"{artifact.stem}-{uuid.uuid4().hex}{artifact.suffix}"
+                    os.replace(artifact, archived_path)
         run.status = "pending"
         run.decision = "pending"
         run.physical_gpu = None
