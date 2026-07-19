@@ -104,5 +104,7 @@ resources:
     summary = summarize_study(spec, study_path, REPO_ROOT)
     assert summary["phase"] == "no-promotion"
     assert summary["pretraining"]
+    with StateStore(log_root / spec.id) as store:
+        state = store.load()
     with pytest.raises(ValueError, match="decision 'baseline'"):
         cleanup_run_weights(state, run.spec.id, log_root / spec.id)
