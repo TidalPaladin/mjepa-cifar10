@@ -797,6 +797,29 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+def _pending_runs_in_study_order(state: StudyState, spec: StudySpec) -> tuple[RunState, ...]:
+    """Return pending runs in protocol order, independent of JSON object-key order."""
+    variant_order = {variant.id: index for index, variant in enumerate((spec.baseline, *spec.variants))}
+    shot_order = {shots: index for index, shots in enumerate(spec.evaluation.shots_per_class)}
+    unknown_variant = len(variant_order)
+    unknown_shots = len(shot_order)
+
+    def schedule_key(run: RunState) -> tuple[int, int, int, int, str]:
+        variant_index = variant_order.get(run.spec.variant, unknown_variant)
+        if run.spec.kind == "pretrain":
+            return (0, run.spec.seed, 0, variant_index, run.spec.id)
+        return (
+            1,
+            shot_order.get(run.spec.shots_per_class, unknown_shots),
+            run.spec.seed,
+            variant_index,
+            run.spec.id,
+        )
+
+    pending = (run for run in state.runs.values() if run.status == "pending")
+    return tuple(sorted(pending, key=schedule_key))
+
+
 def launch_available_runs(
     spec: StudySpec,
     spec_path: Path,
@@ -822,7 +845,7 @@ def launch_available_runs(
         reserved = [run.physical_gpu for run in active if run.physical_gpu is not None]
         available = available_physical_gpus(spec.resources.physical_gpus, reserved=reserved, lock_root=lock_root)
         for run, physical_gpu in zip(
-            (run for run in state.runs.values() if run.status == "pending"),
+            _pending_runs_in_study_order(state, spec),
             available[:capacity],
             strict=False,
         ):

@@ -42,6 +42,7 @@ from mjepa_cifar10.research.runtime import (
     GIB,
     GPULock,
     StateStore,
+    _pending_runs_in_study_order,
     append_locked_text,
     available_physical_gpus,
     build_managed_worker_environment,
@@ -189,6 +190,33 @@ def test_screening_promotion_adds_only_four_replication_trials(tmp_path: Path) -
 def test_gpu_lock_excludes_duplicate_scheduler_assignment(tmp_path: Path) -> None:
     with GPULock(1, tmp_path):
         assert available_physical_gpus((1, 2), lock_root=tmp_path) == (2,)
+
+
+def test_pending_runs_follow_study_order_after_sorted_state_round_trip(tmp_path: Path) -> None:
+    base_spec = make_spec(tmp_path)
+    config = base_spec.baseline.config
+    spec = replace(
+        base_spec,
+        variants=(
+            VariantSpec("muon-matched", config, "matched-rate Muon"),
+            VariantSpec("muon-lr-half", config, "half-rate Muon"),
+            VariantSpec("adamw-lr-half", config, "half-rate AdamW"),
+        ),
+    )
+    expected_runs = spec.initial_runs()
+    sorted_runs = sorted(expected_runs, key=lambda run: run.id)
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.id: RunState(run) for run in sorted_runs},
+    )
+
+    ordered = _pending_runs_in_study_order(state, spec)
+
+    assert [run.spec.id for run in ordered] == [run.id for run in expected_runs]
 
 
 def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:
