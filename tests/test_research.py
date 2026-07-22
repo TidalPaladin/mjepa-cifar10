@@ -897,6 +897,36 @@ def test_research_log_records_provenance_metrics_and_checkpoint_disposition(tmp_
     assert "[run](https://wandb.ai/entity/project/runs/id)" in research_log
 
 
+def test_research_log_describes_exploration_as_active(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path, variants=1)
+    StateStore(spec.log_root / spec.id).save(
+        StudyState(
+            spec.id,
+            "study.yaml",
+            "now",
+            "now",
+            {run_spec.id: RunState(run_spec) for run_spec in spec.initial_runs()},
+            phase="exploration",
+        )
+    )
+    summary = {
+        "phase": "exploration",
+        "winner": None,
+        "pretraining": {},
+        "sft": {"runs": {}},
+        "runs": {},
+    }
+
+    assert append_research_log(spec, summary, tmp_path)
+
+    research_log = (tmp_path / "research" / "LOG.md").read_text()
+    assert (
+        "Conclusion: No initial seed-0 candidate met a promotion threshold; "
+        "bounded seed-0 exploration is still running."
+    ) in research_log
+    assert "Follow-up: run the preregistered exploration trials." in research_log
+
+
 def test_research_log_records_each_retry_attempt_in_the_same_phase(tmp_path: Path) -> None:
     spec = make_spec(tmp_path, variants=0)
     run_spec = spec.initial_runs()[0]
