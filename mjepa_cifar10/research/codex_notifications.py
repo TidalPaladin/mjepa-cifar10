@@ -20,10 +20,17 @@ from filelock import FileLock
 from filelock import Timeout as FileLockTimeout
 from websockets.asyncio.client import ClientConnection, unix_connect
 
+from .lifecycle_events import (
+    LIFECYCLE_FILENAMES,
+    LifecycleEvent,
+    LifecycleKind,
+    read_lifecycle_event,
+)
 from .runtime import atomic_write_json
 
 
 SCHEMA_VERSION = 1
+LIFECYCLE_NOTIFICATION_SCHEMA_VERSION = 2
 TERMINAL_FILENAME = "terminal.json"
 NOTIFICATION_FILENAME = "notification.json"
 NOTIFICATION_LOCK_FILENAME = ".notification.lock"
@@ -52,7 +59,14 @@ CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]+")
 
 TerminalStatus = Literal["completed", "failed", "crashed", "timed_out", "cancelled"]
 DeliveryState = Literal["pending", "accepted", "failed"]
+EventKind = Literal["terminal", "first_cycle_completed", "supervisor_lost", "progress_stalled"]
 JsonObject = dict[str, Any]
+
+LIFECYCLE_STATUS_BY_KIND: dict[LifecycleKind, str] = {
+    "first_cycle_completed": "completed",
+    "supervisor_lost": "detected",
+    "progress_stalled": "detected",
+}
 
 
 class NotificationStateError(ValueError):
@@ -273,7 +287,7 @@ class NotificationEvent:
     study_id: str
     run_id: str
     attempt: int
-    status: TerminalStatus
+    status: str
     occurred_at: datetime
     originating_thread_id: str | None
     terminal_state_path: str
@@ -285,9 +299,26 @@ class NotificationEvent:
     accepted_at: datetime | None = None
     accepted_rpc_method: str | None = None
     accepted_turn_id: str | None = None
+    event_kind: EventKind = "terminal"
 
     def __post_init__(self) -> None:
-        terminal = self.as_terminal()
+        if self.event_kind == "terminal":
+            self.as_terminal()
+        elif self.event_kind not in LIFECYCLE_STATUS_BY_KIND:
+            raise NotificationStateError(f"invalid event kind: {self.event_kind!r}")
+        elif self.status != LIFECYCLE_STATUS_BY_KIND[cast(LifecycleKind, self.event_kind)]:
+            raise NotificationStateError(f"invalid status for lifecycle event {self.event_kind!r}: {self.status!r}")
+        else:
+            _validate_event_id(self.event_id)
+            _validate_identifier(self.study_id, "study id")
+            _validate_identifier(self.run_id, "run id")
+            _validate_attempt(self.attempt)
+            if self.occurred_at.tzinfo is None or self.occurred_at.utcoffset() is None:
+                raise NotificationStateError("occurred_at must include a UTC offset")
+            object.__setattr__(self, "occurred_at", self.occurred_at.astimezone(UTC))
+            object.__setattr__(self, "originating_thread_id", _validate_thread_id(self.originating_thread_id))
+            if not isinstance(self.terminal_state_path, str) or not self.terminal_state_path:
+                raise NotificationStateError("event state path must be a non-empty string")
         if self.state not in DELIVERY_STATES:
             raise NotificationStateError(f"invalid delivery state: {self.state!r}")
         if not isinstance(self.attempt_count, int) or isinstance(self.attempt_count, bool) or self.attempt_count < 0:
@@ -330,7 +361,6 @@ class NotificationEvent:
                 raise NotificationStateError("new pending notification must not contain retry metadata")
             if self.attempt_count > 0 and any(value is None for value in retry_metadata):
                 raise NotificationStateError("retried pending notification has incomplete retry metadata")
-        del terminal
 
     @classmethod
     def from_terminal(cls, terminal: TerminalEvent) -> NotificationEvent:
@@ -345,21 +375,53 @@ class NotificationEvent:
             terminal_state_path=terminal.terminal_state_path,
         )
 
+    @classmethod
+    def from_lifecycle(cls, event: LifecycleEvent) -> NotificationEvent:
+        return cls(
+            event_id=event.event_id,
+            study_id=event.study_id,
+            run_id=event.run_id,
+            attempt=event.attempt,
+            status=LIFECYCLE_STATUS_BY_KIND[event.kind],
+            occurred_at=event.occurred_at,
+            originating_thread_id=event.originating_thread_id,
+            terminal_state_path=event.event_state_path,
+            event_kind=event.kind,
+        )
+
     def as_terminal(self) -> TerminalEvent:
+        if self.event_kind != "terminal":
+            raise NotificationStateError("lifecycle notification is not a terminal event")
         return TerminalEvent(
             event_id=self.event_id,
             study_id=self.study_id,
             run_id=self.run_id,
             attempt=self.attempt,
-            status=self.status,
+            status=cast(TerminalStatus, self.status),
             occurred_at=self.occurred_at,
             originating_thread_id=self.originating_thread_id,
             terminal_state_path=self.terminal_state_path,
         )
 
     def to_dict(self) -> dict[str, object]:
+        source: dict[str, object]
+        if self.event_kind == "terminal":
+            source = self.as_terminal().to_dict()
+        else:
+            source = {
+                "schema_version": LIFECYCLE_NOTIFICATION_SCHEMA_VERSION,
+                "event_kind": self.event_kind,
+                "event_id": self.event_id,
+                "study_id": self.study_id,
+                "run_id": self.run_id,
+                "attempt": self.attempt,
+                "status": self.status,
+                "occurred_at": _isoformat(self.occurred_at),
+                "originating_thread_id": self.originating_thread_id,
+                "event_state_path": self.terminal_state_path,
+            }
         return {
-            **self.as_terminal().to_dict(),
+            **source,
             "state": self.state,
             "attempt_count": self.attempt_count,
             "last_attempt_at": _isoformat(self.last_attempt_at),
@@ -372,16 +434,7 @@ class NotificationEvent:
 
     @classmethod
     def from_dict(cls, payload: JsonObject) -> NotificationEvent:
-        expected = {
-            "schema_version",
-            "event_id",
-            "study_id",
-            "run_id",
-            "attempt",
-            "status",
-            "occurred_at",
-            "originating_thread_id",
-            "terminal_state_path",
+        delivery_fields = {
             "state",
             "attempt_count",
             "last_attempt_at",
@@ -391,11 +444,43 @@ class NotificationEvent:
             "accepted_rpc_method",
             "accepted_turn_id",
         }
-        if set(payload) != expected or payload.get("schema_version") != SCHEMA_VERSION:
+        terminal_fields = {
+            "schema_version",
+            "event_id",
+            "study_id",
+            "run_id",
+            "attempt",
+            "status",
+            "occurred_at",
+            "originating_thread_id",
+            "terminal_state_path",
+        }
+        lifecycle_fields = {
+            "schema_version",
+            "event_kind",
+            "event_id",
+            "study_id",
+            "run_id",
+            "attempt",
+            "status",
+            "occurred_at",
+            "originating_thread_id",
+            "event_state_path",
+        }
+        schema_version = payload.get("schema_version")
+        is_terminal = schema_version == SCHEMA_VERSION and set(payload) == terminal_fields | delivery_fields
+        is_lifecycle = (
+            schema_version == LIFECYCLE_NOTIFICATION_SCHEMA_VERSION
+            and set(payload) == lifecycle_fields | delivery_fields
+        )
+        if not is_terminal and not is_lifecycle:
             raise NotificationStateError("notification state has invalid fields or schema version")
         status = payload["status"]
         state = payload["state"]
-        if not isinstance(status, str) or status not in TERMINAL_STATUSES:
+        event_kind = "terminal" if is_terminal else payload["event_kind"]
+        if not isinstance(event_kind, str) or event_kind not in {"terminal", *LIFECYCLE_STATUS_BY_KIND}:
+            raise NotificationStateError(f"invalid event kind: {event_kind!r}")
+        if not isinstance(status, str) or (event_kind == "terminal" and status not in TERMINAL_STATUSES):
             raise NotificationStateError(f"invalid terminal status: {status!r}")
         if not isinstance(state, str) or state not in DELIVERY_STATES:
             raise NotificationStateError(f"invalid delivery state: {state!r}")
@@ -406,10 +491,13 @@ class NotificationEvent:
             study_id=cast(str, payload["study_id"]),
             run_id=cast(str, payload["run_id"]),
             attempt=cast(int, payload["attempt"]),
-            status=cast(TerminalStatus, status),
+            status=status,
             occurred_at=occurred_at,
             originating_thread_id=cast(str | None, payload["originating_thread_id"]),
-            terminal_state_path=cast(str, payload["terminal_state_path"]),
+            terminal_state_path=cast(
+                str,
+                payload["terminal_state_path"] if is_terminal else payload["event_state_path"],
+            ),
             state=cast(DeliveryState, state),
             attempt_count=cast(int, payload["attempt_count"]),
             last_attempt_at=_parse_datetime(payload["last_attempt_at"], "last_attempt_at", optional=True),
@@ -418,6 +506,7 @@ class NotificationEvent:
             accepted_at=_parse_datetime(payload["accepted_at"], "accepted_at", optional=True),
             accepted_rpc_method=cast(str | None, payload["accepted_rpc_method"]),
             accepted_turn_id=cast(str | None, payload["accepted_turn_id"]),
+            event_kind=cast(EventKind, event_kind),
         )
 
     def with_delivery_failure(
@@ -493,18 +582,43 @@ def read_terminal_event(path: Path, root: Path) -> TerminalEvent:
 
 def read_notification_event(path: Path, root: Path) -> NotificationEvent:
     resolved = _managed_path(path.absolute(), root, "notification path")
-    if resolved.name != NOTIFICATION_FILENAME or resolved.parent.parent.name != "runs":
+    lifecycle_notification_names = {f"{Path(name).stem}.notification.json" for name in LIFECYCLE_FILENAMES}
+    if (
+        resolved.name not in {NOTIFICATION_FILENAME, *lifecycle_notification_names}
+        or resolved.parent.parent.name != "runs"
+    ):
         raise NotificationStateError("notification path is not an exact managed run notification")
     event = NotificationEvent.from_dict(_load_json(resolved))
-    terminal = read_terminal_event(resolved.with_name(TERMINAL_FILENAME), root)
-    if event.as_terminal() != terminal:
-        raise NotificationStateError(f"notification in {resolved} does not match terminal state")
+    if resolved.name == NOTIFICATION_FILENAME:
+        terminal = read_terminal_event(resolved.with_name(TERMINAL_FILENAME), root)
+        if event.event_kind != "terminal" or event.as_terminal() != terminal:
+            raise NotificationStateError(f"notification in {resolved} does not match terminal state")
+    else:
+        source_name = resolved.name.removesuffix(".notification.json") + ".json"
+        lifecycle = read_lifecycle_event(resolved.with_name(source_name))
+        expected = NotificationEvent.from_lifecycle(lifecycle)
+        if (
+            event.event_kind != expected.event_kind
+            or event.event_id != expected.event_id
+            or event.study_id != expected.study_id
+            or event.run_id != expected.run_id
+            or event.attempt != expected.attempt
+            or event.status != expected.status
+            or event.occurred_at != expected.occurred_at
+            or event.originating_thread_id != expected.originating_thread_id
+            or event.terminal_state_path != expected.terminal_state_path
+        ):
+            raise NotificationStateError(f"notification in {resolved} does not match lifecycle state")
     return event
 
 
 def write_notification_event(event: NotificationEvent, root: Path) -> None:
-    terminal_path = _managed_path(Path(event.terminal_state_path), root, "terminal state path")
-    atomic_write_json(terminal_path.with_name(NOTIFICATION_FILENAME), event.to_dict())
+    state_path = _managed_path(Path(event.terminal_state_path), root, "event state path")
+    if event.event_kind == "terminal":
+        notification_path = state_path.with_name(NOTIFICATION_FILENAME)
+    else:
+        notification_path = state_path.with_name(f"{state_path.stem}.notification.json")
+    atomic_write_json(notification_path, event.to_dict())
 
 
 def queue_notification_from_terminal(
@@ -530,6 +644,23 @@ def queue_notification_from_terminal(
             return current
         event = NotificationEvent.from_terminal(terminal)
         write_notification_event(event, root)
+        return event
+
+
+def queue_notification_from_lifecycle(event_path: Path, root: Path) -> NotificationEvent:
+    """Create or recover a pending notification after a lifecycle event is durable."""
+    managed_root = validate_notification_root(root)
+    resolved_event_path = _managed_path(event_path.absolute(), managed_root, "lifecycle event path")
+    lifecycle = read_lifecycle_event(resolved_event_path)
+    notification_path = resolved_event_path.with_name(f"{resolved_event_path.stem}.notification.json")
+    with FileLock(str(resolved_event_path.parent / NOTIFICATION_LOCK_FILENAME)):
+        if notification_path.is_file():
+            current = read_notification_event(notification_path, managed_root)
+            if current.event_id != lifecycle.event_id:
+                raise NotificationStateError("current notification belongs to a different lifecycle event")
+            return current
+        event = NotificationEvent.from_lifecycle(lifecycle)
+        write_notification_event(event, managed_root)
         return event
 
 
@@ -766,6 +897,15 @@ class Acceptance:
 
 
 def build_wake_prompt(event: NotificationEvent) -> str:
+    if event.event_kind != "terminal":
+        return (
+            "Research lifecycle event.\n"
+            f"Event: {event.event_kind}\n"
+            f"Study: {event.study_id}\n"
+            f"Run: {event.run_id}\n"
+            f"Event state: {event.terminal_state_path}\n\n"
+            "Inspect the persisted event and continue the study protocol."
+        )
     return (
         "Research run completed.\n"
         f"Study: {event.study_id}\n"
@@ -947,11 +1087,16 @@ async def _deliver_path(
     except (OSError, NotificationStateError) as error:
         problem = f"{path}: {_sanitize_error(error)}"
         try:
-            terminal_path = path.with_name(TERMINAL_FILENAME)
-            terminal = read_terminal_event(terminal_path, root)
-            if Path(terminal.terminal_state_path) != terminal_path.resolve(strict=False):
-                raise NotificationStateError("terminal_state_path does not identify the current terminal file")
-            failed = NotificationEvent.from_terminal(terminal).with_delivery_failure(
+            if path.name == NOTIFICATION_FILENAME:
+                source_path = path.with_name(TERMINAL_FILENAME)
+                terminal = read_terminal_event(source_path, root)
+                if Path(terminal.terminal_state_path) != source_path.resolve(strict=False):
+                    raise NotificationStateError("terminal_state_path does not identify the current terminal file")
+                source_event = NotificationEvent.from_terminal(terminal)
+            else:
+                source_name = path.name.removesuffix(".notification.json") + ".json"
+                source_event = NotificationEvent.from_lifecycle(read_lifecycle_event(path.with_name(source_name)))
+            failed = source_event.with_delivery_failure(
                 attempted_at=now,
                 error=_sanitize_error(error),
                 next_attempt_at=None,
@@ -1047,10 +1192,13 @@ async def _deliver_path(
 
 
 def _notification_paths(root: Path) -> list[Path]:
+    lifecycle_notification_names = {f"{Path(name).stem}.notification.json" for name in LIFECYCLE_FILENAMES}
     return sorted(
         path
-        for path in root.rglob(NOTIFICATION_FILENAME)
-        if path.parent.parent.name == "runs" and "attempts" not in path.parts
+        for path in root.rglob("*.json")
+        if path.name in {NOTIFICATION_FILENAME, *lifecycle_notification_names}
+        and path.parent.parent.name == "runs"
+        and "attempts" not in path.parts
     )
 
 

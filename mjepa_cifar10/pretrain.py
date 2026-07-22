@@ -2,7 +2,7 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from time import perf_counter
-from typing import Final
+from typing import Final, Literal
 
 import torch
 import torch.nn.functional as F
@@ -48,6 +48,9 @@ WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
 GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "pretrain/grad_clip_trigger_pct"
 CPA_RESULT_KEYS: Final[tuple[str, ...]] = ("cpa_mean", "cpa_std", "cpa_p90", "cpa_p99")
+ProgressPhase = Literal["training", "validation", "checkpointing", "checkpointed"]
+ProgressCallback = Callable[[ProgressPhase, int, int, float], object]
+FirstCycleCallback = Callable[[int, int, float], object]
 __all__ = [
     "CPA_RESULT_KEYS",
     "CIFAR10MJEPA",
@@ -62,9 +65,29 @@ __all__ = [
     "get_gradient_sync_context",
     "get_scheduler_last_lr",
     "run_optimizer_step",
+    "report_checkpoint_lifecycle",
     "train",
     "update_cls_patch_alignment_metric",
 ]
+
+
+def report_checkpoint_lifecycle(
+    *,
+    progress_callback: ProgressCallback | None,
+    first_cycle_callback: FirstCycleCallback | None,
+    validation_completed: bool,
+    first_cycle_reported: bool,
+    epoch: int,
+    optimizer_step: int,
+    active_seconds: float,
+) -> bool:
+    """Report a durable checkpoint and the first complete train-validation cycle."""
+    if progress_callback is not None:
+        progress_callback("checkpointed", epoch, optimizer_step, active_seconds)
+    if validation_completed and not first_cycle_reported and first_cycle_callback is not None:
+        first_cycle_callback(epoch, optimizer_step, active_seconds)
+        return True
+    return first_cycle_reported
 
 
 class CIFAR10MJEPA(MJEPA):
@@ -121,6 +144,8 @@ def train(
     wandb_run_id: str | None = None,
     output_dir: Path | None = None,
     max_grad_norm: float | None = None,
+    progress_callback: ProgressCallback | None = None,
+    first_cycle_callback: FirstCycleCallback | None = None,
 ) -> None:
     training_started_at = perf_counter()
     # Module setup
@@ -143,6 +168,13 @@ def train(
     rank_zero_info(
         f"Batch size: {trainer_config.batch_size}, Microbatch accumulation: {trainer_config.accumulate_grad_batches}"
     )
+    first_cycle_reported = False
+
+    def active_seconds() -> float:
+        return elapsed_seconds_offset + perf_counter() - training_started_at
+
+    if is_rank_zero() and progress_callback is not None:
+        progress_callback("training", max(last_epoch + 1, 0), step, active_seconds())
 
     # Metric setup
     train_loss = tm.RunningMean(window=WINDOW).cuda()
@@ -283,13 +315,18 @@ def train(
                     log_dict.update(compute_and_reset_cpa_metrics(train_cpa, prefix="pretrain/train"))
                 if is_rank_zero():
                     wandb.log(log_dict, step=step)
+                    if progress_callback is not None:
+                        progress_callback("training", epoch, step, active_seconds())
 
         # Validation
+        validation_completed = False
         pbar.close()
         unwrapped_jepa.assert_student_params_synced()
         if isinstance(unwrapped_jepa, MJEPA):
             unwrapped_jepa.assert_predictor_params_synced()
         if val_dataloader is not None and (epoch + 1) % trainer_config.check_val_every_n_epoch == 0:
+            if is_rank_zero() and progress_callback is not None:
+                progress_callback("validation", epoch, step, active_seconds())
             jepa.eval()
             val_acc.reset()
             if val_cpa is not None:
@@ -322,9 +359,12 @@ def train(
             if is_rank_zero():
                 wandb.log(log_dict, step=step)
                 append_metric_record(log_dir, step, log_dict)
+                validation_completed = True
 
         # Save checkpoint
         if is_rank_zero() and log_dir:
+            if progress_callback is not None:
+                progress_callback("checkpointing", epoch, step, active_seconds())
             save_checkpoint(
                 path=log_dir / "checkpoint.pt",
                 backbone=unwrapped_jepa.student,
@@ -340,6 +380,15 @@ def train(
             save_safetensors_atomic(
                 log_dir / "backbone.safetensors",
                 {k: v for k, v in unwrapped_jepa.student.state_dict().items() if isinstance(v, torch.Tensor)},
+            )
+            first_cycle_reported = report_checkpoint_lifecycle(
+                progress_callback=progress_callback,
+                first_cycle_callback=first_cycle_callback,
+                validation_completed=validation_completed,
+                first_cycle_reported=first_cycle_reported,
+                epoch=epoch,
+                optimizer_step=step,
+                active_seconds=active_seconds(),
             )
 
     # Save final checkpoint

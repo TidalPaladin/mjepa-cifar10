@@ -25,6 +25,7 @@ from mjepa_cifar10.research.codex_notifications import (
     ensure_notification,
     initialize_notification_root,
     notification_lock_path,
+    queue_notification_from_lifecycle,
     queue_notification_from_terminal,
     read_notification_event,
     register_notification_root,
@@ -32,6 +33,7 @@ from mjepa_cifar10.research.codex_notifications import (
     validate_notification_root,
     write_notification_event,
 )
+from mjepa_cifar10.research.lifecycle_events import persist_first_cycle_event
 from mjepa_cifar10.research.runtime import atomic_write_json
 
 
@@ -168,6 +170,77 @@ def test_wake_prompt_contains_only_validated_terminal_identifiers(tmp_path: Path
     assert "Status: completed" in prompt
     assert event.terminal_state_path in prompt
     assert "wandb-1" not in prompt
+
+
+def test_lifecycle_wake_prompt_contains_only_validated_event_identifiers(tmp_path: Path) -> None:
+    root = tmp_path / "logs" / "research"
+    initialize_notification_root(root)
+    run_dir = root / "study-a" / "runs" / "run-a"
+    run_dir.mkdir(parents=True)
+    checkpoint = run_dir / "checkpoint.pt"
+    checkpoint.touch()
+    lifecycle = persist_first_cycle_event(
+        run_dir,
+        study_id="study-a",
+        run_id="run-a",
+        attempt=1,
+        occurred_at=NOW,
+        originating_thread_id=THREAD_ID,
+        epoch=0,
+        optimizer_step=10,
+        active_seconds=12.5,
+        checkpoint_path=checkpoint,
+    )
+    event = queue_notification_from_lifecycle(Path(lifecycle.event_state_path), root)
+
+    prompt = build_wake_prompt(event)
+
+    assert "Event: first_cycle_completed" in prompt
+    assert "Study: study-a" in prompt
+    assert "Run: run-a" in prompt
+    assert lifecycle.event_state_path in prompt
+    assert "checkpoint.pt" not in prompt
+
+
+@run_async
+async def test_sweep_accepts_lifecycle_event_once(tmp_path: Path) -> None:
+    root = tmp_path / "logs" / "research"
+    initialize_notification_root(root)
+    run_dir = root / "study-a" / "runs" / "run-a"
+    run_dir.mkdir(parents=True)
+    checkpoint = run_dir / "checkpoint.pt"
+    checkpoint.touch()
+    lifecycle = persist_first_cycle_event(
+        run_dir,
+        study_id="study-a",
+        run_id="run-a",
+        attempt=1,
+        occurred_at=NOW,
+        originating_thread_id=THREAD_ID,
+        epoch=0,
+        optimizer_step=10,
+        active_seconds=12.5,
+        checkpoint_path=checkpoint,
+    )
+    event = queue_notification_from_lifecycle(Path(lifecycle.event_state_path), root)
+    calls = 0
+
+    async def connect() -> ScriptedTransport:
+        nonlocal calls
+        calls += 1
+        return ScriptedTransport(app_server_handler("idle", []))
+
+    first = await sweep_notifications(root, connect=connect, now=lambda: NOW)
+    second = await sweep_notifications(root, connect=connect, now=lambda: NOW)
+    persisted = read_notification_event(
+        Path(event.terminal_state_path).with_name("first-cycle.notification.json"),
+        root,
+    )
+
+    assert first.accepted == 1
+    assert second.due == 0
+    assert calls == 1
+    assert persisted.state == "accepted"
 
 
 @run_async

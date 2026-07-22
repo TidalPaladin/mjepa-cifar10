@@ -48,9 +48,11 @@ from mjepa_cifar10.research.runtime import (
     build_managed_worker_environment,
     build_worker_environment,
     cleanup_run_weights,
+    configure_lifecycle_environment,
     estimate_checkpoint_size,
     persist_terminal_and_queue_notification,
     prepare_retryable_runs,
+    process_exit_error,
     reconcile_state,
     required_free_bytes,
     run_command_with_timeout,
@@ -274,6 +276,13 @@ def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:
     kill_group.assert_called_once()
 
 
+def test_process_exit_error_records_timeout_exit_code_and_signal() -> None:
+    assert process_exit_error(0, timed_out=False) is None
+    assert process_exit_error(124, timed_out=True) == "24-hour job timeout exceeded"
+    assert process_exit_error(3, timed_out=False) == "training process exited with status 3"
+    assert process_exit_error(-9, timed_out=False) == "training process terminated by SIGKILL"
+
+
 def test_worker_environment_drops_inherited_wandb_service_socket(tmp_path: Path) -> None:
     environment = build_worker_environment(
         {"WANDB_SERVICE": "dead-socket-token", "WANDB_MODE": "offline"},
@@ -284,6 +293,23 @@ def test_worker_environment_drops_inherited_wandb_service_socket(tmp_path: Path)
     assert "WANDB_SERVICE" not in environment
     assert environment["WANDB_MODE"] == "offline"
     assert environment["CUDA_VISIBLE_DEVICES"] == "1"
+
+
+def test_worker_environment_records_managed_lifecycle_identity(tmp_path: Path) -> None:
+    environment = configure_lifecycle_environment(
+        {},
+        study_id="study-a",
+        run_id="run-a",
+        attempt=2,
+        originating_thread_id="thread-a",
+    )
+
+    assert environment == {
+        "MJEPA_RESEARCH_STUDY_ID": "study-a",
+        "MJEPA_RESEARCH_RUN_ID": "run-a",
+        "MJEPA_RESEARCH_ATTEMPT": "2",
+        "MJEPA_RESEARCH_THREAD_ID": "thread-a",
+    }
 
 
 def test_worker_environment_forces_offline_without_complete_wandb_approval(tmp_path: Path) -> None:
@@ -588,6 +614,18 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     retryable_run_dir.mkdir(parents=True)
     retryable.run_dir = str(retryable_run_dir)
     (retryable_run_dir / "terminal.json").write_text('{"status": "failed"}')
+    for artifact_name in (
+        "worker.json",
+        "notification.json",
+        "progress.json",
+        "first-cycle.json",
+        "first-cycle.notification.json",
+        "supervisor-lost.json",
+        "supervisor-lost.notification.json",
+        "progress-stalled.json",
+        "progress-stalled.notification.json",
+    ):
+        (retryable_run_dir / artifact_name).write_text("{}")
     retained = list(runs.values())[1]
     retained.status = "completed"
     retained.decision = "rejected"
@@ -600,7 +638,21 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     assert retryable.pid is None
     assert retryable.attempt == 3
     assert not (retryable_run_dir / "terminal.json").exists()
-    assert len(tuple((retryable_run_dir / "attempts").glob("terminal-*.json"))) == 1
+    assert not any(
+        (retryable_run_dir / artifact_name).exists()
+        for artifact_name in (
+            "worker.json",
+            "notification.json",
+            "progress.json",
+            "first-cycle.json",
+            "first-cycle.notification.json",
+            "supervisor-lost.json",
+            "supervisor-lost.notification.json",
+            "progress-stalled.json",
+            "progress-stalled.notification.json",
+        )
+    )
+    assert len(tuple((retryable_run_dir / "attempts").glob("*.json"))) == 10
     assert retained.status == "completed"
 
 

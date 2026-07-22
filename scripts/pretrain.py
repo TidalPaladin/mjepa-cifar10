@@ -5,6 +5,7 @@ import shutil
 import socket
 import sys
 from argparse import ArgumentParser, Namespace
+from collections.abc import Mapping
 from dataclasses import replace
 from functools import partial
 from pathlib import Path
@@ -33,7 +34,14 @@ from vit import ViTConfig
 
 from mjepa_cifar10.data import cifar10_split_fingerprint, get_test_dataloader, get_train_dataloader, get_val_dataloader
 from mjepa_cifar10.experiment import write_run_metadata
-from mjepa_cifar10.pretrain import CIFAR10MJEPA, train
+from mjepa_cifar10.pretrain import CIFAR10MJEPA, FirstCycleCallback, train
+from mjepa_cifar10.research.lifecycle_events import RunLifecycleReporter
+from mjepa_cifar10.research.runtime import (
+    LIFECYCLE_ATTEMPT_ENVIRONMENT_VARIABLE,
+    LIFECYCLE_RUN_ENVIRONMENT_VARIABLE,
+    LIFECYCLE_STUDY_ENVIRONMENT_VARIABLE,
+    LIFECYCLE_THREAD_ENVIRONMENT_VARIABLE,
+)
 
 
 SEED: Final = 0
@@ -136,6 +144,39 @@ def apply_checkpoint_image_size(backbone_config: ViTConfig, metadata: Checkpoint
     if metadata.img_size is None:
         return backbone_config
     return replace(backbone_config, img_size=list(metadata.img_size))
+
+
+def build_managed_lifecycle_reporter(
+    args: Namespace,
+    run_log_dir: Path | None,
+    environment: Mapping[str, str] | None = None,
+) -> RunLifecycleReporter | None:
+    """Create a reporter only for a supervisor-bound managed run."""
+    selected_environment = os.environ if environment is None else environment
+    if args.study_id is None or run_log_dir is None:
+        return None
+    study_id = selected_environment.get(LIFECYCLE_STUDY_ENVIRONMENT_VARIABLE)
+    run_id = selected_environment.get(LIFECYCLE_RUN_ENVIRONMENT_VARIABLE)
+    attempt_text = selected_environment.get(LIFECYCLE_ATTEMPT_ENVIRONMENT_VARIABLE)
+    if study_id is None and run_id is None and attempt_text is None:
+        return None
+    if study_id != args.study_id or run_id != args.name:
+        raise ValueError("managed lifecycle environment does not match the requested run")
+    assert study_id is not None
+    assert run_id is not None
+    try:
+        attempt = int(attempt_text or "")
+    except ValueError as error:
+        raise ValueError("managed lifecycle attempt must be a positive integer") from error
+    if attempt < 1:
+        raise ValueError("managed lifecycle attempt must be a positive integer")
+    return RunLifecycleReporter(
+        run_dir=run_log_dir,
+        study_id=study_id,
+        run_id=run_id,
+        attempt=attempt,
+        originating_thread_id=selected_environment.get(LIFECYCLE_THREAD_ENVIRONMENT_VARIABLE),
+    )
 
 
 def main(args: Namespace) -> None:
@@ -296,6 +337,21 @@ def main(args: Namespace) -> None:
         )
 
     ignore_warnings()
+    lifecycle_reporter = build_managed_lifecycle_reporter(args, run_log_dir)
+    first_cycle_callback: FirstCycleCallback | None = None
+    if lifecycle_reporter is not None and run_log_dir is not None:
+        checkpoint_path = run_log_dir / "checkpoint.pt"
+
+        def report_first_cycle(epoch: int, optimizer_step: int, active_seconds: float) -> object:
+            return lifecycle_reporter.first_cycle(
+                epoch,
+                optimizer_step,
+                active_seconds,
+                checkpoint_path=checkpoint_path,
+            )
+
+        first_cycle_callback = report_first_cycle
+
     exit_code = 0
     try:
         with tqdm.external_write_mode():
@@ -314,6 +370,8 @@ def main(args: Namespace) -> None:
             wandb_run_id=wandb_run_id or (wandb.run.id if wandb.run is not None else None),
             output_dir=run_log_dir,
             max_grad_norm=optimizer_config.max_grad_norm,
+            progress_callback=lifecycle_reporter.progress if lifecycle_reporter is not None else None,
+            first_cycle_callback=first_cycle_callback,
         )
     except Exception as e:
         logging.error(f"Error in training: {e}")

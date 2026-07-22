@@ -96,15 +96,24 @@ group until every child exits. On timeout, cancellation, heartbeat failure, or
 another exceptional exit, it terminates and reaps that group before releasing
 the GPU lock. It writes `worker.json` heartbeats while active, atomically writes
 `terminal.json` on completion, failure, or timeout, and then creates a pending
-`notification.json` terminal event. Notification failure cannot change terminal
+`notification.json` terminal event. A nonzero child exit also records a concise,
+structured cause in terminal state. Notification failure cannot change terminal
 status. `monitor` merges terminal and notification files into `state.json` and
 launches eligible pending work only after the same launch checks pass.
 `monitor --no-launch` is strictly read-only for delegated monitoring.
 
+For supervisor-bound managed runs, the rank-zero trainer atomically replaces
+`progress.json` at training start, normal metric intervals, validation start,
+and checkpoint boundaries. After the first train-validation cycle has produced
+both `checkpoint.pt` and `backbone.safetensors`, it writes the one-shot
+`first-cycle.json` milestone. This milestone proves that training, validation,
+and recovery checkpointing work together. It is stable and idempotent for the
+run attempt.
+
 If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
 
-Run `notify-worker --once --root logs/research` from a scheduled task or another
-persistent local scheduler. Launch and dry-run operations register the exact
+Run `event-controller --root logs/research` as a persistent local non-model
+process for new launches. Launch and dry-run operations register the exact
 managed root with `.mjepa-research-root.json`. Register a pre-existing root once
 with `register-root --root logs/research`; this also migrates the legacy marker.
 The marker binds its canonical `root_path`, and the notification worker rejects
@@ -117,11 +126,23 @@ RPC succeeds. Failed deliveries use bounded full-jitter exponential backoff and
 require explicit `notify --requeue` after the eighth failure or a permanent
 validation error. Training never starts or waits for app-server.
 
-Prefer an event-driven local controller that runs the one-shot worker only after
-a durable terminal notification appears. Never hold a Codex turn open to sleep,
-wait on a shell process, or poll terminal files. A local non-model watcher may
-wait, but it may wake Codex only for a terminal event, an exceptional safety
-condition, or a due sparse watchdog check.
+The event controller uses Linux inotify for durable source files, pidfds for
+supervisor exits, and local deadline timers for trainer progress. It creates a
+one-shot `supervisor-lost.json` event when a recorded live supervisor disappears
+without terminal state and a one-shot `progress-stalled.json` event when a live
+supervisor's trainer-owned progress exceeds the configured deadline. It queues
+and delivers first-cycle, safety, and terminal notifications with stable event
+identifiers. Routine `progress.json`, heartbeat, notification, acceptance, and
+retry writes never wake Codex or retrigger delivery.
+
+If app-server delivery fails, keep queued events durable and disarm further
+delivery attempts until the daemon control socket is replaced or a due sparse
+recovery check explicitly runs the one-shot worker. Use
+`--defer-until-socket-replaced` when starting against a transport already known
+to be unavailable. Never hold a Codex turn open to sleep, wait on a shell
+process, or poll terminal files. Runs launched before the trainer instrumentation
+cannot emit progress or first-cycle events; retain terminal, supervisor, and
+sparse recovery coverage for them.
 
 Keep sparse routine monitoring only as a fallback:
 
@@ -160,7 +181,7 @@ usage reporting.
 
 The primary goal agent calls `summarize`, commits and pushes result or schedule changes, and launches the next phase.
 
-App-server delivery is at least once and deduplicated by terminal-event ID. The wake prompt contains only validated identifiers, status, and the absolute terminal-state path, never raw logs or stack traces. A host or scheduler failure can still miss a wake, so scheduled tasks require the host and Codex app to remain running. When app-server or scheduling is unavailable, the sparse monitor and atomic state let the primary task recover with `status`.
+App-server delivery is at least once and deduplicated by lifecycle-event ID. The wake prompt contains only validated identifiers, status, and the absolute event-state path, never raw logs or stack traces. A host or scheduler failure can still miss a wake. When app-server or the controller is unavailable, the sparse monitor and atomic state let the primary task recover with `status`.
 
 ## Storage and retention
 
@@ -188,6 +209,6 @@ Before publishing a result:
 1. Validate the skill with `quick_validate.py`.
 2. Exercise `launch --dry-run` for the study.
 3. Run `make check` and `make test-ci` in both repositories.
-4. Run the one-epoch W&B-offline GPU smoke study on physical GPU 1 or 2, including checkpoint, resume, status, summary, and retention behavior.
+4. Run the one-epoch W&B-offline GPU smoke study on physical GPU 1 or 2, including progress, first-cycle notification, checkpoint, resume, status, summary, and retention behavior.
 5. Confirm the study ID recovers its copied config, local metrics, provenance, state, W&B identity, research-log entry, and retained checkpoint.
 6. Commit and push the result update. Do not open a pull request unless requested.
