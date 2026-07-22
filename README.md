@@ -135,6 +135,15 @@ reset time, and change from the previous report. Do not create a separate
 schedule, wake, wait, or polling loop for usage alone, and do not count the
 sample as a research monitoring check.
 
+When an authorized pull request includes terminal comparative results, refresh
+its body after pushing the result commit. Add a `## Findings` table generated
+from `logs/research/<study-id>/summary.json` with every evaluated variant, key
+optimizer settings, peak and final outcomes, convergence metrics, per-run wall
+time, and promotion decision. Report the total study wall span and summed run
+time or compute cost separately, mark censored results, and distinguish active
+time from wall time and nominal from effective hyperparameters. Omit this
+section for protocol-only changes and studies that are still active.
+
 W&B consent is checked independently for every operation. Launch emits
 `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`.
 Each operation can run online only with a named entity, explicit authorization,
