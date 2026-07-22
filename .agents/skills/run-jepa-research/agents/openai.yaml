@@ -1,0 +1,4 @@
+interface:
+  display_name: "Run JEPA Research"
+  short_description: "Run bounded, recoverable JEPA ablation studies"
+  default_prompt: "Use $run-jepa-research to execute a bounded JEPA study from hypothesis through logged results."

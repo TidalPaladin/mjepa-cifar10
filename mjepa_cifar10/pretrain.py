@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
+from time import perf_counter
 from typing import Final
 
-import safetensors.torch as st
 import torch
 import torch.nn.functional as F
 import torchmetrics as tm
@@ -31,6 +31,7 @@ from tqdm import tqdm
 from vit import ViTFeatures
 
 from .classification import forward_classifier
+from .experiment import append_metric_record, save_safetensors_atomic
 from .train_utils import (
     OptimizerStepResult,
     clip_optimizer_grad_norm_,
@@ -45,7 +46,7 @@ from .train_utils import (
 NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
-GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "train/grad_clip_trigger_pct"
+GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "pretrain/grad_clip_trigger_pct"
 CPA_RESULT_KEYS: Final[tuple[str, ...]] = ("cpa_mean", "cpa_std", "cpa_p90", "cpa_p99")
 __all__ = [
     "CPA_RESULT_KEYS",
@@ -113,11 +114,17 @@ def train(
     optimizer: OptimizerLike,
     scheduler: SchedulerLike,
     trainer_config: TrainerConfig,
+    test_dataloader_fn: DataLoaderFn | None = None,
     last_epoch: int = -1,
+    initial_step: int | None = None,
+    elapsed_seconds_offset: float = 0.0,
+    wandb_run_id: str | None = None,
+    output_dir: Path | None = None,
     max_grad_norm: float | None = None,
 ) -> None:
+    training_started_at = perf_counter()
     # Module setup
-    log_dir = Path(wandb.run.dir) if wandb.run is not None else None
+    log_dir = output_dir if output_dir is not None else (Path(wandb.run.dir) if wandb.run is not None else None)
     unwrapped_jepa = jepa.module if isinstance(jepa, DDP) else jepa
     assert isinstance(unwrapped_jepa, MJEPA)
     optimizer.zero_grad()
@@ -129,7 +136,8 @@ def train(
 
     accumulate_grad_batches = trainer_config.accumulate_grad_batches
     microbatch = (last_epoch + 1) * len(train_dataloader)
-    step = microbatch // accumulate_grad_batches
+    inferred_step = microbatch // accumulate_grad_batches
+    step = inferred_step if initial_step is None else initial_step
     total_steps = calculate_total_steps(train_dataloader, trainer_config.num_epochs, accumulate_grad_batches)
     rank_zero_info(f"Training for {trainer_config.num_epochs} epochs = {total_steps} steps")
     rank_zero_info(
@@ -253,25 +261,26 @@ def train(
             # Log to wandb
             if step % LOG_INTERVAL == 0 and microbatch % accumulate_grad_batches == 0:
                 log_dict = {
-                    "train/loss": train_loss.compute().item(),
-                    "train/loss_jepa": train_loss_jepa.compute().item(),
-                    "train/acc": train_acc.compute().item(),
-                    "train/lr": get_scheduler_last_lr(scheduler),
+                    "pretrain/loss": train_loss.compute().item(),
+                    "pretrain/loss_jepa": train_loss_jepa.compute().item(),
+                    "probe/train_accuracy": train_acc.compute().item(),
+                    "pretrain/lr": get_scheduler_last_lr(scheduler),
+                    "convergence/active_seconds": elapsed_seconds_offset + perf_counter() - training_started_at,
                 }
                 if grad_norm_stats is not None:
                     grad_norm_mean, grad_norm_max = grad_norm_stats
-                    log_dict["train/grad_norm_mean"] = grad_norm_mean
-                    log_dict["train/grad_norm_max"] = grad_norm_max
+                    log_dict["pretrain/grad_norm_mean"] = grad_norm_mean
+                    log_dict["pretrain/grad_norm_max"] = grad_norm_max
                 if train_grad_clip_trigger_pct is not None:
                     log_dict[GRAD_CLIP_TRIGGER_PCT_KEY] = compute_and_reset_mean_percentage(train_grad_clip_trigger_pct)
                 if has_jepa_loss_cls:
-                    log_dict["train/loss_jepa_cls"] = train_loss_jepa_cls.compute().item()
+                    log_dict["pretrain/loss_jepa_cls"] = train_loss_jepa_cls.compute().item()
                 if has_sigreg_loss:
-                    log_dict["train/loss_sigreg"] = train_loss_sigreg.compute().item()
+                    log_dict["pretrain/loss_sigreg"] = train_loss_sigreg.compute().item()
                 if has_gram_loss:
-                    log_dict["train/loss_gram"] = train_loss_gram.compute().item()
+                    log_dict["pretrain/loss_gram"] = train_loss_gram.compute().item()
                 if train_cpa is not None:
-                    log_dict.update(compute_and_reset_cpa_metrics(train_cpa, prefix="train"))
+                    log_dict.update(compute_and_reset_cpa_metrics(train_cpa, prefix="pretrain/train"))
                 if is_rank_zero():
                     wandb.log(log_dict, step=step)
 
@@ -302,15 +311,17 @@ def train(
 
             # Log validation to wandb
             log_dict = {
-                "val/acc": val_acc_value.item(),
-                "val/epoch": epoch,
+                "probe/validation_accuracy": val_acc_value.item(),
+                "probe/validation_epoch": epoch,
+                "convergence/active_seconds": elapsed_seconds_offset + perf_counter() - training_started_at,
             }
             if val_cpa is not None:
-                log_dict.update(compute_and_reset_cpa_metrics(val_cpa, prefix="val"))
+                log_dict.update(compute_and_reset_cpa_metrics(val_cpa, prefix="pretrain/validation"))
 
             # Add histogram logging
             if is_rank_zero():
                 wandb.log(log_dict, step=step)
+                append_metric_record(log_dir, step, log_dict)
 
         # Save checkpoint
         if is_rank_zero() and log_dir:
@@ -323,15 +334,37 @@ def train(
                 scheduler=scheduler,
                 step=step,
                 epoch=epoch,
+                elapsed_seconds=elapsed_seconds_offset + perf_counter() - training_started_at,
+                wandb_run_id=wandb_run_id,
             )
-            st.save_file(
+            save_safetensors_atomic(
+                log_dir / "backbone.safetensors",
                 {k: v for k, v in unwrapped_jepa.student.state_dict().items() if isinstance(v, torch.Tensor)},
-                str(log_dir / "backbone.safetensors"),
             )
 
     # Save final checkpoint
     if is_rank_zero() and log_dir:
-        st.save_file(
+        save_safetensors_atomic(
+            log_dir / "backbone.safetensors",
             {k: v for k, v in unwrapped_jepa.student.state_dict().items() if isinstance(v, torch.Tensor)},
-            str(log_dir / "backbone.safetensors"),
         )
+
+    if test_dataloader_fn is not None:
+        test_dataloader = test_dataloader_fn(unwrapped_jepa.img_size, trainer_config.batch_size)
+        test_acc = tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES).cuda()
+        jepa.eval()
+        for img, label in tqdm(test_dataloader, desc="Testing probe: ", disable=not is_rank_zero(), leave=False):
+            batch_size = img.shape[0]
+            img = img.cuda()
+            label = label.cuda()
+            with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                teacher_output = unwrapped_jepa.forward_teacher(img)
+                probe_pred = unwrapped_jepa.forward_probe(teacher_output)["cls"].view(batch_size, -1)
+                test_acc.update(probe_pred, label)
+        if is_rank_zero():
+            test_log_dict = {
+                "probe/test_accuracy": test_acc.compute().item(),
+                "convergence/active_seconds": elapsed_seconds_offset + perf_counter() - training_started_at,
+            }
+            wandb.log(test_log_dict, step=step)
+            append_metric_record(log_dir, step, test_log_dict)

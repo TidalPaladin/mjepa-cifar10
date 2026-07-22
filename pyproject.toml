@@ -13,6 +13,7 @@ authors = [
     { name = "Scott Chase Waggener", email = "chase.waggener@icloud.com" },
 ]
 dependencies = [
+    "filelock==3.31.1",
     "torch==2.13.0",
     "torchvision==0.28.0",
     "pyyaml==6.0.3",
@@ -22,6 +23,7 @@ dependencies = [
     "vit",
     "mjepa",
     "wandb==0.28.1",
+    "websockets==16.1.1",
 ]
 
 readme = "README.md"
@@ -31,7 +33,7 @@ dynamic = [
 
 [tool.uv.sources]
 vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "f8b40c753d7bea5b9d788b379bda1445af0748aa" }
-mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "0e4414107381927a73419e4b366325b986d8f70d" }
+mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "04b33f8e938ab5fea6d863a7871a57aee05e94c7" }
 
 # For local sibling-repo testing, comment the git sources above and uncomment these:
 # vit = { path = "../vit", editable = true }

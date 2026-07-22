@@ -556,7 +556,7 @@ class RecordingHead(nn.Module):
 def make_model(
     *,
     num_cls_tokens: int,
-    head_config: AttentivePoolHeadConfig | None = None,
+    head_config: HeadConfig | AttentivePoolHeadConfig | None = None,
 ) -> CIFAR10MJEPA:
     backbone_config = ViTConfig(
         in_channels=3,
@@ -622,3 +622,26 @@ def test_forward_probe_requires_single_embedding_when_cls_tokens_are_disabled(mo
 
     with pytest.raises(ValueError, match="single embedding per sample"):
         model.forward_probe(features)
+
+
+def test_probe_loss_updates_only_classifier_head() -> None:
+    model = make_model(
+        num_cls_tokens=NUM_CLS_TOKENS,
+        head_config=HeadConfig(out_features=10),
+    )
+    images = torch.randn(BATCH_SIZE, 3, 8, 8)
+    labels = torch.tensor([0, 1])
+
+    teacher_features = model.forward_teacher(images)
+    logits = model.forward_probe(teacher_features)["cls"]
+    torch.nn.functional.cross_entropy(logits, labels).backward()
+
+    head_parameter_ids = {id(parameter) for parameter in model.student.get_head("cls").parameters()}
+    assert head_parameter_ids
+    for parameter in model.student.parameters():
+        if id(parameter) in head_parameter_ids:
+            assert parameter.grad is not None
+        else:
+            assert parameter.grad is None
+    assert all(parameter.grad is None for parameter in model.teacher.parameters())
+    assert all(parameter.grad is None for parameter in model.predictor.parameters())

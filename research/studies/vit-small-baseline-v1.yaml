@@ -1,0 +1,59 @@
+id: vit-small-baseline-v1
+question: What convergence and online-probe performance does the current ViT-S/4 MJEPA configuration achieve on the fixed CIFAR-10 validation split?
+hypothesis: The current configuration will complete 400 epochs within 24 active GPU hours and produce a valid online-probe trajectory from which fixed 90% and 95% convergence targets can be derived.
+rejection_condition: Reject the operational hypothesis if training times out, terminates without a recoverable checkpoint, or produces no valid online-probe validation measurements.
+checkpoint_plan: Retain the full resume checkpoint and backbone because this run is the study baseline.
+
+baseline:
+  id: baseline
+  config: config/pretrain/vit-small.yaml
+  hypothesis: The current ViT-S/4 MJEPA configuration provides a reproducible reference curve for later ablations.
+  mechanism: Predict teacher targets from masked student context with Gram anchoring and SigReg enabled by the current configuration.
+  changes: []
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+dataset_split:
+  train_examples: 45000
+  validation_examples: 5000
+  validation_examples_per_class: 500
+  official_test_use: confirmed-baseline-and-winner-only
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: vit-small-baseline-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 04b33f8e938ab5fea6d863a7871a57aee05e94c7
+  vit: f8b40c753d7bea5b9d788b379bda1445af0748aa
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: config/finetune/vit-small.yaml
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

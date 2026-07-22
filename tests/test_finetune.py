@@ -257,16 +257,16 @@ def test_build_log_dicts_keep_accuracy_as_primary_metric() -> None:
     val_log = build_val_log_dict(val_acc, epoch=3)
 
     assert train_log == {
-        "train/loss": pytest.approx(1.5),
-        "train/acc": pytest.approx(0.5),
-        "train/lr": pytest.approx(0.002),
-        "train/grad_norm_mean": pytest.approx(0.3),
-        "train/grad_norm_max": pytest.approx(0.7),
+        "sft/train_loss": pytest.approx(1.5),
+        "sft/train_accuracy": pytest.approx(0.5),
+        "sft/lr": pytest.approx(0.002),
+        "sft/grad_norm_mean": pytest.approx(0.3),
+        "sft/grad_norm_max": pytest.approx(0.7),
         GRAD_CLIP_TRIGGER_PCT_KEY: pytest.approx(100.0),
     }
     assert val_log == {
-        "val/acc": pytest.approx(1.0),
-        "val/epoch": 3,
+        "sft/validation_accuracy": pytest.approx(1.0),
+        "sft/validation_epoch": 3,
     }
 
 
@@ -316,13 +316,53 @@ def test_train_applies_resolution_scaling_and_logs_accuracy_metrics(mocker) -> N
     assert wandb_log.call_count >= 2
     logged_payloads = [call.args[0] for call in wandb_log.call_args_list]
 
-    train_logs = [payload for payload in logged_payloads if "train/acc" in payload]
-    val_logs = [payload for payload in logged_payloads if "val/acc" in payload]
+    train_logs = [payload for payload in logged_payloads if "sft/train_accuracy" in payload]
+    val_logs = [payload for payload in logged_payloads if "sft/validation_accuracy" in payload]
 
     assert train_logs
     assert val_logs
-    assert "train/loss" in train_logs[0]
-    assert "train/lr" in train_logs[0]
-    assert "train/loss_jepa" not in train_logs[0]
+    assert "sft/train_loss" in train_logs[0]
+    assert "sft/lr" in train_logs[0]
+    assert "pretrain/loss_jepa" not in train_logs[0]
     assert not any("cpa" in key for key in train_logs[0])
-    assert "val/acc" in val_logs[0]
+    assert "sft/validation_accuracy" in val_logs[0]
+
+
+def test_train_checkpoint_preserves_cumulative_runtime_and_wandb_id(mocker, tmp_path: Path) -> None:
+    model = make_model(
+        num_cls_tokens=NUM_CLS_TOKENS,
+        head_config=HeadConfig(out_features=NUM_CLASSES),
+        img_size=[8, 8],
+    )
+    optimizer = torch.optim.SGD(model.parameters(), lr=0.1)
+    scheduler = RecordingScheduler(lr=0.1)
+    trainer_config = TrainerConfig(
+        batch_size=BATCH_SIZE,
+        num_workers=0,
+        num_epochs=1,
+        accumulate_grad_batches=1,
+        log_interval=1,
+        check_val_every_n_epoch=1,
+    )
+    save_checkpoint = mocker.patch.object(finetune_module, "save_checkpoint")
+    mocker.patch.object(finetune_module, "save_safetensors_atomic")
+    mocker.patch.object(finetune_module.wandb, "log")
+    mocker.patch.object(finetune_module, "format_pbar_description", return_value="desc")
+
+    def dataloader_fn(size: Sequence[int], batch_size: int) -> DataLoader:
+        return make_dataloader(list(size), batch_size)
+
+    train(
+        model,
+        dataloader_fn,
+        dataloader_fn,
+        optimizer,
+        scheduler,
+        trainer_config,
+        elapsed_seconds_offset=100.0,
+        wandb_run_id="wandb-123",
+        output_dir=tmp_path,
+    )
+
+    assert save_checkpoint.call_args.kwargs["elapsed_seconds"] >= 100.0
+    assert save_checkpoint.call_args.kwargs["wandb_run_id"] == "wandb-123"
