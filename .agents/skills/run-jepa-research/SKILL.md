@@ -28,10 +28,11 @@ Use `scripts/research.py` as the persistent interface for JEPA studies. W&B stor
 5. Add regression tests before the implementation. Preserve the fixed 45,000/5,000 train/validation split and reserve the official test set for the confirmed baseline and winner.
 6. Run `preflight`. Do not launch until both repositories are clean, pushed, tested, pinned, and installed from the recorded commits.
 7. Launch with `scripts/research.py launch`. The harness exposes one physical GPU to each process, uses only GPUs 1 and 2, permits two jobs, and stops each job after 24 hours.
-8. Run the one-shot notification worker from a same-task scheduled follow-up when automation is available. It resumes the originating task after a terminal event through an existing local Codex app-server daemon. Keep the host and Codex app running.
-9. Use Luna 5.6 at medium reasoning for read-only polling when scheduled follow-ups support a model override. The monitor may run `status` or `monitor --no-launch` and report failures. The primary goal agent retains launches, summaries, promotion decisions, code and Git changes, and checkpoint deletion.
-10. Promote, replicate, fine-tune, and record results only through the thresholds in the study protocol. Do not exceed eight pretraining trials.
-11. Append the result to `research/LOG.md`, commit and push the result, then apply eligible retention. Never delete legacy weights.
+8. Use app-server terminal events as the primary wake path. Run the one-shot notification worker from a local event source, or from a same-task scheduled fallback when necessary. Never keep a Codex turn open to sleep or poll. Keep the host and Codex app running.
+9. Pin read-only scheduled fallback checks to GPT-5.6 Luna with medium reasoning instead of inheriting the chat default. The monitor may run `status` or `monitor --no-launch` and report failures. The primary goal agent retains launches, summaries, promotion decisions, code and Git changes, and checkpoint deletion.
+10. Add one opportunistic Codex rate-limit snapshot to research reports that are already being produced when live telemetry is available. Do not schedule, wake, wait, or poll for usage alone.
+11. Promote, replicate, fine-tune, and record results only through the thresholds in the study protocol. Do not exceed eight pretraining trials.
+12. Append the result to `research/LOG.md`, commit and push the result, then apply eligible retention. Never delete legacy weights.
 
 ## Commands
 

@@ -88,7 +88,24 @@ delivery per task, and records acceptance only after app-server accepts the RPC.
 Training never waits for Codex, and delivery failure cannot alter terminal run
 status.
 
-Use a same-task scheduled follow-up to run `notify-worker --once`. Keep sparse read-only monitoring as a fallback: check at 10 and 20 minutes to catch startup failures, then every 30 minutes, with no more than five routine checks. A Luna 5.6 medium follow-up may perform read-only monitoring. The primary goal agent keeps responsibility for launches, promotion decisions, code and Git changes, and checkpoint deletion. Automated tests use fake app-server transports and must never wake a real task.
+Prefer a local event source that runs `notify-worker --once` only after a durable
+terminal event appears. Never keep a Codex turn open to sleep or poll. Use a
+same-task scheduled follow-up only as a sparse fallback: check at 10 and 20
+minutes to catch startup failures, then every 30 minutes, with no more than five
+routine checks. Pin that read-only follow-up to GPT-5.6 Luna with medium
+reasoning in the scheduled-task settings instead of inheriting the chat default.
+For an idle event wake, the app-server notifier starts the turn with GPT-5.6
+Luna and medium reasoning. Steering an active turn inherits that turn's model.
+The primary goal agent keeps responsibility for launches, promotion decisions,
+code and Git changes, and checkpoint deletion. Automated tests use fake
+app-server transports and must never wake a real task.
+
+Usage reporting is opportunistic. While an existing monitoring, terminal, or
+handoff report is already running, sample current Codex rate-limit telemetry
+once when available and include its timestamp, used and remaining percentages,
+reset time, and change from the previous report. Do not create a separate
+schedule, wake, wait, or polling loop for usage alone, and do not count the
+sample as a research monitoring check.
 
 W&B consent is checked independently for every operation. Launch emits
 `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`.

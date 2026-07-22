@@ -37,6 +37,8 @@ from mjepa_cifar10.research.runtime import atomic_write_json
 
 EVENT_ID = "12345678-1234-5678-9234-567812345678"
 THREAD_ID = "019f8098-aa66-7011-bc23-c3b3a78f7501"
+EXPECTED_WAKE_MODEL = "gpt-5.6-luna"
+EXPECTED_WAKE_EFFORT = "medium"
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
 P = ParamSpec("P")
 
@@ -179,6 +181,8 @@ async def test_idle_thread_starts_turn(tmp_path: Path) -> None:
     assert acceptance.turn_id == "new-turn"
     start = next(message for message in transport.sent if message.get("method") == "turn/start")
     assert start["params"]["clientUserMessageId"] == EVENT_ID
+    assert start["params"]["model"] == EXPECTED_WAKE_MODEL
+    assert start["params"]["effort"] == EXPECTED_WAKE_EFFORT
 
 
 @run_async
@@ -192,6 +196,8 @@ async def test_active_thread_steers_existing_turn(tmp_path: Path) -> None:
     assert acceptance.rpc_method == "turn/steer"
     steer = next(message for message in transport.sent if message.get("method") == "turn/steer")
     assert steer["params"]["expectedTurnId"] == "active-turn"
+    assert "model" not in steer["params"]
+    assert "effort" not in steer["params"]
 
 
 @pytest.mark.parametrize(

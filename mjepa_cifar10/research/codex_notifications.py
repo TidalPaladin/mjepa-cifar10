@@ -38,6 +38,8 @@ APP_SERVER_BASELINE = "0.144.5"
 CLIENT_NAME = "mjepa_cifar10_autoresearch"
 CLIENT_TITLE = "MJEPA CIFAR-10 Autoresearch"
 CLIENT_VERSION = "1.0.0"
+TERMINAL_WAKE_MODEL = "gpt-5.6-luna"
+TERMINAL_WAKE_EFFORT = "medium"
 DEFAULT_REQUEST_TIMEOUT = 15.0
 APP_SERVER_MESSAGE_LIMIT_BYTES = 16 * 1024 * 1024
 RETRY_BASE_SECONDS = 5.0
@@ -821,7 +823,13 @@ async def deliver_notification(
                 raise AppServerProtocolError("thread status changed while preparing turn/start")
             result = await client.request(
                 "turn/start",
-                {"threadId": thread_id, "input": input_items, "clientUserMessageId": event.event_id},
+                {
+                    "threadId": thread_id,
+                    "input": input_items,
+                    "clientUserMessageId": event.event_id,
+                    "model": TERMINAL_WAKE_MODEL,
+                    "effort": TERMINAL_WAKE_EFFORT,
+                },
             )
             turn = result.get("turn")
             if not isinstance(turn, dict) or not isinstance(turn.get("id"), str):

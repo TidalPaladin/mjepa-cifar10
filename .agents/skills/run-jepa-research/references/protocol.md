@@ -117,7 +117,13 @@ RPC succeeds. Failed deliveries use bounded full-jitter exponential backoff and
 require explicit `notify --requeue` after the eighth failure or a permanent
 validation error. Training never starts or waits for app-server.
 
-Keep sparse routine monitoring as a fallback:
+Prefer an event-driven local controller that runs the one-shot worker only after
+a durable terminal notification appears. Never hold a Codex turn open to sleep,
+wait on a shell process, or poll terminal files. A local non-model watcher may
+wait, but it may wake Codex only for a terminal event, an exceptional safety
+condition, or a due sparse watchdog check.
+
+Keep sparse routine monitoring only as a fallback:
 
 - check 10 minutes after launch;
 - check again 20 minutes after launch;
@@ -126,7 +132,16 @@ Keep sparse routine monitoring as a fallback:
 
 Advance the routine-check count only when that run's `next_check_at` is due and the check is performed. A terminal wake for one run must clear only that run's schedule and preserve schedules and budgets for other active runs.
 
-A lower-cost monitor is appropriate for these read-only checks. Prefer Luna 5.6 at medium reasoning when the scheduled follow-up supports a model override. Its task is limited to `status`, `monitor --no-launch`, terminal-log inspection, and concise failure reporting. It must not launch pending work, change code or Git state, call `summarize`, select a winner, or delete checkpoints. The primary goal agent performs those state transitions.
+Pin scheduled read-only checks to GPT-5.6 Luna with medium reasoning when model
+selection is available; select it once in the scheduled-task configuration
+instead of relying on the chat default. App-server `turn/start` can also select
+`model: gpt-5.6-luna` and `effort: medium`; the notifier sends those overrides
+when starting an idle task. `turn/steer` inherits the active turn's model. Record
+the effective model and any fallback. The monitor is limited to `status`,
+`monitor --no-launch`, terminal-log inspection, and concise failure reporting.
+It must not launch pending work, change code or Git state, call `summarize`,
+select a winner, or delete checkpoints. The primary goal agent performs those
+state transitions.
 
 Each monitoring pass should:
 
@@ -134,6 +149,14 @@ Each monitoring pass should:
 2. run `status` or `monitor --no-launch` for the study ID;
 3. report a terminal phase to the primary goal agent;
 4. stop scheduling when the study is complete, not confirmed, or needs user authority.
+
+While producing an already-due monitoring, terminal, promotion, or handoff
+report, sample current Codex rate-limit telemetry once when it is available.
+Include the UTC observation time, used and remaining percentages, window and
+reset time, and the change from the prior reported snapshot when known. This
+observation must not advance a routine-check count or change `next_check_at`.
+Never create a scheduled task, start or wake a turn, wait, or poll solely for
+usage reporting.
 
 The primary goal agent calls `summarize`, commits and pushes result or schedule changes, and launches the next phase.
 
