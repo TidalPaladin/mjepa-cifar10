@@ -32,6 +32,7 @@
 - `uv run python scripts/research.py notify <study.yaml> <run-id> [--requeue]`: reconstruct or explicitly requeue one terminal notification.
 - `uv run python scripts/research.py register-root --root logs/research`: register or migrate one exact notification root.
 - `uv run python scripts/research.py notify-worker --once --root logs/research`: deliver due notifications through an existing local Codex app-server daemon.
+- `uv run python scripts/research.py event-controller --root logs/research`: watch trainer, supervisor, and terminal lifecycle events without model polling.
 - `uv run python scripts/research.py summarize <study.yaml>`: compute convergence and promotion results.
 - `uv run python scripts/research.py inventory`: index legacy and managed local run artifacts without changing them.
 
@@ -80,7 +81,10 @@
 - Do not launch from dirty, stale, unpushed, protected, editable, or SHA-mismatched study environments.
 - Apply the repository-scoped `$autoresearch` skill before `$run-jepa-research`.
 - Declare and gate W&B emissions per operation. Launch emits `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`. Record requested and effective modes locally before an external write.
-- Use app-server terminal notifications with sparse monitoring as a fallback. Check at 10 and 20 minutes after launch, then every 30 minutes. Luna 5.6 medium may perform read-only monitoring; the primary goal agent owns state transitions and mutations.
+- Use app-server lifecycle notifications as the primary wake path and sparse monitoring only as a fallback. Never keep a Codex turn open to sleep or poll. Check at 10 and 20 minutes after launch, then every 30 minutes. Pin read-only scheduled checks to GPT-5.6 Luna with medium reasoning; the primary goal agent owns state transitions and mutations.
+- Run the non-model event controller for new managed launches. It watches durable state with inotify, supervisor exits with pidfds, and progress deadlines with local timers. Wake once after the first train-validation-checkpoint cycle, on exceptional safety events, and on terminal state. Never wake for routine progress writes or notification retry writes.
+- When a research report is already being produced, sample current Codex rate-limit telemetry once if available and include a compact usage snapshot. Never schedule, wake, wait, or poll solely for usage reporting, and do not advance research monitoring counters for it.
 - Advance a run's routine-check count only when its recorded `next_check_at` is due. A wake for another run must preserve its schedule.
 - Never let training wait for Codex or let notification failure change terminal run status. Test app-server integration only with fake servers.
 - Run notification sweeps only against an exact root registered by the research launcher or `register-root`; reject missing, mismatched, symlinked, repository, home, or broad roots before scanning.
+- When an authorized pull request contains terminal comparative research results, update its body after the result commit is pushed with a `## Findings` table generated from the committed structured summary. Include every evaluated variant, key hyperparameters, primary and convergence metrics, elapsed wall time, decision, total study span, and summed run time or compute cost; mark censored values and distinguish active from wall time. Omit the section for protocol-only changes and active studies.

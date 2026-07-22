@@ -1,0 +1,103 @@
+id: muon-optimizer-v1
+question: Does hybrid Muon improve ViT-S/4 MJEPA pretraining convergence or online-probe validation accuracy relative to AdamW on the fixed CIFAR-10 split?
+hypothesis: A Muon configuration will meet a preregistered promotion threshold and rank above the AdamW configurations by common-horizon active-time AUC, peak validation accuracy, then active time to the fixed 95% target.
+rejection_condition: Reject the hypothesis if no Muon configuration qualifies at seed 0, or if the selected Muon configuration fails the three-seed confirmation rule. A qualifying AdamW-only variant does not support the Muon hypothesis.
+checkpoint_plan: Retain full and backbone weights for the baseline and confirmed winner. After results are committed and pushed, delete only managed rejected-run weights allowed by the repository retention policy.
+
+baseline:
+  id: adamw-baseline
+  config: config/pretrain/vit-small.yaml
+  hypothesis: The formal AdamW configuration reproduces the reference pretraining curve under the paired study environment.
+  mechanism: Apply AdamW to all trainable student, predictor, and classifier-head parameters.
+  changes: []
+
+variants:
+  - id: muon-matched
+    config: config/pretrain/vit-small-muon.yaml
+    hypothesis: Muon at the baseline learning rate and weight decay improves update efficiency without exceeding the allowed peak-accuracy loss.
+    mechanism: Apply Newton-Schulz-orthogonalized momentum updates to 2-D hidden weights, with AdamW-RMS learning-rate adjustment; retain AdamW for the probe head, token-like parameters, and non-2-D parameters.
+    changes:
+      - Replace AdamW with hybrid Muon for eligible 2-D hidden weights.
+      - Use match_rms_adamw scaling with Muon learning rate 0.002, momentum 0.95, and weight decay 0.2.
+      - Keep the auxiliary AdamW learning rate at 0.002.
+  - id: muon-lr-half
+    config: config/pretrain/vit-small-muon-lr-half.yaml
+    hypothesis: Halving the Muon learning rate improves stability or peak accuracy relative to the matched-rate Muon candidate.
+    mechanism: Use the same hybrid routing and RMS adjustment as muon-matched while reducing only the Muon branch learning rate.
+    changes:
+      - Set the Muon learning rate to 0.001.
+      - Keep the auxiliary AdamW learning rate at 0.002 and weight decay at 0.2.
+  - id: adamw-lr-half
+    config: config/pretrain/vit-small-adamw-lr-half.yaml
+    hypothesis: Halving the AdamW learning rate tests whether the formal baseline is step-size limited under the same training horizon.
+    mechanism: Preserve the formal AdamW optimizer and reduce its global learning rate.
+    changes:
+      - Set the AdamW learning rate to 0.001.
+      - Keep AdamW weight decay at 0.2 and betas at [0.85, 0.95].
+  - id: muon-wd-half
+    config: config/pretrain/vit-small-muon-wd-half.yaml
+    hypothesis: If no initial candidate qualifies, halving weight decay tests whether Muon is over-regularized at the formal baseline value.
+    mechanism: Preserve matched-rate hybrid Muon and reduce optimizer weight decay.
+    changes:
+      - Set the Muon and auxiliary AdamW weight decay to 0.1.
+      - Keep the Muon and auxiliary AdamW learning rates at 0.002.
+  - id: adamw-wd-half
+    config: config/pretrain/vit-small-adamw-wd-half.yaml
+    hypothesis: If no initial candidate qualifies, halving AdamW weight decay measures the corresponding regularization effect without changing optimizer type.
+    mechanism: Preserve the formal AdamW optimizer and reduce its global weight decay.
+    changes:
+      - Set the AdamW weight decay to 0.1.
+      - Keep the AdamW learning rate at 0.002.
+  - id: muon-lr-wd-half
+    config: config/pretrain/vit-small-muon-lr-wd-half.yaml
+    hypothesis: If no initial candidate qualifies, jointly halving Muon learning rate and weight decay tests the single remaining low-step, low-regularization corner.
+    mechanism: Use hybrid Muon with the lower preregistered learning rate and weight decay.
+    changes:
+      - Set the Muon learning rate to 0.001 and optimizer weight decay to 0.1.
+      - Keep the auxiliary AdamW learning rate at 0.002.
+  - id: adamw-lr-wd-half
+    config: config/pretrain/vit-small-adamw-lr-wd-half.yaml
+    hypothesis: If no initial candidate qualifies, jointly halving AdamW learning rate and weight decay completes the paired low-step, low-regularization comparison.
+    mechanism: Preserve AdamW while using the lower preregistered learning rate and weight decay.
+    changes:
+      - Set the AdamW learning rate to 0.001 and weight decay to 0.1.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: muon-optimizer-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 04b33f8e938ab5fea6d863a7871a57aee05e94c7
+  vit: f8b40c753d7bea5b9d788b379bda1445af0748aa
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: config/finetune/vit-small.yaml
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

@@ -29,6 +29,10 @@ HEARTBEAT_FILENAME: Final[str] = "worker.json"
 NOTIFICATION_FILENAME: Final[str] = "notification.json"
 RETENTION_LOG_FILENAME: Final[str] = "retention.jsonl"
 WANDB_SERVICE_ENVIRONMENT_VARIABLE: Final[str] = "WANDB_SERVICE"
+LIFECYCLE_STUDY_ENVIRONMENT_VARIABLE: Final[str] = "MJEPA_RESEARCH_STUDY_ID"
+LIFECYCLE_RUN_ENVIRONMENT_VARIABLE: Final[str] = "MJEPA_RESEARCH_RUN_ID"
+LIFECYCLE_ATTEMPT_ENVIRONMENT_VARIABLE: Final[str] = "MJEPA_RESEARCH_ATTEMPT"
+LIFECYCLE_THREAD_ENVIRONMENT_VARIABLE: Final[str] = "MJEPA_RESEARCH_THREAD_ID"
 MINIMUM_POLL_INTERVAL_SECONDS: Final[int] = 10 * 60
 STEADY_STATE_POLL_INTERVAL_SECONDS: Final[int] = 30 * 60
 MAX_ROUTINE_CHECKS: Final[int] = 5
@@ -588,6 +592,47 @@ def build_managed_worker_environment(
     return environment
 
 
+def configure_lifecycle_environment(
+    base: Mapping[str, str],
+    *,
+    study_id: str,
+    run_id: str,
+    attempt: int,
+    originating_thread_id: str | None,
+) -> dict[str, str]:
+    """Bind trainer lifecycle writes to the supervisor's persisted run identity."""
+    if attempt < 1:
+        raise ValueError("managed lifecycle attempt must be positive")
+    environment = dict(base)
+    environment.update(
+        {
+            LIFECYCLE_STUDY_ENVIRONMENT_VARIABLE: study_id,
+            LIFECYCLE_RUN_ENVIRONMENT_VARIABLE: run_id,
+            LIFECYCLE_ATTEMPT_ENVIRONMENT_VARIABLE: str(attempt),
+        }
+    )
+    if originating_thread_id is None:
+        environment.pop(LIFECYCLE_THREAD_ENVIRONMENT_VARIABLE, None)
+    else:
+        environment[LIFECYCLE_THREAD_ENVIRONMENT_VARIABLE] = originating_thread_id
+    return environment
+
+
+def process_exit_error(exit_code: int, *, timed_out: bool) -> str | None:
+    """Return a compact structured cause for an unsuccessful training process."""
+    if timed_out:
+        return "24-hour job timeout exceeded"
+    if exit_code == 0:
+        return None
+    if exit_code < 0:
+        try:
+            signal_name = signal.Signals(-exit_code).name
+        except ValueError:
+            signal_name = f"signal {-exit_code}"
+        return f"training process terminated by {signal_name}"
+    return f"training process exited with status {exit_code}"
+
+
 def run_worker(
     spec_path: Path,
     run_id: str,
@@ -641,6 +686,13 @@ def run_worker(
             )
             tracker_decision = spec.wandb_operation_decision("launch", os.environ.get("WANDB_MODE", "online"))
             environment = build_managed_worker_environment(os.environ, physical_gpu, repo_root, spec)
+            environment = configure_lifecycle_environment(
+                environment,
+                study_id=spec.id,
+                run_id=run_id,
+                attempt=run_state.attempt,
+                originating_thread_id=originating_thread_id,
+            )
             provenance.update(
                 {
                     "physical_gpu": physical_gpu,
@@ -675,7 +727,7 @@ def run_worker(
                 "physical_gpu": physical_gpu,
                 "wandb_run_id": wandb_run_id,
                 "command": command,
-                "error": "24-hour job timeout exceeded" if timed_out else None,
+                "error": process_exit_error(exit_code, timed_out=timed_out),
                 "attempt": run_state.attempt,
                 "terminal_event_id": terminal_event_id,
                 "originating_thread_id": originating_thread_id,
@@ -797,6 +849,29 @@ def _pid_is_alive(pid: int) -> bool:
     return True
 
 
+def _pending_runs_in_study_order(state: StudyState, spec: StudySpec) -> tuple[RunState, ...]:
+    """Return pending runs in protocol order, independent of JSON object-key order."""
+    variant_order = {variant.id: index for index, variant in enumerate((spec.baseline, *spec.variants))}
+    shot_order = {shots: index for index, shots in enumerate(spec.evaluation.shots_per_class)}
+    unknown_variant = len(variant_order)
+    unknown_shots = len(shot_order)
+
+    def schedule_key(run: RunState) -> tuple[int, int, int, int, str]:
+        variant_index = variant_order.get(run.spec.variant, unknown_variant)
+        if run.spec.kind == "pretrain":
+            return (0, run.spec.seed, 0, variant_index, run.spec.id)
+        return (
+            1,
+            shot_order.get(run.spec.shots_per_class, unknown_shots),
+            run.spec.seed,
+            variant_index,
+            run.spec.id,
+        )
+
+    pending = (run for run in state.runs.values() if run.status == "pending")
+    return tuple(sorted(pending, key=schedule_key))
+
+
 def launch_available_runs(
     spec: StudySpec,
     spec_path: Path,
@@ -822,7 +897,7 @@ def launch_available_runs(
         reserved = [run.physical_gpu for run in active if run.physical_gpu is not None]
         available = available_physical_gpus(spec.resources.physical_gpus, reserved=reserved, lock_root=lock_root)
         for run, physical_gpu in zip(
-            (run for run in state.runs.values() if run.status == "pending"),
+            _pending_runs_in_study_order(state, spec),
             available[:capacity],
             strict=False,
         ):
@@ -870,6 +945,14 @@ def launch_available_runs(
 
 
 def prepare_retryable_runs(state: StudyState) -> int:
+    from .lifecycle_events import (
+        FIRST_CYCLE_FILENAME,
+        PROGRESS_FILENAME,
+        PROGRESS_STALLED_FILENAME,
+        SUPERVISOR_LOST_FILENAME,
+    )
+
+    reconcile_state(state)
     retry_count = 0
     for run in state.runs.values():
         if run.status not in ("failed", "timed_out") or run.decision != "retryable":
@@ -877,7 +960,20 @@ def prepare_retryable_runs(state: StudyState) -> int:
         if run.run_dir is not None:
             run_dir = Path(run.run_dir)
             attempts_dir = run_dir / "attempts"
-            for artifact_name in (TERMINAL_FILENAME, HEARTBEAT_FILENAME, NOTIFICATION_FILENAME):
+            lifecycle_event_filenames = (
+                FIRST_CYCLE_FILENAME,
+                SUPERVISOR_LOST_FILENAME,
+                PROGRESS_STALLED_FILENAME,
+            )
+            artifact_names = (
+                TERMINAL_FILENAME,
+                HEARTBEAT_FILENAME,
+                NOTIFICATION_FILENAME,
+                PROGRESS_FILENAME,
+                *lifecycle_event_filenames,
+                *(f"{Path(name).stem}.notification.json" for name in lifecycle_event_filenames),
+            )
+            for artifact_name in artifact_names:
                 artifact = run_dir / artifact_name
                 if artifact.is_file():
                     attempts_dir.mkdir(parents=True, exist_ok=True)

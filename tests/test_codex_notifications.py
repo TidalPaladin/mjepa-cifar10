@@ -12,9 +12,11 @@ from typing import Any, ParamSpec
 import pytest
 
 from mjepa_cifar10.research.codex_notifications import (
+    APP_SERVER_MESSAGE_LIMIT_BYTES,
     MANAGED_ROOT_SCHEMA_VERSION,
     MAX_DELIVERY_ATTEMPTS,
     AppServerProtocolError,
+    JsonlStdioTransport,
     NotificationEvent,
     NotificationStateError,
     RpcClient,
@@ -23,6 +25,7 @@ from mjepa_cifar10.research.codex_notifications import (
     ensure_notification,
     initialize_notification_root,
     notification_lock_path,
+    queue_notification_from_lifecycle,
     queue_notification_from_terminal,
     read_notification_event,
     register_notification_root,
@@ -30,11 +33,14 @@ from mjepa_cifar10.research.codex_notifications import (
     validate_notification_root,
     write_notification_event,
 )
+from mjepa_cifar10.research.lifecycle_events import persist_first_cycle_event
 from mjepa_cifar10.research.runtime import atomic_write_json
 
 
 EVENT_ID = "12345678-1234-5678-9234-567812345678"
 THREAD_ID = "019f8098-aa66-7011-bc23-c3b3a78f7501"
+EXPECTED_WAKE_MODEL = "gpt-5.6-luna"
+EXPECTED_WAKE_EFFORT = "medium"
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
 P = ParamSpec("P")
 
@@ -45,6 +51,28 @@ def run_async(function: Callable[P, Coroutine[Any, Any, None]]) -> Callable[P, N
         asyncio.run(function(*args, **kwargs))
 
     return wrapped
+
+
+@run_async
+async def test_stdio_transport_allows_large_app_server_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    class FakeProcess:
+        stdin = object()
+        stdout = object()
+
+        def kill(self) -> None:
+            raise AssertionError("process should remain open")
+
+    async def create_subprocess_exec(*_command: str, **kwargs: Any) -> FakeProcess:
+        captured_kwargs.update(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
+
+    await JsonlStdioTransport.connect()
+
+    assert captured_kwargs["limit"] == APP_SERVER_MESSAGE_LIMIT_BYTES
 
 
 class ScriptedTransport:
@@ -144,6 +172,77 @@ def test_wake_prompt_contains_only_validated_terminal_identifiers(tmp_path: Path
     assert "wandb-1" not in prompt
 
 
+def test_lifecycle_wake_prompt_contains_only_validated_event_identifiers(tmp_path: Path) -> None:
+    root = tmp_path / "logs" / "research"
+    initialize_notification_root(root)
+    run_dir = root / "study-a" / "runs" / "run-a"
+    run_dir.mkdir(parents=True)
+    checkpoint = run_dir / "checkpoint.pt"
+    checkpoint.touch()
+    lifecycle = persist_first_cycle_event(
+        run_dir,
+        study_id="study-a",
+        run_id="run-a",
+        attempt=1,
+        occurred_at=NOW,
+        originating_thread_id=THREAD_ID,
+        epoch=0,
+        optimizer_step=10,
+        active_seconds=12.5,
+        checkpoint_path=checkpoint,
+    )
+    event = queue_notification_from_lifecycle(Path(lifecycle.event_state_path), root)
+
+    prompt = build_wake_prompt(event)
+
+    assert "Event: first_cycle_completed" in prompt
+    assert "Study: study-a" in prompt
+    assert "Run: run-a" in prompt
+    assert lifecycle.event_state_path in prompt
+    assert "checkpoint.pt" not in prompt
+
+
+@run_async
+async def test_sweep_accepts_lifecycle_event_once(tmp_path: Path) -> None:
+    root = tmp_path / "logs" / "research"
+    initialize_notification_root(root)
+    run_dir = root / "study-a" / "runs" / "run-a"
+    run_dir.mkdir(parents=True)
+    checkpoint = run_dir / "checkpoint.pt"
+    checkpoint.touch()
+    lifecycle = persist_first_cycle_event(
+        run_dir,
+        study_id="study-a",
+        run_id="run-a",
+        attempt=1,
+        occurred_at=NOW,
+        originating_thread_id=THREAD_ID,
+        epoch=0,
+        optimizer_step=10,
+        active_seconds=12.5,
+        checkpoint_path=checkpoint,
+    )
+    event = queue_notification_from_lifecycle(Path(lifecycle.event_state_path), root)
+    calls = 0
+
+    async def connect() -> ScriptedTransport:
+        nonlocal calls
+        calls += 1
+        return ScriptedTransport(app_server_handler("idle", []))
+
+    first = await sweep_notifications(root, connect=connect, now=lambda: NOW)
+    second = await sweep_notifications(root, connect=connect, now=lambda: NOW)
+    persisted = read_notification_event(
+        Path(event.terminal_state_path).with_name("first-cycle.notification.json"),
+        root,
+    )
+
+    assert first.accepted == 1
+    assert second.due == 0
+    assert calls == 1
+    assert persisted.state == "accepted"
+
+
 @run_async
 async def test_idle_thread_starts_turn(tmp_path: Path) -> None:
     _root, event = queued_notification(tmp_path)
@@ -155,6 +254,8 @@ async def test_idle_thread_starts_turn(tmp_path: Path) -> None:
     assert acceptance.turn_id == "new-turn"
     start = next(message for message in transport.sent if message.get("method") == "turn/start")
     assert start["params"]["clientUserMessageId"] == EVENT_ID
+    assert start["params"]["model"] == EXPECTED_WAKE_MODEL
+    assert start["params"]["effort"] == EXPECTED_WAKE_EFFORT
 
 
 @run_async
@@ -168,6 +269,8 @@ async def test_active_thread_steers_existing_turn(tmp_path: Path) -> None:
     assert acceptance.rpc_method == "turn/steer"
     steer = next(message for message in transport.sent if message.get("method") == "turn/steer")
     assert steer["params"]["expectedTurnId"] == "active-turn"
+    assert "model" not in steer["params"]
+    assert "effort" not in steer["params"]
 
 
 @pytest.mark.parametrize(

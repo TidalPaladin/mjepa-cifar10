@@ -142,3 +142,4 @@ coverage.xml
 **/_version.py
 
 logs/
+research/.LOG.md.lock

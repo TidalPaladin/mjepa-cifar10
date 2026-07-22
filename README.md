@@ -69,6 +69,7 @@ uv run python scripts/research.py monitor research/studies/<study-id>.yaml
 uv run python scripts/research.py notify research/studies/<study-id>.yaml <run-id>
 uv run python scripts/research.py register-root --root logs/research
 uv run python scripts/research.py notify-worker --once --root logs/research
+uv run python scripts/research.py event-controller --root logs/research
 uv run python scripts/research.py summarize research/studies/<study-id>.yaml --record
 uv run python scripts/research.py storage-report research/studies/<study-id>.yaml
 uv run python scripts/research.py inventory --wandb-entity <entity>
@@ -76,7 +77,12 @@ uv run python scripts/research.py inventory --wandb-entity <entity>
 
 `launch --dry-run` creates the atomic study state without starting training. A real launch uses physical GPUs 1 and 2, exposes one GPU to each process, runs at most two jobs, and enforces a 24-hour job timeout. Before each launch, the harness checks for at least `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free.
 
-Terminal workers write `terminal.json` before queueing `notification.json`.
+Managed trainers write `progress.json` locally and create `first-cycle.json` only
+after the first train, validation, and recoverable checkpoint cycle completes.
+The controller creates `supervisor-lost.json` when a supervisor exits without
+terminal state and `progress-stalled.json` when trainer progress exceeds its
+deadline. Terminal workers write `terminal.json` before queueing
+`notification.json`.
 Launch registers the exact notification root with `.mjepa-research-root.json`.
 Use `register-root` once for an existing root; it is idempotent and migrates the
 legacy marker. The marker binds its canonical `root_path`, so the one-shot
@@ -88,7 +94,55 @@ delivery per task, and records acceptance only after app-server accepts the RPC.
 Training never waits for Codex, and delivery failure cannot alter terminal run
 status.
 
-Use a same-task scheduled follow-up to run `notify-worker --once`. Keep sparse read-only monitoring as a fallback: check at 10 and 20 minutes to catch startup failures, then every 30 minutes, with no more than five routine checks. A Luna 5.6 medium follow-up may perform read-only monitoring. The primary goal agent keeps responsibility for launches, promotion decisions, code and Git changes, and checkpoint deletion. Automated tests use fake app-server transports and must never wake a real task.
+Run `event-controller` as the primary local event source. It uses Linux inotify
+for durable state, pidfds for supervisor exits, and a local progress-deadline
+timer. Routine progress and notification retry writes never wake Codex. A run
+can wake once after its first train-validation-checkpoint cycle, on a supervisor
+loss or progress stall, and on terminal state. The controller queues events
+even when app-server is unavailable and stops delivery attempts until the daemon
+socket is replaced after a transport failure.
+
+Never keep a Codex turn open to sleep or poll. Use a same-task scheduled
+follow-up only as a sparse fallback: check at 10 and 20 minutes to catch startup
+failures, then every 30 minutes, with no more than five routine checks. Pin that
+read-only follow-up to GPT-5.6 Luna with medium reasoning in the scheduled-task
+settings instead of inheriting the chat default.
+For an idle event wake, the app-server notifier starts the turn with GPT-5.6
+Luna and medium reasoning. Steering an active turn inherits that turn's model.
+The primary goal agent keeps responsibility for launches, promotion decisions,
+code and Git changes, and checkpoint deletion. Automated tests use fake
+app-server transports and must never wake a real task.
+
+Start the controller with:
+
+```bash
+uv run python scripts/research.py event-controller \
+  --root logs/research \
+  --progress-timeout-seconds 1800
+```
+
+Use `--transport unix --socket <absolute-socket-path>` for direct local Unix
+delivery. Use `--defer-until-socket-replaced` after a confirmed transport
+failure so pending events remain durable without spending retries until the
+operator restarts the daemon. Runs launched before this instrumentation do not
+emit trainer progress or first-cycle events, but the controller can still watch
+their supervisor and terminal state.
+
+Usage reporting is opportunistic. While an existing monitoring, terminal, or
+handoff report is already running, sample current Codex rate-limit telemetry
+once when available and include its timestamp, used and remaining percentages,
+reset time, and change from the previous report. Do not create a separate
+schedule, wake, wait, or polling loop for usage alone, and do not count the
+sample as a research monitoring check.
+
+When an authorized pull request includes terminal comparative results, refresh
+its body after pushing the result commit. Add a `## Findings` table generated
+from `logs/research/<study-id>/summary.json` with every evaluated variant, key
+optimizer settings, peak and final outcomes, convergence metrics, per-run wall
+time, and promotion decision. Report the total study wall span and summed run
+time or compute cost separately, mark censored results, and distinguish active
+time from wall time and nominal from effective hyperparameters. Omit this
+section for protocol-only changes and studies that are still active.
 
 W&B consent is checked independently for every operation. Launch emits
 `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`.

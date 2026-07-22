@@ -1,4 +1,4 @@
-.PHONY: clean clean-env check deploy init quality style test test-ci types update train train-single finetune finetune-single research-preflight research-launch research-status research-monitor research-summarize
+.PHONY: clean clean-env check deploy init quality style test test-ci types update train train-single finetune finetune-single research-preflight research-launch research-status research-monitor research-events research-summarize
 
 PROJECT=mjepa_cifar10 scripts tests
 QUALITY_DIRS=$(PROJECT)
@@ -65,6 +65,9 @@ research-status: ## show persistent managed research state
 
 research-monitor: ## recover terminal state and launch eligible managed runs
 	$(PYTHON) scripts/research.py monitor $(STUDY)
+
+research-events: ## watch managed lifecycle events without model polling
+	$(PYTHON) scripts/research.py event-controller --root logs/research
 
 research-summarize: ## calculate promotion and convergence results
 	$(PYTHON) scripts/research.py summarize $(STUDY) --record

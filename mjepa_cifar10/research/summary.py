@@ -570,7 +570,13 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
             f"W&B={wandb_reference}; checkpoint={value['checkpoint_disposition']}; "
             f"metrics={', '.join(metric_parts) or 'unavailable'}; error={value.get('error') or 'none'}"
         )
+    phase = str(summary["phase"])
     conclusion_by_phase = {
+        "screening": "Seed-0 screening is still running.",
+        "exploration": (
+            "No initial seed-0 candidate met a promotion threshold; bounded seed-0 exploration is still running."
+        ),
+        "confirmation": f"{winner} passed seed-0 promotion; paired three-seed confirmation is still running.",
         "complete": f"{winner} completed confirmation and downstream evaluation.",
         "evaluation": f"{winner} passed confirmation; downstream evaluation is still running.",
         "not-confirmed": f"{winner} did not meet the three-seed confirmation rule.",
@@ -580,7 +586,14 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
             else "The baseline smoke run completed; no candidates were configured for promotion."
         ),
     }
-    conclusion = conclusion_by_phase.get(str(summary["phase"]), f"Study stopped in phase {summary['phase']}.")
+    conclusion = conclusion_by_phase.get(phase, f"Study stopped in phase {phase}.")
+    follow_up_by_phase = {
+        "screening": "complete the preregistered seed-0 screening trials.",
+        "exploration": "run the preregistered exploration trials.",
+        "confirmation": "complete the paired baseline and winner replications.",
+        "evaluation": "complete the paired supervised evaluations.",
+    }
+    follow_up = follow_up_by_phase.get(phase, "record interpretation and the next falsifiable hypothesis.")
     approved_data_classes = ", ".join(spec.wandb_approved_data_classes) or "none"
     local_summary = summary.get("detail_location", {}).get("local_summary", "unavailable")
     external_detail = summary.get("detail_location", {}).get("external_tracker", False)
@@ -599,7 +612,7 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
         f"- Detail location: local summary and raw metrics under `{local_summary}`; "
         f"external_detail={external_detail}\n"
         f"- Conclusion: {conclusion}\n"
-        "- Follow-up: record interpretation and the next falsifiable hypothesis after metric review.\n"
+        f"- Follow-up: {follow_up}\n"
         "- Checkpoint disposition: see each run below; deleted weights are not recoverable.\n\n"
         + "\n".join(run_lines)
         + "\n"

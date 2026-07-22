@@ -42,14 +42,17 @@ from mjepa_cifar10.research.runtime import (
     GIB,
     GPULock,
     StateStore,
+    _pending_runs_in_study_order,
     append_locked_text,
     available_physical_gpus,
     build_managed_worker_environment,
     build_worker_environment,
     cleanup_run_weights,
+    configure_lifecycle_environment,
     estimate_checkpoint_size,
     persist_terminal_and_queue_notification,
     prepare_retryable_runs,
+    process_exit_error,
     reconcile_state,
     required_free_bytes,
     run_command_with_timeout,
@@ -191,6 +194,68 @@ def test_gpu_lock_excludes_duplicate_scheduler_assignment(tmp_path: Path) -> Non
         assert available_physical_gpus((1, 2), lock_root=tmp_path) == (2,)
 
 
+def test_pending_runs_follow_study_order_after_sorted_state_round_trip(tmp_path: Path) -> None:
+    base_spec = make_spec(tmp_path)
+    config = base_spec.baseline.config
+    spec = replace(
+        base_spec,
+        variants=(
+            VariantSpec("muon-matched", config, "matched-rate Muon"),
+            VariantSpec("muon-lr-half", config, "half-rate Muon"),
+            VariantSpec("adamw-lr-half", config, "half-rate AdamW"),
+        ),
+    )
+    expected_runs = spec.initial_runs()
+    sorted_runs = sorted(expected_runs, key=lambda run: run.id)
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.id: RunState(run) for run in sorted_runs},
+    )
+
+    ordered = _pending_runs_in_study_order(state, spec)
+
+    assert [run.spec.id for run in ordered] == [run.id for run in expected_runs]
+
+
+def test_prepare_retryable_runs_reconciles_terminal_state_first(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path, variants=0)
+    run_spec = spec.initial_runs()[0]
+    run_dir = tmp_path / "logs" / spec.id / "runs" / run_spec.id
+    run_dir.mkdir(parents=True)
+    (run_dir / "terminal.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "exit_code": -15,
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "finished_at": "2026-01-01T00:01:00+00:00",
+                "attempt": 1,
+                "terminal_event_id": "terminal-event",
+            }
+        )
+    )
+    now = "2026-01-01T00:00:00+00:00"
+    run = RunState(run_spec, status="launching", run_dir=str(run_dir), attempt=1)
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.spec.id: run},
+    )
+
+    retry_count = prepare_retryable_runs(state)
+
+    assert retry_count == 1
+    assert run.status == "pending"
+    assert run.attempt == 2
+    assert not (run_dir / "terminal.json").exists()
+
+
 def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:
     process = mocker.Mock(pid=1234)
     process.wait.side_effect = [subprocess.TimeoutExpired("train", 1), 0]
@@ -211,6 +276,13 @@ def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:
     kill_group.assert_called_once()
 
 
+def test_process_exit_error_records_timeout_exit_code_and_signal() -> None:
+    assert process_exit_error(0, timed_out=False) is None
+    assert process_exit_error(124, timed_out=True) == "24-hour job timeout exceeded"
+    assert process_exit_error(3, timed_out=False) == "training process exited with status 3"
+    assert process_exit_error(-9, timed_out=False) == "training process terminated by SIGKILL"
+
+
 def test_worker_environment_drops_inherited_wandb_service_socket(tmp_path: Path) -> None:
     environment = build_worker_environment(
         {"WANDB_SERVICE": "dead-socket-token", "WANDB_MODE": "offline"},
@@ -221,6 +293,23 @@ def test_worker_environment_drops_inherited_wandb_service_socket(tmp_path: Path)
     assert "WANDB_SERVICE" not in environment
     assert environment["WANDB_MODE"] == "offline"
     assert environment["CUDA_VISIBLE_DEVICES"] == "1"
+
+
+def test_worker_environment_records_managed_lifecycle_identity(tmp_path: Path) -> None:
+    environment = configure_lifecycle_environment(
+        {},
+        study_id="study-a",
+        run_id="run-a",
+        attempt=2,
+        originating_thread_id="thread-a",
+    )
+
+    assert environment == {
+        "MJEPA_RESEARCH_STUDY_ID": "study-a",
+        "MJEPA_RESEARCH_RUN_ID": "run-a",
+        "MJEPA_RESEARCH_ATTEMPT": "2",
+        "MJEPA_RESEARCH_THREAD_ID": "thread-a",
+    }
 
 
 def test_worker_environment_forces_offline_without_complete_wandb_approval(tmp_path: Path) -> None:
@@ -525,6 +614,18 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     retryable_run_dir.mkdir(parents=True)
     retryable.run_dir = str(retryable_run_dir)
     (retryable_run_dir / "terminal.json").write_text('{"status": "failed"}')
+    for artifact_name in (
+        "worker.json",
+        "notification.json",
+        "progress.json",
+        "first-cycle.json",
+        "first-cycle.notification.json",
+        "supervisor-lost.json",
+        "supervisor-lost.notification.json",
+        "progress-stalled.json",
+        "progress-stalled.notification.json",
+    ):
+        (retryable_run_dir / artifact_name).write_text("{}")
     retained = list(runs.values())[1]
     retained.status = "completed"
     retained.decision = "rejected"
@@ -537,7 +638,21 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     assert retryable.pid is None
     assert retryable.attempt == 3
     assert not (retryable_run_dir / "terminal.json").exists()
-    assert len(tuple((retryable_run_dir / "attempts").glob("terminal-*.json"))) == 1
+    assert not any(
+        (retryable_run_dir / artifact_name).exists()
+        for artifact_name in (
+            "worker.json",
+            "notification.json",
+            "progress.json",
+            "first-cycle.json",
+            "first-cycle.notification.json",
+            "supervisor-lost.json",
+            "supervisor-lost.notification.json",
+            "progress-stalled.json",
+            "progress-stalled.notification.json",
+        )
+    )
+    assert len(tuple((retryable_run_dir / "attempts").glob("*.json"))) == 10
     assert retained.status == "completed"
 
 
@@ -832,6 +947,36 @@ def test_research_log_records_provenance_metrics_and_checkpoint_disposition(tmp_
     assert "active_seconds_to_95=100.000" in research_log
     assert "checkpoint=retained" in research_log
     assert "[run](https://wandb.ai/entity/project/runs/id)" in research_log
+
+
+def test_research_log_describes_exploration_as_active(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path, variants=1)
+    StateStore(spec.log_root / spec.id).save(
+        StudyState(
+            spec.id,
+            "study.yaml",
+            "now",
+            "now",
+            {run_spec.id: RunState(run_spec) for run_spec in spec.initial_runs()},
+            phase="exploration",
+        )
+    )
+    summary = {
+        "phase": "exploration",
+        "winner": None,
+        "pretraining": {},
+        "sft": {"runs": {}},
+        "runs": {},
+    }
+
+    assert append_research_log(spec, summary, tmp_path)
+
+    research_log = (tmp_path / "research" / "LOG.md").read_text()
+    assert (
+        "Conclusion: No initial seed-0 candidate met a promotion threshold; "
+        "bounded seed-0 exploration is still running."
+    ) in research_log
+    assert "Follow-up: run the preregistered exploration trials." in research_log
 
 
 def test_research_log_records_each_retry_attempt_in_the_same_phase(tmp_path: Path) -> None:

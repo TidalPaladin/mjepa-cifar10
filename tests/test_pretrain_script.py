@@ -133,6 +133,37 @@ def test_pretrain_parser_accepts_seed_and_checkpoint(mocker) -> None:
     assert args.seed == 2
 
 
+def test_managed_lifecycle_reporter_requires_matching_supervisor_environment(tmp_path: Path) -> None:
+    pretrain_script = load_pretrain_script_module()
+    arguments = SimpleNamespace(study_id="study-a", name="run-a")
+    environment = {
+        "MJEPA_RESEARCH_STUDY_ID": "study-a",
+        "MJEPA_RESEARCH_RUN_ID": "run-a",
+        "MJEPA_RESEARCH_ATTEMPT": "2",
+        "MJEPA_RESEARCH_THREAD_ID": "thread-a",
+    }
+
+    reporter = pretrain_script.build_managed_lifecycle_reporter(arguments, tmp_path, environment)
+
+    assert reporter is not None
+    assert reporter.study_id == "study-a"
+    assert reporter.run_id == "run-a"
+    assert reporter.attempt == 2
+
+
+def test_managed_lifecycle_reporter_is_disabled_for_unmanaged_training(tmp_path: Path) -> None:
+    pretrain_script = load_pretrain_script_module()
+
+    assert (
+        pretrain_script.build_managed_lifecycle_reporter(
+            SimpleNamespace(study_id=None, name="manual"),
+            tmp_path,
+            {},
+        )
+        is None
+    )
+
+
 def test_resume_applies_checkpoint_image_size_before_model_construction() -> None:
     pretrain_script = load_pretrain_script_module()
     backbone_config = pretrain_script.ViTConfig(

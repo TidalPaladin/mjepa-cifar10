@@ -29,6 +29,7 @@ from mjepa_cifar10.pretrain import (
     get_gradient_norm_stats,
     get_gradient_sync_context,
     get_scheduler_last_lr,
+    report_checkpoint_lifecycle,
     run_optimizer_step,
     update_cls_patch_alignment_metric,
 )
@@ -38,6 +39,34 @@ def test_get_scheduler_last_lr_returns_first_learning_rate() -> None:
     scheduler = RecordingScheduler([], learning_rates=[0.2, 0.1])
 
     assert get_scheduler_last_lr(scheduler) == 0.2
+
+
+def test_report_checkpoint_lifecycle_emits_first_cycle_once() -> None:
+    progress_events: list[tuple[str, int, int, float]] = []
+    first_cycle_events: list[tuple[int, int, float]] = []
+
+    first_cycle_reported = report_checkpoint_lifecycle(
+        progress_callback=lambda phase, epoch, step, seconds: progress_events.append((phase, epoch, step, seconds)),
+        first_cycle_callback=lambda epoch, step, seconds: first_cycle_events.append((epoch, step, seconds)),
+        validation_completed=True,
+        first_cycle_reported=False,
+        epoch=0,
+        optimizer_step=10,
+        active_seconds=12.5,
+    )
+    first_cycle_reported = report_checkpoint_lifecycle(
+        progress_callback=lambda phase, epoch, step, seconds: progress_events.append((phase, epoch, step, seconds)),
+        first_cycle_callback=lambda epoch, step, seconds: first_cycle_events.append((epoch, step, seconds)),
+        validation_completed=True,
+        first_cycle_reported=first_cycle_reported,
+        epoch=1,
+        optimizer_step=20,
+        active_seconds=25.0,
+    )
+
+    assert first_cycle_reported
+    assert progress_events == [("checkpointed", 0, 10, 12.5), ("checkpointed", 1, 20, 25.0)]
+    assert first_cycle_events == [(0, 10, 12.5)]
 
 
 FIRST_PARAMETER_GRAD = torch.tensor([3.0, 4.0])

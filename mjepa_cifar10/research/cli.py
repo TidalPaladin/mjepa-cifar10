@@ -6,8 +6,9 @@ import json
 import os
 import subprocess
 from contextlib import closing
+from datetime import timedelta
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Callable, Literal, Mapping, Sequence
 
 from .codex_notifications import (
     ensure_notification,
@@ -17,6 +18,7 @@ from .codex_notifications import (
     sweep_notifications,
     unix_connector,
 )
+from .event_controller import DEFAULT_PROGRESS_TIMEOUT_SECONDS, serve_controller
 from .inventory import index_local_runs, index_wandb_runs, inventory_counts, open_inventory
 from .models import WANDB_LOCAL_MODES, StudySpec
 from .provenance import assert_launch_provenance, collect_provenance
@@ -77,6 +79,20 @@ def build_parser() -> argparse.ArgumentParser:
     notify_worker_parser.add_argument("--root", type=Path, default=Path("logs/research"))
     notify_worker_parser.add_argument("--transport", choices=("stdio", "unix"), default="stdio")
     notify_worker_parser.add_argument("--socket", type=Path, default=None)
+
+    event_controller_parser = subparsers.add_parser(
+        "event-controller",
+        help="Watch durable lifecycle events without model polling",
+    )
+    event_controller_parser.add_argument("--root", type=Path, default=Path("logs/research"))
+    event_controller_parser.add_argument(
+        "--progress-timeout-seconds",
+        type=int,
+        default=DEFAULT_PROGRESS_TIMEOUT_SECONDS,
+    )
+    event_controller_parser.add_argument("--transport", choices=("stdio", "unix"), default="stdio")
+    event_controller_parser.add_argument("--socket", type=Path, default=None)
+    event_controller_parser.add_argument("--defer-until-socket-replaced", action="store_true")
 
     register_root_parser = subparsers.add_parser(
         "register-root", help="Register one exact root for notification discovery"
@@ -335,6 +351,65 @@ def command_notify_worker(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
+def _daemon_version_output() -> str:
+    result = subprocess.run(
+        ("codex", "app-server", "daemon", "version"),
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.strip() or "could not inspect the Codex app-server daemon")
+    return result.stdout
+
+
+def resolve_event_controller_socket(
+    explicit_socket: Path | None,
+    transport: Literal["stdio", "unix"],
+    *,
+    daemon_version: Callable[[], str] = _daemon_version_output,
+) -> Path:
+    """Resolve the control socket used for transport readiness events."""
+    if explicit_socket is not None:
+        return explicit_socket.expanduser().resolve(strict=False)
+    if transport == "unix":
+        raise ValueError("--socket is required with --transport unix")
+    try:
+        payload = json.loads(daemon_version())
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Codex daemon version output is not valid JSON") from error
+    socket_path = (
+        payload.get("socketPath") if isinstance(payload, dict) and payload.get("status") == "running" else None
+    )
+    if not isinstance(socket_path, str) or not socket_path or not Path(socket_path).is_absolute():
+        raise RuntimeError("Codex app-server daemon did not report an absolute running socket path")
+    return Path(socket_path).resolve(strict=False)
+
+
+def command_event_controller(args: argparse.Namespace) -> int:
+    if args.progress_timeout_seconds <= 0:
+        raise ValueError("--progress-timeout-seconds must be positive")
+    socket_path = resolve_event_controller_socket(args.socket, args.transport)
+    if args.transport == "unix":
+        connector = unix_connector(socket_path)
+    else:
+        connector = stdio_connector(socket_path)
+
+    def deliver_once() -> bool:
+        result = asyncio.run(sweep_notifications(args.root, connect=connector))
+        print(json.dumps(result.to_dict(), indent=2, sort_keys=True), flush=True)
+        return result.retrying == 0
+
+    serve_controller(
+        args.root,
+        progress_timeout=timedelta(seconds=args.progress_timeout_seconds),
+        deliver=deliver_once,
+        socket_path=socket_path,
+        defer_until_socket_replaced=args.defer_until_socket_replaced,
+    )
+    return 0
+
+
 def command_register_root(args: argparse.Namespace) -> int:
     registration = register_notification_root(args.root)
     print(json.dumps(registration.to_dict(), indent=2, sort_keys=True))
@@ -386,6 +461,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "monitor": command_monitor,
         "notify": command_notify,
         "notify-worker": command_notify_worker,
+        "event-controller": command_event_controller,
         "register-root": command_register_root,
         "summarize": command_summarize,
         "inventory": command_inventory,
