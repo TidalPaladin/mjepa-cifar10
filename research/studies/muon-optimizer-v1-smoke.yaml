@@ -1,0 +1,53 @@
+id: muon-optimizer-v1-smoke
+question: Can the managed harness train, checkpoint, recover, and summarize one hybrid Muon epoch on GPU?
+hypothesis: The hybrid Muon smoke run will complete with valid local metrics and recoverable optimizer and scheduler state.
+rejection_condition: Reject the mechanical validation if the run fails, times out, lacks required artifacts, or cannot resume from its checkpoint.
+checkpoint_plan: Retain the smoke checkpoint until formal launch succeeds, then close the smoke study without deleting unmanaged or legacy weights.
+
+baseline:
+  id: muon-smoke
+  config: config/pretrain/smoke-muon.yaml
+  hypothesis: The committed hybrid Muon path completes one managed epoch.
+  mechanism: Route eligible 2-D hidden weights to Muon and all other trainable parameters to AdamW.
+  changes:
+    - Use the small one-epoch smoke model with hybrid Muon and local-only W&B.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: muon-optimizer-v1-smoke
+  authorized: false
+  approved_data_classes: []
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 04b33f8e938ab5fea6d863a7871a57aee05e94c7
+  vit: f8b40c753d7bea5b9d788b379bda1445af0748aa
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
