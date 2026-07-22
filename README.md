@@ -68,8 +68,8 @@ uv run python scripts/research.py status research/studies/<study-id>.yaml
 uv run python scripts/research.py monitor research/studies/<study-id>.yaml
 uv run python scripts/research.py notify research/studies/<study-id>.yaml <run-id>
 uv run python scripts/research.py register-root --root logs/research
-uv run python scripts/research.py notify-worker --once --root logs/research
-uv run python scripts/research.py event-controller --root logs/research
+uv run python scripts/research.py notify-worker --once --root logs/research --study-id <study-id>
+uv run python scripts/research.py event-controller --root logs/research --study-id <study-id>
 uv run python scripts/research.py summarize research/studies/<study-id>.yaml --record
 uv run python scripts/research.py storage-report research/studies/<study-id>.yaml
 uv run python scripts/research.py inventory --wandb-entity <entity>
@@ -109,7 +109,8 @@ timer. Routine progress and notification retry writes never wake Codex. A run
 can wake once after its first train-validation-checkpoint cycle, on a supervisor
 loss or progress stall, and on terminal state. The controller queues events
 even when app-server is unavailable and stops delivery attempts until the daemon
-socket is replaced after a transport failure.
+socket is replaced after a transport failure. Pass the active `--study-id` so a
+stale retry from another study cannot disarm delivery for the current study.
 
 Never keep a Codex turn open to sleep or poll. Use a same-task scheduled
 follow-up only as a sparse fallback: check at 10 and 20 minutes to catch startup
@@ -127,6 +128,7 @@ Start the controller with:
 ```bash
 uv run python scripts/research.py event-controller \
   --root logs/research \
+  --study-id <study-id> \
   --progress-timeout-seconds 1800
 ```
 

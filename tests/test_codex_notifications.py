@@ -348,6 +348,59 @@ async def test_sweep_accepts_once_and_deduplicates_event(tmp_path: Path) -> None
 
 
 @run_async
+async def test_sweep_can_isolate_one_study_from_unrelated_notification_failures(tmp_path: Path) -> None:
+    root, study_a_event = queued_notification(tmp_path)
+    run_dir = root / "study-b" / "runs" / "run-b"
+    terminal_path = run_dir / "terminal.json"
+    atomic_write_json(
+        terminal_path,
+        {
+            "status": "completed",
+            "exit_code": 0,
+            "started_at": (NOW - timedelta(minutes=1)).isoformat(),
+            "finished_at": NOW.isoformat(),
+            "physical_gpu": 2,
+            "wandb_run_id": "wandb-2",
+            "error": None,
+            "attempt": 1,
+            "terminal_event_id": "87654321-4321-5678-9234-567812345678",
+            "originating_thread_id": THREAD_ID,
+        },
+    )
+    study_b_event = queue_notification_from_terminal(
+        terminal_path,
+        root,
+        study_id="study-b",
+        run_id="run-b",
+    )
+    calls = 0
+
+    async def connect() -> ScriptedTransport:
+        nonlocal calls
+        calls += 1
+        return ScriptedTransport(app_server_handler("idle", []))
+
+    result = await sweep_notifications(
+        root,
+        connect=connect,
+        now=lambda: NOW,
+        study_ids=frozenset({"study-b"}),
+    )
+
+    assert result.discovered == 1
+    assert result.accepted == 1
+    assert calls == 1
+    assert (
+        read_notification_event(Path(study_a_event.terminal_state_path).with_name("notification.json"), root).state
+        == "pending"
+    )
+    assert (
+        read_notification_event(Path(study_b_event.terminal_state_path).with_name("notification.json"), root).state
+        == "accepted"
+    )
+
+
+@run_async
 async def test_acceptance_is_persisted_only_after_server_response(tmp_path: Path) -> None:
     root, event = queued_notification(tmp_path)
     path = Path(event.terminal_state_path).with_name("notification.json")

@@ -1191,7 +1191,7 @@ async def _deliver_path(
             return ("failed" if exhausted else "retrying"), f"{path}: {updated.last_error}"
 
 
-def _notification_paths(root: Path) -> list[Path]:
+def _notification_paths(root: Path, study_ids: frozenset[str] | None = None) -> list[Path]:
     lifecycle_notification_names = {f"{Path(name).stem}.notification.json" for name in LIFECYCLE_FILENAMES}
     return sorted(
         path
@@ -1199,6 +1199,7 @@ def _notification_paths(root: Path) -> list[Path]:
         if path.name in {NOTIFICATION_FILENAME, *lifecycle_notification_names}
         and path.parent.parent.name == "runs"
         and "attempts" not in path.parts
+        and (study_ids is None or path.parents[2].name in study_ids)
     )
 
 
@@ -1209,6 +1210,7 @@ async def sweep_notifications(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     random: Random | None = None,
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
+    study_ids: frozenset[str] | None = None,
 ) -> SweepResult:
     managed_root = root.expanduser().resolve(strict=False)
     if managed_root == Path(managed_root.anchor):
@@ -1220,8 +1222,11 @@ async def sweep_notifications(
     if selected_now.tzinfo is None or selected_now.utcoffset() is None:
         raise NotificationStateError("worker clock must return an offset-aware datetime")
     selected_now = selected_now.astimezone(UTC)
+    selected_study_ids = (
+        None if study_ids is None else frozenset(_validate_identifier(study_id, "study id") for study_id in study_ids)
+    )
     generator = random or Random()
-    paths = _notification_paths(managed_root)
+    paths = _notification_paths(managed_root, selected_study_ids)
     counts = {"accepted": 0, "retrying": 0, "failed": 0, "skipped": 0}
     due = 0
     problems: list[str] = []

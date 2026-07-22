@@ -124,8 +124,10 @@ run attempt.
 
 If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
 
-Run `event-controller --root logs/research` as a persistent local non-model
-process for new launches. Launch and dry-run operations register the exact
+Run `event-controller --root logs/research --study-id <study-id>` as a persistent
+local non-model process for new launches. Study-scoped delivery prevents a
+pending or retrying notification from another study from disarming the active
+wake path. Launch and dry-run operations register the exact
 managed root with `.mjepa-research-root.json`. Register a pre-existing root once
 with `register-root --root logs/research`; this also migrates the legacy marker.
 The marker binds its canonical `root_path`, and the notification worker rejects

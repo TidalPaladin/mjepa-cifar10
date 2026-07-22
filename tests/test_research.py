@@ -698,7 +698,7 @@ def test_terminal_result_survives_notification_queue_failure(mocker, tmp_path: P
 
 def test_notify_worker_empty_sweep_is_successful(tmp_path: Path, capsys) -> None:
     initialize_notification_root(tmp_path)
-    exit_code = research_main(["notify-worker", "--once", "--root", str(tmp_path)])
+    exit_code = research_main(["notify-worker", "--once", "--root", str(tmp_path), "--study-id", "study-a"])
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out)["discovered"] == 0

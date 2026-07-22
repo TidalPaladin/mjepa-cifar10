@@ -79,6 +79,12 @@ def build_parser() -> argparse.ArgumentParser:
     notify_worker_parser.add_argument("--root", type=Path, default=Path("logs/research"))
     notify_worker_parser.add_argument("--transport", choices=("stdio", "unix"), default="stdio")
     notify_worker_parser.add_argument("--socket", type=Path, default=None)
+    notify_worker_parser.add_argument(
+        "--study-id",
+        dest="study_ids",
+        action="append",
+        help="Deliver only notifications for this study; repeat to select more than one",
+    )
 
     event_controller_parser = subparsers.add_parser(
         "event-controller",
@@ -92,6 +98,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     event_controller_parser.add_argument("--transport", choices=("stdio", "unix"), default="stdio")
     event_controller_parser.add_argument("--socket", type=Path, default=None)
+    event_controller_parser.add_argument(
+        "--study-id",
+        dest="study_ids",
+        action="append",
+        help="Deliver only notifications for this study; repeat to select more than one",
+    )
     event_controller_parser.add_argument("--defer-until-socket-replaced", action="store_true")
 
     register_root_parser = subparsers.add_parser(
@@ -346,7 +358,8 @@ def command_notify_worker(args: argparse.Namespace) -> int:
         connector = unix_connector(args.socket)
     else:
         connector = stdio_connector(args.socket)
-    result = asyncio.run(sweep_notifications(args.root, connect=connector))
+    study_ids = frozenset(args.study_ids) if args.study_ids else None
+    result = asyncio.run(sweep_notifications(args.root, connect=connector, study_ids=study_ids))
     print(json.dumps(result.to_dict(), indent=2, sort_keys=True))
     return result.exit_code
 
@@ -394,9 +407,10 @@ def command_event_controller(args: argparse.Namespace) -> int:
         connector = unix_connector(socket_path)
     else:
         connector = stdio_connector(socket_path)
+    study_ids = frozenset(args.study_ids) if args.study_ids else None
 
     def deliver_once() -> bool:
-        result = asyncio.run(sweep_notifications(args.root, connect=connector))
+        result = asyncio.run(sweep_notifications(args.root, connect=connector, study_ids=study_ids))
         print(json.dumps(result.to_dict(), indent=2, sort_keys=True), flush=True)
         return result.retrying == 0
 
