@@ -1,3 +1,4 @@
+import hashlib
 import json
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
@@ -30,6 +31,7 @@ from mjepa_cifar10.research.metrics import (
 from mjepa_cifar10.research.models import (
     DEFAULT_MAX_PRETRAIN_TRIALS,
     WANDB_OPERATION_EMITTED_DATA_CLASSES,
+    BaselineReference,
     ResourceLimits,
     RunSpec,
     RunState,
@@ -60,7 +62,12 @@ from mjepa_cifar10.research.runtime import (
     schedule_monitor_check,
     validate_managed_paths,
 )
-from mjepa_cifar10.research.summary import advance_study, append_research_log, publish_summaries_to_wandb
+from mjepa_cifar10.research.summary import (
+    advance_study,
+    append_research_log,
+    calculate_study_summaries,
+    publish_summaries_to_wandb,
+)
 
 
 def make_summary(
@@ -96,6 +103,25 @@ def make_spec(tmp_path: Path, variants: int = 3) -> StudySpec:
         variants=tuple(VariantSpec(f"variant-{index}", config, "candidate") for index in range(variants)),
         data=data,
         log_root=tmp_path / "logs",
+    )
+
+
+def make_baseline_reference(tmp_path: Path) -> BaselineReference:
+    metrics = tmp_path / "baseline-metrics.jsonl"
+    metrics.write_text(
+        "\n".join(
+            (
+                '{"_step": 10, "convergence/active_seconds": 50.0, "probe/validation_accuracy": 0.7}',
+                '{"_step": 20, "convergence/active_seconds": 100.0, "probe/validation_accuracy": 0.8}',
+            )
+        )
+        + "\n"
+    )
+    return BaselineReference(
+        study_id="prior-study",
+        run_id="pretrain-baseline-seed0",
+        metrics=metrics,
+        metrics_sha256=hashlib.sha256(metrics.read_bytes()).hexdigest(),
     )
 
 
@@ -187,6 +213,100 @@ def test_screening_promotion_adds_only_four_replication_trials(tmp_path: Path) -
     assert state.phase == "confirmation"
     assert state.winner == "variant-0"
     assert sum(run.spec.kind == "pretrain" for run in state.runs.values()) == 8
+
+
+def test_reference_baseline_schedules_only_muon_candidates(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path, variants=5),
+        baseline_reference=make_baseline_reference(tmp_path),
+        resources=ResourceLimits(max_pretraining_trials=5),
+    )
+
+    initial_runs = spec.initial_runs()
+
+    assert [run.variant for run in initial_runs] == [f"variant-{index}" for index in range(5)]
+    assert all(run.role == "candidate" for run in initial_runs)
+
+
+def test_reference_baseline_hash_mismatch_is_rejected(tmp_path: Path) -> None:
+    reference = make_baseline_reference(tmp_path)
+    spec = replace(
+        make_spec(tmp_path, variants=1),
+        baseline_reference=reference,
+        resources=ResourceLimits(max_pretraining_trials=1),
+    )
+    reference.metrics.write_text("changed\n")
+
+    with pytest.raises(ValueError, match="baseline reference metrics hash mismatch"):
+        spec.validate(relative_to=tmp_path)
+
+
+def test_reference_baseline_participates_in_common_horizon_summary(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path, variants=1),
+        baseline_reference=make_baseline_reference(tmp_path),
+        resources=ResourceLimits(max_pretraining_trials=1),
+    )
+    candidate = spec.initial_runs()[0]
+    run_dir = tmp_path / "candidate"
+    run_dir.mkdir()
+    (run_dir / "metrics.jsonl").write_text(
+        "\n".join(
+            (
+                '{"_step": 10, "convergence/active_seconds": 40.0, "probe/validation_accuracy": 0.75}',
+                '{"_step": 20, "convergence/active_seconds": 90.0, "probe/validation_accuracy": 0.81}',
+            )
+        )
+        + "\n"
+    )
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={candidate.id: RunState(candidate, status="completed", run_dir=str(run_dir))},
+    )
+
+    summaries = calculate_study_summaries(state, spec, repo_root=tmp_path)
+
+    assert set(summaries) == {"pretrain-baseline-seed0", candidate.id}
+    assert summaries["pretrain-baseline-seed0"].peak_accuracy == pytest.approx(0.8)
+    assert summaries[candidate.id].active_time_horizon == pytest.approx(90.0)
+
+
+def test_reference_baseline_promotion_stops_without_adamw_replication(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path, variants=3),
+        baseline_reference=make_baseline_reference(tmp_path),
+        resources=ResourceLimits(max_pretraining_trials=3),
+    )
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.id: RunState(run, status="completed") for run in spec.initial_runs()},
+    )
+    summaries = {"pretrain-baseline-seed0": make_summary(peak=0.8, time_to_95=100, time_auc=0.5)}
+    summaries.update(
+        {
+            run.spec.id: make_summary(
+                peak=0.82 if run.spec.variant == "variant-0" else 0.79,
+                time_to_95=100,
+                time_auc=0.5,
+            )
+            for run in state.runs.values()
+        }
+    )
+
+    advance_study(state, spec, summaries)
+
+    assert state.phase == "reference-promotion"
+    assert state.winner == "variant-0"
+    assert len(state.runs) == 3
+    assert all(run.spec.variant != spec.baseline.id for run in state.runs.values())
 
 
 def test_gpu_lock_excludes_duplicate_scheduler_assignment(tmp_path: Path) -> None:

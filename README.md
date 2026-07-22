@@ -77,6 +77,15 @@ uv run python scripts/research.py inventory --wandb-entity <entity>
 
 `launch --dry-run` creates the atomic study state without starting training. A real launch uses physical GPUs 1 and 2, exposes one GPU to each process, runs at most two jobs, and enforces a 24-hour job timeout. Before each launch, the harness checks for at least `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free.
 
+An explicitly scoped candidate-only follow-up can set `baseline_reference` in
+its study YAML instead of launching another baseline. The referenced
+`metrics.jsonl` curve must be committed under `research/baselines/` with its
+SHA-256 recorded in the specification. The harness uses that curve for the
+fixed convergence targets and common horizons, schedules every configured
+seed-0 candidate, and reports a qualifying result as `reference-promotion`.
+That phase is a fixed-reference screen, not paired three-seed confirmation, and
+does not trigger supervised evaluation.
+
 Managed trainers write `progress.json` locally and create `first-cycle.json` only
 after the first train, validation, and recoverable checkpoint cycle completes.
 The controller creates `supervisor-lost.json` when a supervisor exits without

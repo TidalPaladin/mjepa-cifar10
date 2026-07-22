@@ -28,8 +28,9 @@ from .runtime import (
 )
 
 
-def load_metric_points(run_dir: Path, accuracy_key: str = "probe/validation_accuracy") -> tuple[MetricPoint, ...]:
-    metrics_path = run_dir / "metrics.jsonl"
+def load_metric_points_file(
+    metrics_path: Path, accuracy_key: str = "probe/validation_accuracy"
+) -> tuple[MetricPoint, ...]:
     if not metrics_path.is_file():
         return ()
     points: list[MetricPoint] = []
@@ -43,6 +44,10 @@ def load_metric_points(run_dir: Path, accuracy_key: str = "probe/validation_accu
         if accuracy is not None and active_seconds is not None and step is not None:
             points.append(MetricPoint(int(step), float(active_seconds), float(accuracy)))
     return tuple(points)
+
+
+def load_metric_points(run_dir: Path, accuracy_key: str = "probe/validation_accuracy") -> tuple[MetricPoint, ...]:
+    return load_metric_points_file(run_dir / "metrics.jsonl", accuracy_key)
 
 
 def _completed_pretrain_points(state: StudyState) -> dict[str, tuple[MetricPoint, ...]]:
@@ -68,9 +73,17 @@ def _last_metric(run_dir: Path, key: str) -> float | None:
 def calculate_study_summaries(
     state: StudyState,
     spec: StudySpec,
+    repo_root: Path | None = None,
 ) -> dict[str, ConvergenceSummary]:
     points_by_run = _completed_pretrain_points(state)
     baseline_id = f"pretrain-{spec.baseline.id}-seed0"
+    if spec.baseline_reference is not None:
+        metrics_path = spec.baseline_reference.metrics
+        if not metrics_path.is_absolute():
+            metrics_path = (repo_root or Path.cwd()) / metrics_path
+        reference_points = load_metric_points_file(metrics_path)
+        if reference_points:
+            points_by_run[baseline_id] = reference_points
     baseline_points = points_by_run.get(baseline_id)
     if baseline_points is None:
         return {}
@@ -303,12 +316,18 @@ def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, Co
         if qualifying:
             winner = rank_promoted_candidates(qualifying)[0][0]
             state.winner = winner
-            _add_replication_runs(state, spec, winner)
-            state.phase = "confirmation"
+            if spec.baseline_reference is not None:
+                state.phase = "reference-promotion"
+            else:
+                _add_replication_runs(state, spec, winner)
+                state.phase = "confirmation"
         elif state.phase == "screening":
-            before = len(state.runs)
-            _add_exploration_runs(state, spec)
-            state.phase = "exploration" if len(state.runs) > before else "no-promotion"
+            if spec.baseline_reference is not None:
+                state.phase = "no-promotion"
+            else:
+                before = len(state.runs)
+                _add_exploration_runs(state, spec)
+                state.phase = "exploration" if len(state.runs) > before else "no-promotion"
         else:
             state.phase = "no-promotion"
 
@@ -355,7 +374,7 @@ def summarize_study(spec: StudySpec, spec_path: Path, repo_root: Path) -> dict[s
     with StateStore(study_dir) as store:
         state = store.load_or_create(spec, spec_path)
         reconcile_state(state)
-        summaries = calculate_study_summaries(state, spec)
+        summaries = calculate_study_summaries(state, spec, repo_root)
         sft_summaries = calculate_sft_summaries(state, spec)
         pretraining_aggregates = calculate_pretraining_aggregates(state, spec, summaries)
         advance_study(state, spec, summaries)
@@ -364,6 +383,7 @@ def summarize_study(spec: StudySpec, spec_path: Path, repo_root: Path) -> dict[s
             "study_id": spec.id,
             "phase": state.phase,
             "winner": state.winner,
+            "baseline_reference": (spec.baseline_reference.to_dict() if spec.baseline_reference is not None else None),
             "updated_at": utc_now(),
             "pretraining": {run_id: summary.to_dict() for run_id, summary in summaries.items()},
             "pretraining_aggregates": pretraining_aggregates,
@@ -577,6 +597,10 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
             "No initial seed-0 candidate met a promotion threshold; bounded seed-0 exploration is still running."
         ),
         "confirmation": f"{winner} passed seed-0 promotion; paired three-seed confirmation is still running.",
+        "reference-promotion": (
+            f"{winner} met a promotion threshold against the fixed seed-0 baseline reference; "
+            "paired AdamW confirmation was outside this Muon-only sweep."
+        ),
         "complete": f"{winner} completed confirmation and downstream evaluation.",
         "evaluation": f"{winner} passed confirmation; downstream evaluation is still running.",
         "not-confirmed": f"{winner} did not meet the three-seed confirmation rule.",

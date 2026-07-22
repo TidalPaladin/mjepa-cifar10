@@ -6,7 +6,7 @@
 - `scripts/pretrain.py` is the CLI entrypoint used by the Makefile targets.
 - `config/pretrain/` holds YAML experiment configs (e.g., `vit-small.yaml`).
 - `logs/` is the default training output directory.
-- `research/studies/` contains committed study specifications; `research/LOG.md` is the append-only result record.
+- `research/studies/` contains committed study specifications; `research/baselines/` contains immutable, hashed metric curves approved for fixed-reference follow-ups; `research/LOG.md` is the append-only result record.
 - `.agents/skills/autoresearch/` defines the generic empirical-research safety contract vendored from the template.
 - `.agents/skills/run-jepa-research/` adds the JEPA and CIFAR-10 adapter protocol.
 - `tests/` contains unit, configuration-migration, and optional multi-GPU tests.
@@ -76,6 +76,7 @@
 - Preserve the online probe invariant: classifier-head gradients are allowed, while teacher features remain detached under `torch.inference_mode()`.
 - Use the fixed 45,000/5,000 stratified training split. Reserve the official test set for the confirmed baseline and winner.
 - Do not exceed eight pretraining trials, two concurrent jobs, physical GPUs 1 and 2, or 24 hours per job.
+- A Muon-only follow-up may reuse a completed seed-0 baseline only through `baseline_reference`: commit the exact metric curve under `research/baselines/`, record its SHA-256 in the study YAML, run all configured candidates at seed 0, and label a qualifying result `reference-promotion`. This does not authorize paired confirmation or supervised evaluation.
 - Require `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free before every launch.
 - Never delete legacy weights. Managed retention may delete only terminal rejected runs under the exact study run directory, and deleted weights are not recoverable.
 - Do not launch from dirty, stale, unpushed, protected, editable, or SHA-mismatched study environments.

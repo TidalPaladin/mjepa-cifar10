@@ -4,6 +4,15 @@ Copy `example.yaml` to a study-specific filename. Replace every placeholder befo
 
 Set `CIFAR10_DATA` in the launch environment so the committed specification does not expose a machine-specific dataset path.
 
+Use the normal inline `baseline` run for studies that can perform paired
+confirmation. For an explicitly candidate-only follow-up, add a
+`baseline_reference` mapping with `study_id`, `run_id`, `metrics`, and
+`metrics_sha256`. Commit the exact validation curve under `research/baselines/`;
+the harness verifies its SHA-256, does not schedule the baseline, and runs every
+configured variant at seed 0. A qualifying result ends in
+`reference-promotion`, which is provisional because no paired baseline seeds
+were run. Do not use it to claim confirmation or start supervised evaluation.
+
 External W&B publication is opt-in and gated per operation. Keep the explicit
 `wandb.emitted_data_classes` manifests from `example.yaml`: launch emits
 `metrics`, `configs`, and `provenance`, while summary emits `metrics` and

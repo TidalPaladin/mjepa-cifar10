@@ -57,6 +57,18 @@ Permit at most eight pretraining trials.
 
 Confirmation requires the three-seed mean to meet the same promotion threshold and at least two paired seeds to move in the required direction. Report mean, sample standard deviation, per-seed paired differences, and censored runs. Three pairs do not support a statistical-significance claim.
 
+An explicitly authorized candidate-only follow-up may reuse one completed
+seed-0 baseline instead of launching a new baseline. Commit the exact validation
+metric curve under `research/baselines/`, record its source study/run and
+SHA-256 in `baseline_reference`, and preserve the original metric names and
+active-time clock. The harness must verify the hash, schedule every configured
+variant at seed 0, and count only the new candidate jobs against the eight-trial
+limit. Use the reference curve to derive targets and common horizons. If a
+candidate qualifies, record `reference-promotion` and retain its weights, but do
+not call it confirmed, launch supervised evaluation, or report paired effects.
+Those steps require separately authorized baseline seeds 1 and 2 and the normal
+confirmation rule.
+
 ## Convergence metrics
 
 Derive fixed targets at 90% and 95% of the baseline seed-0 peak online-probe validation accuracy. For every run, report:
@@ -197,7 +209,7 @@ Retention applies only to new managed runs under `logs/research/<study-id>/runs/
 
 - rejected run: delete `checkpoint.pt` after metrics, provenance, rejection decision, and result commit are pushed;
 - rejected run at study close: also delete `backbone.safetensors`;
-- baseline or confirmed winner: retain full and backbone weights;
+- baseline, confirmed winner, or fixed-reference promoted candidate: retain full and backbone weights;
 - retryable failure: retain weights until retry or study close.
 
 Before deleting, verify that the run is terminal, the state decision permits deletion, and the resolved path is the exact managed run directory. Log each path and byte count in `retention.jsonl`. Weight deletion is not recoverable. Do not inspect for deletion or alter the existing legacy checkpoint collection unless the user makes a separate cleanup request.
