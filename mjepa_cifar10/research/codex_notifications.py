@@ -39,6 +39,7 @@ CLIENT_NAME = "mjepa_cifar10_autoresearch"
 CLIENT_TITLE = "MJEPA CIFAR-10 Autoresearch"
 CLIENT_VERSION = "1.0.0"
 DEFAULT_REQUEST_TIMEOUT = 15.0
+APP_SERVER_MESSAGE_LIMIT_BYTES = 16 * 1024 * 1024
 RETRY_BASE_SECONDS = 5.0
 RETRY_FACTOR = 2.0
 RETRY_CAP_SECONDS = 300.0
@@ -575,6 +576,7 @@ class JsonlStdioTransport:
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                limit=APP_SERVER_MESSAGE_LIMIT_BYTES,
             )
         except OSError as error:
             raise AppServerProtocolError(f"could not start app-server proxy: {error}") from error

@@ -12,9 +12,11 @@ from typing import Any, ParamSpec
 import pytest
 
 from mjepa_cifar10.research.codex_notifications import (
+    APP_SERVER_MESSAGE_LIMIT_BYTES,
     MANAGED_ROOT_SCHEMA_VERSION,
     MAX_DELIVERY_ATTEMPTS,
     AppServerProtocolError,
+    JsonlStdioTransport,
     NotificationEvent,
     NotificationStateError,
     RpcClient,
@@ -45,6 +47,28 @@ def run_async(function: Callable[P, Coroutine[Any, Any, None]]) -> Callable[P, N
         asyncio.run(function(*args, **kwargs))
 
     return wrapped
+
+
+@run_async
+async def test_stdio_transport_allows_large_app_server_messages(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_kwargs: dict[str, Any] = {}
+
+    class FakeProcess:
+        stdin = object()
+        stdout = object()
+
+        def kill(self) -> None:
+            raise AssertionError("process should remain open")
+
+    async def create_subprocess_exec(*_command: str, **kwargs: Any) -> FakeProcess:
+        captured_kwargs.update(kwargs)
+        return FakeProcess()
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
+
+    await JsonlStdioTransport.connect()
+
+    assert captured_kwargs["limit"] == APP_SERVER_MESSAGE_LIMIT_BYTES
 
 
 class ScriptedTransport:
