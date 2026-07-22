@@ -893,6 +893,7 @@ def launch_available_runs(
 
 
 def prepare_retryable_runs(state: StudyState) -> int:
+    reconcile_state(state)
     retry_count = 0
     for run in state.runs.values():
         if run.status not in ("failed", "timed_out") or run.decision != "retryable":

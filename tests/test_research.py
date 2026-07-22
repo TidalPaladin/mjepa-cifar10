@@ -219,6 +219,41 @@ def test_pending_runs_follow_study_order_after_sorted_state_round_trip(tmp_path:
     assert [run.spec.id for run in ordered] == [run.id for run in expected_runs]
 
 
+def test_prepare_retryable_runs_reconciles_terminal_state_first(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path, variants=0)
+    run_spec = spec.initial_runs()[0]
+    run_dir = tmp_path / "logs" / spec.id / "runs" / run_spec.id
+    run_dir.mkdir(parents=True)
+    (run_dir / "terminal.json").write_text(
+        json.dumps(
+            {
+                "status": "failed",
+                "exit_code": -15,
+                "started_at": "2026-01-01T00:00:00+00:00",
+                "finished_at": "2026-01-01T00:01:00+00:00",
+                "attempt": 1,
+                "terminal_event_id": "terminal-event",
+            }
+        )
+    )
+    now = "2026-01-01T00:00:00+00:00"
+    run = RunState(run_spec, status="launching", run_dir=str(run_dir), attempt=1)
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.spec.id: run},
+    )
+
+    retry_count = prepare_retryable_runs(state)
+
+    assert retry_count == 1
+    assert run.status == "pending"
+    assert run.attempt == 2
+    assert not (run_dir / "terminal.json").exists()
+
+
 def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:
     process = mocker.Mock(pid=1234)
     process.wait.side_effect = [subprocess.TimeoutExpired("train", 1), 0]
