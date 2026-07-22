@@ -124,19 +124,21 @@ run attempt.
 
 If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
 
-Run `event-controller --root logs/research --study-id <study-id>` as a persistent
-local non-model process for new launches. Study-scoped delivery prevents a
+Run `event-controller --root logs/research --study-id <study-id>` as a
+persistent local non-model process for new launches. Direct Unix-socket
+delivery is the default, and the CLI discovers the running daemon socket.
+Study-scoped delivery prevents a
 pending or retrying notification from another study from disarming the active
 wake path. Launch and dry-run operations register the exact
 managed root with `.mjepa-research-root.json`. Register a pre-existing root once
 with `register-root --root logs/research`; this also migrates the legacy marker.
 The marker binds its canonical `root_path`, and the notification worker rejects
 missing, mismatched, symlinked, repository, home, and broad roots before any
-recursive scan. The worker connects to an existing Codex app-server daemon
-through `codex app-server proxy` or an explicitly selected WebSocket-over-Unix
-socket. It validates the terminal event, serializes delivery per task, starts an
-idle task or steers its sole active turn, and records acceptance only after the
-RPC succeeds. Failed deliveries use bounded full-jitter exponential backoff and
+recursive scan. The worker connects directly to the discovered Codex app-server
+daemon Unix socket. It validates the terminal event, serializes delivery per
+task, starts an idle task or steers its newest in-progress turn with an
+expected-turn guard, and records acceptance only after the RPC succeeds. Failed
+deliveries use bounded full-jitter exponential backoff and
 require explicit `notify --requeue` after the eighth failure or a permanent
 validation error. Training never starts or waits for app-server.
 

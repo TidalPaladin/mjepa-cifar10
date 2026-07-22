@@ -27,7 +27,8 @@ schedule the next eligible jobs. Terminal workers create a pending
 `notification.json` after durable terminal state. Use `notify-worker --once` to
 deliver due events through an existing local Codex app-server daemon, and pass
 `--study-id <study-id>` to isolate the active study from unrelated historical
-delivery failures. Launch
+delivery failures. Direct Unix-socket delivery is the default; it discovers
+and connects to the running daemon socket. Launch
 registers the exact root with `.mjepa-research-root.json`. Use `register-root
 --root logs/research` for a pre-existing root; the command is idempotent and
 migrates the legacy marker. Sweeps validate the marker's exact canonical root

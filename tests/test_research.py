@@ -696,12 +696,28 @@ def test_terminal_result_survives_notification_queue_failure(mocker, tmp_path: P
     assert not terminal_path.with_name("notification.json").exists()
 
 
-def test_notify_worker_empty_sweep_is_successful(tmp_path: Path, capsys) -> None:
+def test_notify_worker_defaults_to_direct_daemon_socket(mocker, tmp_path: Path, capsys) -> None:
     initialize_notification_root(tmp_path)
-    exit_code = research_main(["notify-worker", "--once", "--root", str(tmp_path), "--study-id", "study-a"])
+    socket_path = tmp_path / "app-server.sock"
+    resolve_socket = mocker.patch(
+        "mjepa_cifar10.research.cli.resolve_event_controller_socket",
+        return_value=socket_path,
+    )
+
+    exit_code = research_main(
+        [
+            "notify-worker",
+            "--once",
+            "--root",
+            str(tmp_path),
+            "--study-id",
+            "study-a",
+        ]
+    )
 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out)["discovered"] == 0
+    resolve_socket.assert_called_once_with(None)
 
 
 def test_state_marks_missing_supervisor_as_retryable(mocker, tmp_path: Path) -> None:

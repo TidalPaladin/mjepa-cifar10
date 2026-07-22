@@ -19,6 +19,7 @@ from uuid import UUID
 from filelock import FileLock
 from filelock import Timeout as FileLockTimeout
 from websockets.asyncio.client import ClientConnection, unix_connect
+from websockets.exceptions import WebSocketException
 
 from .lifecycle_events import (
     LIFECYCLE_FILENAMES,
@@ -690,78 +691,6 @@ class MessageTransport(Protocol):
     async def close(self) -> None: ...
 
 
-class JsonlStdioTransport:
-    """JSONL transport through ``codex app-server proxy`` to an existing daemon."""
-
-    command: tuple[str, ...] = ("codex", "app-server", "proxy")
-
-    def __init__(self, process: asyncio.subprocess.Process) -> None:
-        self._process = process
-
-    @classmethod
-    async def connect(cls, socket_path: Path | None = None) -> JsonlStdioTransport:
-        command = [*cls.command]
-        if socket_path is not None:
-            command.extend(("--sock", str(socket_path.expanduser().resolve(strict=False))))
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                limit=APP_SERVER_MESSAGE_LIMIT_BYTES,
-            )
-        except OSError as error:
-            raise AppServerProtocolError(f"could not start app-server proxy: {error}") from error
-        if process.stdin is None or process.stdout is None:
-            process.kill()
-            await process.wait()
-            raise AppServerProtocolError("app-server proxy did not expose stdin and stdout")
-        return cls(process)
-
-    async def send(self, message: JsonObject) -> None:
-        stream = self._process.stdin
-        if stream is None or stream.is_closing():
-            raise AppServerProtocolError("app-server proxy stdin is closed")
-        try:
-            stream.write(json.dumps(message, separators=(",", ":")).encode() + b"\n")
-            await stream.drain()
-        except (BrokenPipeError, ConnectionError, OSError) as error:
-            raise AppServerProtocolError(f"could not write to app-server proxy: {error}") from error
-
-    async def receive(self) -> JsonObject:
-        stream = self._process.stdout
-        if stream is None:
-            raise AppServerProtocolError("app-server proxy stdout is unavailable")
-        line = await stream.readline()
-        if not line:
-            detail = ""
-            if self._process.stderr is not None:
-                try:
-                    raw_error = await asyncio.wait_for(self._process.stderr.read(2048), timeout=0.1)
-                    detail = raw_error.decode(errors="replace").strip()
-                except TimeoutError:
-                    pass
-            raise AppServerProtocolError(f"app-server proxy closed the connection{f': {detail}' if detail else ''}")
-        return _decode_message(line)
-
-    async def close(self) -> None:
-        stream = self._process.stdin
-        if stream is not None and not stream.is_closing():
-            stream.close()
-            with suppress(BrokenPipeError, ConnectionError):
-                await stream.wait_closed()
-        try:
-            await asyncio.wait_for(self._process.wait(), timeout=1.0)
-        except TimeoutError:
-            self._process.terminate()
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=1.0)
-            except TimeoutError:
-                self._process.kill()
-                await self._process.wait()
-
-
 class UnixWebSocketTransport:
     """One-JSON-message-per-frame transport over a local Unix socket."""
 
@@ -772,8 +701,14 @@ class UnixWebSocketTransport:
     async def connect(cls, socket_path: Path) -> UnixWebSocketTransport:
         path = socket_path.expanduser().resolve(strict=False)
         try:
-            connection = await unix_connect(path=str(path), uri="ws://localhost")
-        except (OSError, ValueError) as error:
+            connection = await unix_connect(
+                path=str(path),
+                uri="ws://localhost",
+                compression=None,
+                max_size=APP_SERVER_MESSAGE_LIMIT_BYTES,
+                user_agent_header=None,
+            )
+        except (OSError, ValueError, WebSocketException) as error:
             raise AppServerProtocolError(f"could not connect to app-server Unix socket {path}: {error}") from error
         return cls(connection)
 
@@ -976,9 +911,9 @@ async def deliver_notification(
                 raise AppServerProtocolError("turn/start response is missing the accepted turn ID")
             return Acceptance("turn/start", turn["id"])
         if status["type"] == "active":
-            if len(in_progress) != 1:
-                raise AppServerProtocolError("active thread does not have exactly one steerable in-progress turn")
-            expected_turn_id = cast(str, in_progress[0]["id"])
+            if not in_progress:
+                raise AppServerProtocolError("active thread does not have a steerable in-progress turn")
+            expected_turn_id = cast(str, in_progress[-1]["id"])
             result = await client.request(
                 "turn/steer",
                 {
@@ -1256,13 +1191,6 @@ async def sweep_notifications(
         skipped=counts["skipped"],
         problems=tuple(problems),
     )
-
-
-def stdio_connector(socket_path: Path | None = None) -> Callable[[], Awaitable[MessageTransport]]:
-    async def connect() -> MessageTransport:
-        return await JsonlStdioTransport.connect(socket_path)
-
-    return connect
 
 
 def unix_connector(socket_path: Path) -> Callable[[], Awaitable[MessageTransport]]:

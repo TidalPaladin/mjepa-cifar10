@@ -10,16 +10,17 @@ from random import Random
 from typing import Any, ParamSpec
 
 import pytest
+from websockets.asyncio.server import ServerConnection, unix_serve
 
 from mjepa_cifar10.research.codex_notifications import (
     APP_SERVER_MESSAGE_LIMIT_BYTES,
     MANAGED_ROOT_SCHEMA_VERSION,
     MAX_DELIVERY_ATTEMPTS,
     AppServerProtocolError,
-    JsonlStdioTransport,
     NotificationEvent,
     NotificationStateError,
     RpcClient,
+    UnixWebSocketTransport,
     build_wake_prompt,
     deliver_notification,
     ensure_notification,
@@ -54,25 +55,36 @@ def run_async(function: Callable[P, Coroutine[Any, Any, None]]) -> Callable[P, N
 
 
 @run_async
-async def test_stdio_transport_allows_large_app_server_messages(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured_kwargs: dict[str, Any] = {}
+async def test_unix_transport_uses_app_server_compatible_handshake(tmp_path: Path) -> None:
+    socket_path = tmp_path / "fake-app-server.sock"
+    request_headers: dict[str, str] = {}
+    request_received = asyncio.Event()
 
-    class FakeProcess:
-        stdin = object()
-        stdout = object()
+    async def handler(connection: ServerConnection) -> None:
+        assert connection.request is not None
+        request_headers.update(connection.request.headers)
+        request_received.set()
+        await connection.send(json.dumps({"payload": "x" * (APP_SERVER_MESSAGE_LIMIT_BYTES // 4)}))
+        await connection.wait_closed()
 
-        def kill(self) -> None:
-            raise AssertionError("process should remain open")
+    server = await unix_serve(
+        handler,
+        path=str(socket_path),
+        compression=None,
+        server_header=None,
+    )
+    try:
+        transport = await UnixWebSocketTransport.connect(socket_path)
+        await request_received.wait()
+        message = await transport.receive()
+        await transport.close()
+    finally:
+        server.close()
+        await server.wait_closed()
 
-    async def create_subprocess_exec(*_command: str, **kwargs: Any) -> FakeProcess:
-        captured_kwargs.update(kwargs)
-        return FakeProcess()
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
-
-    await JsonlStdioTransport.connect()
-
-    assert captured_kwargs["limit"] == APP_SERVER_MESSAGE_LIMIT_BYTES
+    assert "sec-websocket-extensions" not in request_headers
+    assert "user-agent" not in request_headers
+    assert len(message["payload"]) == APP_SERVER_MESSAGE_LIMIT_BYTES // 4
 
 
 class ScriptedTransport:
@@ -273,12 +285,32 @@ async def test_active_thread_steers_existing_turn(tmp_path: Path) -> None:
     assert "effort" not in steer["params"]
 
 
+@run_async
+async def test_active_thread_steers_newest_turn_when_history_contains_stale_in_progress_turn(
+    tmp_path: Path,
+) -> None:
+    _root, event = queued_notification(tmp_path)
+    turns = [
+        {"id": "stale-turn", "status": "inProgress"},
+        {"id": "completed-turn", "status": "completed"},
+        {"id": "active-turn", "status": "inProgress"},
+    ]
+    transport = ScriptedTransport(app_server_handler("active", turns))
+
+    acceptance = await deliver_notification(event, transport)
+
+    assert acceptance.rpc_method == "turn/steer"
+    assert acceptance.turn_id == "active-turn"
+    steer = next(message for message in transport.sent if message.get("method") == "turn/steer")
+    assert steer["params"]["expectedTurnId"] == "active-turn"
+
+
 @pytest.mark.parametrize(
     ("status", "turns"),
     (
         ("notLoaded", []),
         ("active", []),
-        ("active", [{"id": "a", "status": "inProgress"}, {"id": "b", "status": "inProgress"}]),
+        ("active", [{"id": "a", "status": "completed"}, {"id": "b", "status": "completed"}]),
         ("idle", [{"id": "a", "status": "inProgress"}]),
     ),
 )

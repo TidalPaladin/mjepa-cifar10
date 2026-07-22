@@ -98,7 +98,8 @@ legacy marker. The marker binds its canonical `root_path`, so the one-shot
 worker rejects missing, mismatched, symlinked, repository, home, and broad roots
 before scanning. It connects to an existing local Codex app-server daemon,
 resumes the originating task, and uses `turn/start` for an idle task or
-`turn/steer` for its sole active turn. It retries with bounded jitter, serializes
+`turn/steer` for its newest in-progress turn. The steer includes the expected
+turn ID so app-server rejects a race. It retries with bounded jitter, serializes
 delivery per task, and records acceptance only after app-server accepts the RPC.
 Training never waits for Codex, and delivery failure cannot alter terminal run
 status.
@@ -111,6 +112,8 @@ loss or progress stall, and on terminal state. The controller queues events
 even when app-server is unavailable and stops delivery attempts until the daemon
 socket is replaced after a transport failure. Pass the active `--study-id` so a
 stale retry from another study cannot disarm delivery for the current study.
+Direct Unix-socket delivery is the default. The CLI discovers the current
+socket path from `codex app-server daemon version`.
 
 Never keep a Codex turn open to sleep or poll. Use a same-task scheduled
 follow-up only as a sparse fallback: check at 10 and 20 minutes to catch startup
@@ -132,8 +135,8 @@ uv run python scripts/research.py event-controller \
   --progress-timeout-seconds 1800
 ```
 
-Use `--transport unix --socket <absolute-socket-path>` for direct local Unix
-delivery. Use `--defer-until-socket-replaced` after a confirmed transport
+Use `--socket <absolute-socket-path>` only to override the daemon-discovered
+socket. Use `--defer-until-socket-replaced` after a confirmed transport
 failure so pending events remain durable without spending retries until the
 operator restarts the daemon. Runs launched before this instrumentation do not
 emit trainer progress or first-cycle events, but the controller can still watch

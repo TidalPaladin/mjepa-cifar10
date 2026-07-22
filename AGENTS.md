@@ -31,7 +31,7 @@
 - `uv run python scripts/research.py monitor <study.yaml> --no-launch`: strictly read-only monitoring for delegated agents.
 - `uv run python scripts/research.py notify <study.yaml> <run-id> [--requeue]`: reconstruct or explicitly requeue one terminal notification.
 - `uv run python scripts/research.py register-root --root logs/research`: register or migrate one exact notification root.
-- `uv run python scripts/research.py notify-worker --once --root logs/research --study-id <study-id>`: deliver due notifications for one study through an existing local Codex app-server daemon.
+- `uv run python scripts/research.py notify-worker --once --root logs/research --study-id <study-id>`: deliver due notifications for one study directly through the running local Codex app-server daemon socket.
 - `uv run python scripts/research.py event-controller --root logs/research --study-id <study-id>`: watch trainer, supervisor, and terminal lifecycle events without model polling while isolating delivery from unrelated historical notification failures.
 - `uv run python scripts/research.py summarize <study.yaml>`: compute convergence and promotion results.
 - `uv run python scripts/research.py inventory`: index legacy and managed local run artifacts without changing them.
@@ -83,7 +83,7 @@
 - Apply the repository-scoped `$autoresearch` skill before `$run-jepa-research`.
 - Declare and gate W&B emissions per operation. Launch emits `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`. Record requested and effective modes locally before an external write.
 - Use app-server lifecycle notifications as the primary wake path and sparse monitoring only as a fallback. Never keep a Codex turn open to sleep or poll. Check at 10 and 20 minutes after launch, then every 30 minutes. Pin read-only scheduled checks to GPT-5.6 Luna with medium reasoning; the primary goal agent owns state transitions and mutations.
-- Run the non-model event controller for new managed launches and pass the active `--study-id`. It watches durable state with inotify, supervisor exits with pidfds, and progress deadlines with local timers. Study-scoped delivery prevents a stale notification from another study from disarming the active wake path. Wake once after the first train-validation-checkpoint cycle, on exceptional safety events, and on terminal state. Never wake for routine progress writes or notification retry writes.
+- Run the non-model event controller for new managed launches with the active `--study-id`. Direct Unix-socket delivery is the default, and the CLI discovers the running daemon socket. It watches durable state with inotify, supervisor exits with pidfds, and progress deadlines with local timers. Study-scoped delivery prevents a stale notification from another study from disarming the active wake path. Wake once after the first train-validation-checkpoint cycle, on exceptional safety events, and on terminal state. Never wake for routine progress writes or notification retry writes.
 - When a research report is already being produced, sample current Codex rate-limit telemetry once if available and include a compact usage snapshot. Never schedule, wake, wait, or poll solely for usage reporting, and do not advance research monitoring counters for it.
 - Advance a run's routine-check count only when its recorded `next_check_at` is due. A wake for another run must preserve its schedule.
 - Never let training wait for Codex or let notification failure change terminal run status. Test app-server integration only with fake servers.
