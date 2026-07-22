@@ -27,6 +27,11 @@ wandb:
   entity: tidalpaladin
   project: mjepa-cifar10
   group: vit-small-baseline-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
 
 code_shas:
   parent: REQUIRED

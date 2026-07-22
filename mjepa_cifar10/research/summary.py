@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import statistics
@@ -15,8 +16,16 @@ from .metrics import (
     rank_promoted_candidates,
     summarize_convergence,
 )
-from .models import RunSpec, RunState, StudySpec, StudyState
-from .runtime import StateStore, atomic_write_json, cleanup_run_weights, reconcile_state, study_directory, utc_now
+from .models import WANDB_LOCAL_MODES, RunSpec, RunState, StudySpec, StudyState
+from .runtime import (
+    StateStore,
+    append_locked_text,
+    atomic_write_json,
+    cleanup_run_weights,
+    reconcile_state,
+    study_directory,
+    utc_now,
+)
 
 
 def load_metric_points(run_dir: Path, accuracy_key: str = "probe/validation_accuracy") -> tuple[MetricPoint, ...]:
@@ -367,12 +376,34 @@ def summarize_study(spec: StudySpec, spec_path: Path, repo_root: Path) -> dict[s
                     "role": run.spec.role,
                     "status": run.status,
                     "decision": run.decision,
+                    "attempt": run.attempt,
+                    "started_at": run.started_at,
+                    "finished_at": run.finished_at,
+                    "terminal_event_id": run.terminal_event_id,
+                    "run_dir": run.run_dir,
+                    "error": run.error,
                     "wandb_url": run.wandb_url,
                     "checkpoint_disposition": run.checkpoint_disposition,
                 }
                 for run_id, run in state.runs.items()
             },
         }
+        payload["detail_location"] = {
+            "local_summary": str(study_dir / "summary.json"),
+            "local_metrics": str(study_dir / "runs"),
+            "external_tracker": False,
+        }
+        tracker_decision = spec.wandb_operation_decision("summary", os.environ.get("WANDB_MODE", "online"))
+        payload["external_tracker"] = {
+            "provider": "wandb" if spec.wandb_entity else None,
+            "entity": spec.wandb_entity,
+            "project": spec.wandb_project,
+            "configured_authorization": spec.wandb_authorized,
+            **tracker_decision.to_dict(),
+        }
+        payload["detail_location"]["external_tracker"] = tracker_decision.authorized
+        payload["markdown_summary"] = markdown_summary(payload)
+        atomic_write_json(study_dir / "summary.json", payload)
         payload["wandb_publish_errors"] = publish_summaries_to_wandb(
             spec,
             state,
@@ -380,7 +411,22 @@ def summarize_study(spec: StudySpec, spec_path: Path, repo_root: Path) -> dict[s
             sft_summaries,
         )
         atomic_write_json(study_dir / "summary.json", payload)
-        return payload
+    return payload
+
+
+def markdown_summary(summary: Mapping[str, Any]) -> str:
+    """Render a compact, copyable terminal summary for research records."""
+    lines = [
+        f"Study: `{summary['study_id']}`",
+        f"Phase: `{summary['phase']}`; winner: `{summary.get('winner') or 'none'}`",
+        f"Detail: local artifacts at `{summary['detail_location']['local_summary']}`",
+    ]
+    for run_id, result in summary.get("pretraining", {}).items():
+        lines.append(
+            f"- `{run_id}`: peak={result.get('peak_accuracy')}, final={result.get('final_accuracy')}, "
+            f"step_to_95={result.get('step_to_95')}, active_seconds_to_95={result.get('active_seconds_to_95')}"
+        )
+    return "\n".join(lines)
 
 
 def publish_summaries_to_wandb(
@@ -389,8 +435,19 @@ def publish_summaries_to_wandb(
     pretraining: Mapping[str, ConvergenceSummary],
     sft: Mapping[str, Any],
 ) -> list[str]:
-    if os.environ.get("WANDB_MODE") in ("offline", "disabled") or not spec.wandb_entity:
+    wandb_mode = os.environ.get("WANDB_MODE", "online").strip().lower()
+    decision = spec.wandb_operation_decision("summary", wandb_mode)
+    if wandb_mode in WANDB_LOCAL_MODES or not spec.wandb_entity:
         return []
+    if not spec.wandb_authorized:
+        return ["W&B publication refused: study does not record explicit authorization"]
+    if not spec.wandb_manifests_explicit:
+        return ["W&B publication refused: emitted-data manifest is not explicit"]
+    if decision.missing_data_classes:
+        return [
+            "W&B publication refused: approval is missing for emitted data classes: "
+            f"{', '.join(decision.missing_data_classes)}"
+        ]
     import wandb
 
     errors: list[str] = []
@@ -443,10 +500,18 @@ def publish_summaries_to_wandb(
 
 def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: Path) -> bool:
     log_path = repo_root / "research" / "LOG.md"
+    terminal_attempts = sorted(
+        (run_id, int(value.get("attempt", 1)))
+        for run_id, value in summary.get("runs", {}).items()
+        if value.get("status") in ("completed", "failed", "timed_out")
+    )
+    operation_id = hashlib.sha256(
+        json.dumps(
+            {"study_id": spec.id, "phase": summary["phase"], "run_attempts": terminal_attempts},
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()[:32]
     marker = f"<!-- study:{spec.id}:phase:{summary['phase']} -->"
-    existing = log_path.read_text() if log_path.is_file() else "# JEPA Research Log\n"
-    if marker in existing:
-        return False
     winner = summary.get("winner") or "none"
     variant_lines = []
     for variant in (spec.baseline, *spec.variants):
@@ -498,9 +563,12 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
         else:
             wandb_reference = "unavailable"
         run_lines.append(
-            f"- `{run_id}`: status={value['status']}; decision={value['decision']}; "
+            f"- `{run_id}`: attempt={value.get('attempt', 1)}; status={value['status']}; decision={value['decision']}; "
+            f"started={value.get('started_at') or 'unknown'}; finished={value.get('finished_at') or 'unknown'}; "
+            f"terminal_event={value.get('terminal_event_id') or 'unknown'}; "
+            f"artifacts=`{value.get('run_dir') or 'unavailable'}`; "
             f"W&B={wandb_reference}; checkpoint={value['checkpoint_disposition']}; "
-            f"metrics={', '.join(metric_parts) or 'unavailable'}"
+            f"metrics={', '.join(metric_parts) or 'unavailable'}; error={value.get('error') or 'none'}"
         )
     conclusion_by_phase = {
         "complete": f"{winner} completed confirmation and downstream evaluation.",
@@ -513,6 +581,9 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
         ),
     }
     conclusion = conclusion_by_phase.get(str(summary["phase"]), f"Study stopped in phase {summary['phase']}.")
+    approved_data_classes = ", ".join(spec.wandb_approved_data_classes) or "none"
+    local_summary = summary.get("detail_location", {}).get("local_summary", "unavailable")
+    external_detail = summary.get("detail_location", {}).get("external_tracker", False)
     entry = (
         f"\n{marker}\n"
         f"## {spec.id}\n\n"
@@ -522,18 +593,18 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
         "- Launch code provenance:\n" + ("\n".join(provenance_lines) if provenance_lines else "  - unavailable") + "\n"
         f"- Phase: {summary['phase']}\n"
         f"- Winner: {winner}\n"
+        f"- External tracker: provider={'W&B' if spec.wandb_entity else 'none'}; "
+        f"account={spec.wandb_entity or 'none'}; project={spec.wandb_project if spec.wandb_entity else 'none'}; "
+        f"authorized={spec.wandb_authorized}; approved_data_classes={approved_data_classes}\n"
+        f"- Detail location: local summary and raw metrics under `{local_summary}`; "
+        f"external_detail={external_detail}\n"
         f"- Conclusion: {conclusion}\n"
         "- Follow-up: record interpretation and the next falsifiable hypothesis after metric review.\n"
         "- Checkpoint disposition: see each run below; deleted weights are not recoverable.\n\n"
         + "\n".join(run_lines)
         + "\n"
     )
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    if not log_path.exists():
-        log_path.write_text(existing, encoding="utf-8")
-    with log_path.open("a", encoding="utf-8") as output:
-        output.write(entry)
-    return True
+    return append_locked_text(log_path, entry, operation_id, initial_text="# Research Log\n")
 
 
 def apply_rejected_retention(spec: StudySpec, repo_root: Path, *, study_close: bool = False) -> tuple[str, ...]:

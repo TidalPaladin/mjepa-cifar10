@@ -4,6 +4,7 @@ import os
 import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Final, Literal, Mapping, Self
 
 import yaml
@@ -16,8 +17,17 @@ DEFAULT_TIMEOUT_SECONDS: Final[int] = 24 * 60 * 60
 DEFAULT_MAX_PRETRAIN_TRIALS: Final[int] = 8
 DEFAULT_MIN_FREE_GIB: Final[int] = 50
 DEFAULT_CHECKPOINT_ESTIMATE_GIB: Final[int] = 3
+WANDB_OPERATION_EMITTED_DATA_CLASSES: Final[Mapping[str, frozenset[str]]] = MappingProxyType(
+    {
+        "launch": frozenset(("metrics", "configs", "provenance")),
+        "summary": frozenset(("metrics", "provenance")),
+    }
+)
+WANDB_LOCAL_MODES: Final[frozenset[str]] = frozenset(("offline", "disabled", "dryrun"))
 STUDY_ID_PATTERN: Final = re.compile(r"^[a-z0-9][a-z0-9-]{1,63}$")
 RunKind = Literal["pretrain", "sft"]
+WandbOperation = Literal["launch", "summary"]
+WandbEffectiveMode = Literal["online", "local-only"]
 RunStatus = Literal["pending", "launching", "running", "completed", "failed", "timed_out"]
 RunDecision = Literal["pending", "baseline", "promoted", "confirmed", "rejected", "retryable"]
 
@@ -102,6 +112,22 @@ class EvaluationProtocol:
 
 
 @dataclass(frozen=True)
+class WandbOperationDecision:
+    operation: WandbOperation
+    requested_mode: str
+    effective_mode: WandbEffectiveMode
+    destination: str | None
+    emitted_data_classes: tuple[str, ...]
+    approved_data_classes: tuple[str, ...]
+    missing_data_classes: tuple[str, ...]
+    authorized: bool
+    reason: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+@dataclass(frozen=True)
 class StudySpec:
     id: str
     question: str
@@ -115,16 +141,75 @@ class StudySpec:
     wandb_entity: str | None = None
     wandb_project: str = "mjepa-cifar10"
     wandb_group: str = ""
+    wandb_authorized: bool = False
+    wandb_approved_data_classes: tuple[str, ...] = ()
+    wandb_emitted_data_classes: Mapping[str, tuple[str, ...]] = field(
+        default_factory=lambda: {
+            operation: tuple(sorted(classes)) for operation, classes in WANDB_OPERATION_EMITTED_DATA_CLASSES.items()
+        }
+    )
+    wandb_manifests_explicit: bool = True
     code_shas: Mapping[str, str] = field(default_factory=dict)
     resources: ResourceLimits = field(default_factory=ResourceLimits)
     promotion: PromotionRules = field(default_factory=PromotionRules)
     evaluation: EvaluationProtocol = field(default_factory=EvaluationProtocol)
+
+    @property
+    def wandb_online_authorized(self) -> bool:
+        return self.wandb_operation_decision("launch", "online").authorized
+
+    def wandb_operation_decision(self, operation: WandbOperation, requested_mode: str) -> WandbOperationDecision:
+        emitted = tuple(sorted(self.wandb_emitted_data_classes[operation]))
+        approved = tuple(sorted(set(self.wandb_approved_data_classes)))
+        missing = tuple(sorted(set(emitted) - set(approved)))
+        normalized_mode = requested_mode.strip().lower() or "online"
+        requested_local = normalized_mode in WANDB_LOCAL_MODES
+        destination = f"{self.wandb_entity}/{self.wandb_project}" if self.wandb_entity else None
+        authorized = bool(
+            not requested_local
+            and destination
+            and self.wandb_authorized
+            and self.wandb_manifests_explicit
+            and not missing
+        )
+        reasons: list[str] = []
+        if requested_local:
+            reasons.append("local mode requested")
+        if not destination:
+            reasons.append("destination entity is missing")
+        if not self.wandb_authorized:
+            reasons.append("external publication is not authorized")
+        if not self.wandb_manifests_explicit:
+            reasons.append("the emitted-data manifest is not explicit")
+        if missing:
+            reasons.append(f"approval is missing for: {', '.join(missing)}")
+        return WandbOperationDecision(
+            operation=operation,
+            requested_mode=normalized_mode,
+            effective_mode="online" if authorized else "local-only",
+            destination=destination,
+            emitted_data_classes=emitted,
+            approved_data_classes=approved,
+            missing_data_classes=missing,
+            authorized=authorized,
+            reason="online operation authorized" if authorized else "; ".join(reasons),
+        )
 
     @classmethod
     def from_path(cls, path: Path) -> Self:
         raw = yaml.safe_load(path.read_text())
         if not isinstance(raw, Mapping):
             raise TypeError(f"study specification must be a mapping: {path}")
+        wandb = raw.get("wandb", {})
+        if not isinstance(wandb, Mapping):
+            raise TypeError(f"wandb study configuration must be a mapping: {path}")
+        manifests_explicit = "emitted_data_classes" in wandb
+        raw_manifests = wandb.get("emitted_data_classes", WANDB_OPERATION_EMITTED_DATA_CLASSES)
+        if not isinstance(raw_manifests, Mapping):
+            raise TypeError(f"wandb emitted_data_classes must be a mapping: {path}")
+        manifests = {
+            str(operation): tuple(sorted(str(value) for value in values)) for operation, values in raw_manifests.items()
+        }
         spec = cls(
             id=str(raw["id"]),
             question=str(raw["question"]),
@@ -135,9 +220,13 @@ class StudySpec:
             log_root=Path(os.path.expandvars(str(raw.get("log_root", "logs/research")))),
             model_class=str(raw.get("model_class", Path(raw["baseline"]["config"]).stem)),
             seeds=tuple(int(seed) for seed in raw.get("seeds", DEFAULT_SEEDS)),
-            wandb_entity=raw.get("wandb", {}).get("entity"),
-            wandb_project=str(raw.get("wandb", {}).get("project", "mjepa-cifar10")),
-            wandb_group=str(raw.get("wandb", {}).get("group", raw["id"])),
+            wandb_entity=wandb.get("entity"),
+            wandb_project=str(wandb.get("project", "mjepa-cifar10")),
+            wandb_group=str(wandb.get("group", raw["id"])),
+            wandb_authorized=bool(wandb.get("authorized", False)),
+            wandb_approved_data_classes=tuple(str(value) for value in wandb.get("approved_data_classes", ())),
+            wandb_emitted_data_classes=manifests,
+            wandb_manifests_explicit=manifests_explicit,
             code_shas={str(key): str(value) for key, value in raw.get("code_shas", {}).items()},
             resources=ResourceLimits.from_mapping(raw.get("resources")),
             promotion=PromotionRules.from_mapping(raw.get("promotion")),
@@ -157,6 +246,11 @@ class StudySpec:
             raise ValueError(f"pretraining trial limit cannot exceed {DEFAULT_MAX_PRETRAIN_TRIALS}")
         if not self.seeds or self.seeds[0] != 0:
             raise ValueError("study seeds must begin with screening seed 0")
+        expected_manifests = {
+            operation: tuple(sorted(classes)) for operation, classes in WANDB_OPERATION_EMITTED_DATA_CLASSES.items()
+        }
+        if dict(self.wandb_emitted_data_classes) != expected_manifests:
+            raise ValueError(f"W&B emitted-data manifests must match the adapter: {expected_manifests}")
         variant_ids = [self.baseline.id, *(variant.id for variant in self.variants)]
         if len(variant_ids) != len(set(variant_ids)):
             raise ValueError("baseline and variant IDs must be unique")
@@ -214,6 +308,23 @@ class RunState:
     run_dir: str | None = None
     checkpoint_disposition: str = "retained"
     bytes_freed: int = 0
+    attempt: int = 1
+    originating_thread_id: str | None = None
+    heartbeat_at: str | None = None
+    current_progress: float | None = None
+    routine_check_count: int = 0
+    last_check_at: str | None = None
+    last_check_interval_seconds: float | None = None
+    next_check_at: str | None = None
+    next_check_reason: str | None = None
+    terminal_event_id: str | None = None
+    notification_attempts: int = 0
+    notification_last_error: str | None = None
+    notification_next_attempt_at: str | None = None
+    notification_accepted_at: str | None = None
+    notification_accepted_rpc_method: str | None = None
+    notification_accepted_turn_id: str | None = None
+    notification_state: str = "not-requested"
 
     def to_dict(self) -> dict[str, Any]:
         value = asdict(self)

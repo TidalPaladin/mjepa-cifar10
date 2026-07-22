@@ -1,12 +1,22 @@
 import json
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from mjepa_cifar10.research.cli import main as research_main
+from mjepa_cifar10.research.cli import wandb_preflight_errors
+from mjepa_cifar10.research.codex_notifications import (
+    MANAGED_ROOT_MARKER_FILENAME,
+    initialize_notification_root,
+    queue_notification_from_terminal,
+    write_notification_event,
+)
 from mjepa_cifar10.research.inventory import index_local_runs, inventory_counts, open_inventory
 from mjepa_cifar10.research.metrics import (
     ConvergenceSummary,
@@ -19,6 +29,7 @@ from mjepa_cifar10.research.metrics import (
 )
 from mjepa_cifar10.research.models import (
     DEFAULT_MAX_PRETRAIN_TRIALS,
+    WANDB_OPERATION_EMITTED_DATA_CLASSES,
     ResourceLimits,
     RunSpec,
     RunState,
@@ -31,14 +42,20 @@ from mjepa_cifar10.research.runtime import (
     GIB,
     GPULock,
     StateStore,
+    append_locked_text,
     available_physical_gpus,
+    build_managed_worker_environment,
     build_worker_environment,
     cleanup_run_weights,
     estimate_checkpoint_size,
+    persist_terminal_and_queue_notification,
     prepare_retryable_runs,
     reconcile_state,
     required_free_bytes,
     run_command_with_timeout,
+    schedule_due_monitor_checks,
+    schedule_monitor_check,
+    validate_managed_paths,
 )
 from mjepa_cifar10.research.summary import advance_study, append_research_log, publish_summaries_to_wandb
 
@@ -206,6 +223,165 @@ def test_worker_environment_drops_inherited_wandb_service_socket(tmp_path: Path)
     assert environment["CUDA_VISIBLE_DEVICES"] == "1"
 
 
+def test_worker_environment_forces_offline_without_complete_wandb_approval(tmp_path: Path) -> None:
+    partial_approval = replace(
+        make_spec(tmp_path),
+        wandb_entity="entity",
+        wandb_authorized=True,
+        wandb_approved_data_classes=("metrics",),
+    )
+    full_approval = replace(
+        partial_approval,
+        wandb_approved_data_classes=("metrics", "configs", "provenance"),
+    )
+    implicit_manifest = replace(full_approval, wandb_manifests_explicit=False)
+
+    forced_offline = build_managed_worker_environment({"WANDB_MODE": "online"}, 1, tmp_path, partial_approval)
+    authorized_online = build_managed_worker_environment({"WANDB_MODE": "online"}, 1, tmp_path, full_approval)
+    implicit_manifest_offline = build_managed_worker_environment(
+        {"WANDB_MODE": "online"}, 1, tmp_path, implicit_manifest
+    )
+
+    assert forced_offline["WANDB_MODE"] == "offline"
+    assert authorized_online["WANDB_MODE"] == "online"
+    assert implicit_manifest_offline["WANDB_MODE"] == "offline"
+
+
+def test_heartbeat_callback_is_called_while_worker_process_runs(mocker, tmp_path: Path) -> None:
+    process = mocker.Mock(pid=1234)
+    process.poll.side_effect = [None, 0]
+    process.wait.return_value = None
+    mocker.patch("mjepa_cifar10.research.runtime.subprocess.Popen", return_value=process)
+    heartbeat = mocker.Mock()
+    environment = {"MJEPA_RESEARCH_REPO_ROOT": str(tmp_path)}
+
+    with (tmp_path / "run.log").open("w") as log_file:
+        exit_code, timed_out = run_command_with_timeout(
+            ("train",),
+            env=environment,
+            timeout_seconds=10,
+            log_file=log_file,
+            heartbeat_callback=heartbeat,
+        )
+
+    assert (exit_code, timed_out) == (0, False)
+    heartbeat.assert_called_once()
+
+
+def test_heartbeat_failure_terminates_child_before_propagating(mocker, tmp_path: Path) -> None:
+    process = mocker.Mock(pid=1234)
+    process.poll.return_value = None
+    mocker.patch("mjepa_cifar10.research.runtime.subprocess.Popen", return_value=process)
+    terminate = mocker.patch("mjepa_cifar10.research.runtime._terminate_process_group")
+    heartbeat = mocker.Mock(side_effect=RuntimeError("heartbeat disk failure"))
+    environment = {"MJEPA_RESEARCH_REPO_ROOT": str(tmp_path)}
+
+    with (tmp_path / "run.log").open("w") as log_file:
+        with pytest.raises(RuntimeError, match="heartbeat disk failure"):
+            run_command_with_timeout(
+                ("train",),
+                env=environment,
+                timeout_seconds=10,
+                log_file=log_file,
+                heartbeat_callback=heartbeat,
+            )
+
+    terminate.assert_called_once_with(process)
+
+
+def test_research_log_append_is_operation_deduplicated(tmp_path: Path) -> None:
+    log_path = tmp_path / "research" / "LOG.md"
+
+    assert append_locked_text(log_path, "first\n", "operation-1")
+    assert not append_locked_text(log_path, "first\n", "operation-1")
+
+    content = log_path.read_text()
+    assert '"operation_id":"operation-1"' in content
+    assert content.endswith("first\n")
+
+
+def test_research_log_rejects_operation_collisions_and_metadata_injection(tmp_path: Path) -> None:
+    log_path = tmp_path / "research" / "LOG.md"
+    assert append_locked_text(log_path, "first\n", "operation-1", initial_text="# Log\n")
+
+    with pytest.raises(ValueError, match="different content"):
+        append_locked_text(log_path, "changed\n", "operation-1", initial_text="# Log\n")
+    with pytest.raises(ValueError, match="reserved metadata"):
+        append_locked_text(log_path, "<!-- autoresearch-operation:forged -->\n", "operation-2")
+
+    malformed_path = tmp_path / "research" / "MALFORMED.md"
+    malformed_path.write_text(
+        '<!-- autoresearch-operation:{"content_sha256":7,"operation_id":"forged"} -->\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="invalid operation metadata"):
+        append_locked_text(malformed_path, "entry\n", "operation-2")
+
+
+def test_concurrent_first_research_log_writes_create_one_header(tmp_path: Path) -> None:
+    log_path = tmp_path / "research" / "LOG.md"
+
+    def append(index: int) -> bool:
+        return append_locked_text(log_path, f"entry {index}\n", f"operation-{index}", initial_text="# Log\n")
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        assert all(executor.map(append, range(8)))
+
+    content = log_path.read_text(encoding="utf-8")
+    assert content.count("# Log\n") == 1
+    for index in range(8):
+        assert content.count(f"entry {index}\n") == 1
+
+
+def test_managed_path_validation_rejects_repository_root(tmp_path: Path) -> None:
+    spec = replace(make_spec(tmp_path), log_root=tmp_path)
+
+    with pytest.raises(ValueError, match="must not be the repository root"):
+        validate_managed_paths(spec, tmp_path)
+
+
+def test_monitor_schedule_uses_two_startup_checks_then_steady_state(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path)
+    run = RunState(spec.initial_runs()[0], status="running")
+    check_time = datetime(2026, 1, 1, tzinfo=UTC)
+
+    schedule_monitor_check(run, now=check_time)
+    assert run.last_check_interval_seconds == 600
+    schedule_monitor_check(run, now=check_time)
+    assert run.last_check_interval_seconds == 1800
+    schedule_monitor_check(run, now=check_time)
+    assert run.last_check_interval_seconds == 1800
+
+
+def test_monitor_reschedules_only_due_runs_and_clears_terminal_poll(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path)
+    check_time = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
+    due = RunState(
+        spec.initial_runs()[0],
+        status="running",
+        next_check_at="2026-01-01T11:59:00+00:00",
+    )
+    future = RunState(
+        replace(spec.initial_runs()[0], id="future"),
+        status="running",
+        next_check_at="2026-01-01T13:00:00+00:00",
+    )
+    terminal = RunState(
+        replace(spec.initial_runs()[0], id="terminal"),
+        status="completed",
+        next_check_at="2026-01-01T12:30:00+00:00",
+        next_check_reason="steady-state-check",
+    )
+
+    assert schedule_due_monitor_checks((due, future, terminal), now=check_time)
+
+    assert due.routine_check_count == 1
+    assert future.routine_check_count == 0
+    assert future.next_check_at == "2026-01-01T13:00:00+00:00"
+    assert terminal.next_check_at is None
+    assert terminal.next_check_reason == "terminal"
+
+
 def test_state_recovers_terminal_worker_file(tmp_path: Path) -> None:
     spec = make_spec(tmp_path)
     study_dir = tmp_path / "study"
@@ -238,6 +414,87 @@ def test_state_recovers_terminal_worker_file(tmp_path: Path) -> None:
     assert recovered.runs[run.spec.id].wandb_run_id == "abc123"
 
 
+def test_state_recovers_accepted_notification_metadata(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path)
+    study_dir = tmp_path / "logs" / spec.id
+    run = RunState(spec.initial_runs()[0], status="running")
+    run_dir = study_dir / "runs" / run.spec.id
+    run_dir.mkdir(parents=True)
+    run.run_dir = str(run_dir)
+    terminal_path = run_dir / "terminal.json"
+    terminal_path.write_text(
+        json.dumps(
+            {
+                "status": "completed",
+                "exit_code": 0,
+                "started_at": "2026-07-20T11:00:00+00:00",
+                "finished_at": "2026-07-20T12:00:00+00:00",
+                "wandb_run_id": "abc123",
+                "attempt": 1,
+                "terminal_event_id": "12345678-1234-5678-9234-567812345678",
+                "originating_thread_id": "thread-1",
+            }
+        )
+    )
+    event = queue_notification_from_terminal(
+        terminal_path,
+        study_dir.parent,
+        study_id=spec.id,
+        run_id=run.spec.id,
+    ).with_acceptance(
+        accepted_at=datetime(2026, 7, 20, 12, 1, tzinfo=UTC),
+        rpc_method="turn/start",
+        turn_id="turn-1",
+    )
+    write_notification_event(event, study_dir.parent)
+    state = StudyState(spec.id, "study.yaml", "now", "now", {run.spec.id: run})
+
+    assert reconcile_state(state)
+
+    assert run.status == "completed"
+    assert run.notification_state == "accepted"
+    assert run.notification_attempts == 1
+    assert run.notification_accepted_rpc_method == "turn/start"
+    assert run.notification_accepted_turn_id == "turn-1"
+
+
+def test_terminal_result_survives_notification_queue_failure(mocker, tmp_path: Path) -> None:
+    terminal_path = tmp_path / "logs" / "study" / "runs" / "run" / "terminal.json"
+    terminal = {
+        "status": "completed",
+        "exit_code": 0,
+        "started_at": "2026-07-20T11:00:00+00:00",
+        "finished_at": "2026-07-20T12:00:00+00:00",
+        "attempt": 1,
+        "terminal_event_id": "12345678-1234-5678-9234-567812345678",
+        "originating_thread_id": "thread-1",
+    }
+    mocker.patch(
+        "mjepa_cifar10.research.codex_notifications.queue_notification_from_terminal",
+        side_effect=RuntimeError("app-server queue unavailable"),
+    )
+
+    notification_error = persist_terminal_and_queue_notification(
+        terminal_path,
+        terminal,
+        tmp_path / "logs",
+        study_id="study",
+        run_id="run",
+    )
+
+    assert json.loads(terminal_path.read_text())["status"] == "completed"
+    assert "app-server queue unavailable" in (notification_error or "")
+    assert not terminal_path.with_name("notification.json").exists()
+
+
+def test_notify_worker_empty_sweep_is_successful(tmp_path: Path, capsys) -> None:
+    initialize_notification_root(tmp_path)
+    exit_code = research_main(["notify-worker", "--once", "--root", str(tmp_path)])
+
+    assert exit_code == 0
+    assert json.loads(capsys.readouterr().out)["discovered"] == 0
+
+
 def test_state_marks_missing_supervisor_as_retryable(mocker, tmp_path: Path) -> None:
     spec = make_spec(tmp_path)
     study_dir = tmp_path / "study"
@@ -262,6 +519,7 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     retryable = next(iter(runs.values()))
     retryable.status = "failed"
     retryable.decision = "retryable"
+    retryable.attempt = 2
     retryable.pid = 123
     retryable_run_dir = tmp_path / "runs" / retryable.spec.id
     retryable_run_dir.mkdir(parents=True)
@@ -277,6 +535,7 @@ def test_retry_resets_only_retryable_terminal_runs(tmp_path: Path) -> None:
     assert retryable.status == "pending"
     assert retryable.decision == "pending"
     assert retryable.pid is None
+    assert retryable.attempt == 3
     assert not (retryable_run_dir / "terminal.json").exists()
     assert len(tuple((retryable_run_dir / "attempts").glob("terminal-*.json"))) == 1
     assert retained.status == "completed"
@@ -301,6 +560,9 @@ def test_guarded_cleanup_only_deletes_terminal_rejected_managed_run(tmp_path: Pa
     assert not checkpoint.exists()
     assert backbone.exists()
     assert run.checkpoint_disposition == "deleted-not-recoverable"
+    retention_records = [json.loads(line) for line in (study_dir / "retention.jsonl").read_text().splitlines()]
+    assert [record["phase"] for record in retention_records] == ["planned", "deleted"]
+    assert retention_records[0]["bytes_planned"] == len(b"full-checkpoint")
 
 
 def test_cleanup_rejects_path_outside_exact_managed_run_directory(tmp_path: Path) -> None:
@@ -372,7 +634,12 @@ def test_inventory_combines_config_metrics_packages_and_weight_availability(tmp_
 
 
 def test_summary_publishes_standardized_fields_to_wandb(mocker, monkeypatch, tmp_path: Path) -> None:
-    spec = replace(make_spec(tmp_path), wandb_entity="entity")
+    spec = replace(
+        make_spec(tmp_path),
+        wandb_entity="entity",
+        wandb_authorized=True,
+        wandb_approved_data_classes=("metrics", "provenance"),
+    )
     run_spec = spec.initial_runs()[0]
     run = RunState(run_spec, status="completed", wandb_run_id="wandb-123")
     state = StudyState(spec.id, "study.yaml", "now", "now", {run_spec.id: run})
@@ -393,6 +660,121 @@ def test_summary_publishes_standardized_fields_to_wandb(mocker, monkeypatch, tmp
     assert remote_run.summary["probe/peak_validation_accuracy"] == 0.8
     assert remote_run.summary["convergence/active_seconds_to_95"] == 100
     remote_run.update.assert_called_once_with()
+
+
+def test_summary_refuses_unauthorized_external_publication(tmp_path: Path) -> None:
+    spec = replace(make_spec(tmp_path), wandb_entity="entity")
+    run_spec = spec.initial_runs()[0]
+    run = RunState(run_spec, status="completed", wandb_run_id="wandb-123")
+    state = StudyState(spec.id, "study.yaml", "now", "now", {run_spec.id: run})
+
+    errors = publish_summaries_to_wandb(
+        spec,
+        state,
+        {run_spec.id: make_summary(peak=0.8, time_to_95=100, time_auc=0.5)},
+        {"runs": {}},
+    )
+
+    assert errors == ["W&B publication refused: study does not record explicit authorization"]
+
+
+def test_summary_refuses_partial_external_publication(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        wandb_entity="entity",
+        wandb_authorized=True,
+        wandb_approved_data_classes=("metrics",),
+    )
+    run_spec = spec.initial_runs()[0]
+    run = RunState(run_spec, status="completed", wandb_run_id="wandb-123")
+    state = StudyState(spec.id, "study.yaml", "now", "now", {run_spec.id: run})
+
+    errors = publish_summaries_to_wandb(
+        spec,
+        state,
+        {run_spec.id: make_summary(peak=0.8, time_to_95=100, time_auc=0.5)},
+        {"runs": {}},
+    )
+
+    assert errors == ["W&B publication refused: approval is missing for emitted data classes: provenance"]
+
+
+def test_summary_refuses_an_implicit_emitted_data_manifest(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        wandb_entity="entity",
+        wandb_authorized=True,
+        wandb_approved_data_classes=("metrics", "provenance"),
+        wandb_manifests_explicit=False,
+    )
+    run_spec = spec.initial_runs()[0]
+    state = StudyState(
+        spec.id,
+        "study.yaml",
+        "now",
+        "now",
+        {run_spec.id: RunState(run_spec, status="completed", wandb_run_id="wandb-123")},
+    )
+
+    errors = publish_summaries_to_wandb(spec, state, {}, {"runs": {}})
+
+    assert errors == ["W&B publication refused: emitted-data manifest is not explicit"]
+
+
+def test_online_wandb_requires_destination_authorization_and_every_emitted_class(tmp_path: Path) -> None:
+    missing_destination = replace(make_spec(tmp_path), wandb_entity=None)
+    partial_approval = replace(
+        make_spec(tmp_path),
+        wandb_entity="entity",
+        wandb_authorized=True,
+        wandb_approved_data_classes=("metrics",),
+    )
+    fully_approved = replace(
+        partial_approval,
+        wandb_approved_data_classes=("metrics", "configs", "provenance"),
+    )
+
+    assert any("destination" in error for error in wandb_preflight_errors(missing_destination, {}))
+    assert any("configs" in error and "provenance" in error for error in wandb_preflight_errors(partial_approval, {}))
+    assert wandb_preflight_errors(fully_approved, {}) == []
+    assert wandb_preflight_errors(missing_destination, {"WANDB_MODE": "offline"}) == []
+
+
+def test_wandb_gates_each_operation_against_its_emission_manifest(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        wandb_entity="entity",
+        wandb_authorized=True,
+        wandb_approved_data_classes=("metrics", "provenance"),
+    )
+
+    launch = spec.wandb_operation_decision("launch", "online")
+    summary = spec.wandb_operation_decision("summary", "online")
+
+    assert launch.effective_mode == "local-only"
+    assert launch.missing_data_classes == ("configs",)
+    assert summary.effective_mode == "online"
+    assert summary.emitted_data_classes == ("metrics", "provenance")
+    assert summary.to_dict()["destination"] == "entity/mjepa-cifar10"
+
+
+def test_committed_studies_record_the_code_verified_wandb_manifests() -> None:
+    expected = {key: tuple(sorted(value)) for key, value in WANDB_OPERATION_EMITTED_DATA_CLASSES.items()}
+
+    for path in Path("research/studies").glob("*.yaml"):
+        spec = StudySpec.from_path(path)
+        assert spec.wandb_emitted_data_classes == expected
+        assert spec.wandb_manifests_explicit
+
+
+def test_register_root_cli_records_exact_root(tmp_path: Path, capsys) -> None:
+    root = tmp_path / "managed" / "logs"
+
+    assert research_main(["register-root", "--root", str(root)]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["root"] == str(root.resolve())
+    assert payload["marker"] == str(root / MANAGED_ROOT_MARKER_FILENAME)
 
 
 def test_research_log_records_provenance_metrics_and_checkpoint_disposition(tmp_path: Path) -> None:
@@ -450,3 +832,45 @@ def test_research_log_records_provenance_metrics_and_checkpoint_disposition(tmp_
     assert "active_seconds_to_95=100.000" in research_log
     assert "checkpoint=retained" in research_log
     assert "[run](https://wandb.ai/entity/project/runs/id)" in research_log
+
+
+def test_research_log_records_each_retry_attempt_in_the_same_phase(tmp_path: Path) -> None:
+    spec = make_spec(tmp_path, variants=0)
+    run_spec = spec.initial_runs()[0]
+    run_dir = spec.log_root / spec.id / "runs" / run_spec.id
+    run_dir.mkdir(parents=True)
+    StateStore(spec.log_root / spec.id).save(
+        StudyState(
+            spec.id,
+            "study.yaml",
+            "now",
+            "now",
+            {run_spec.id: RunState(run_spec, status="completed", run_dir=str(run_dir))},
+        )
+    )
+
+    def summary(attempt: int, event_id: str) -> dict[str, object]:
+        return {
+            "phase": "screening",
+            "winner": None,
+            "pretraining": {},
+            "sft": {"runs": {}},
+            "runs": {
+                run_spec.id: {
+                    "attempt": attempt,
+                    "terminal_event_id": event_id,
+                    "status": "completed",
+                    "decision": "baseline",
+                    "wandb_url": None,
+                    "checkpoint_disposition": "retained",
+                }
+            },
+        }
+
+    assert append_research_log(spec, summary(1, "event-1"), tmp_path)
+    assert append_research_log(spec, summary(2, "event-2"), tmp_path)
+
+    research_log = (tmp_path / "research" / "LOG.md").read_text()
+    assert research_log.count(f"`{run_spec.id}`: attempt=") == 2
+    assert "attempt=1" in research_log
+    assert "attempt=2" in research_log

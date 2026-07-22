@@ -81,18 +81,50 @@ Use W&B namespaces consistently:
 - `convergence/*` for steps, active time, targets, and AUC;
 - `provenance/*` for code, environment, data, command, and weight disposition.
 
+Declare the emitted-data manifest for every W&B operation in the study YAML. A
+launch emits `metrics`, `configs`, and `provenance`; a summary emits `metrics`
+and `provenance`. Gate each operation independently. Online W&B requires an
+explicit entity, `authorized: true`, an explicit matching manifest, and approval
+for every class that operation emits. Otherwise that complete operation stays
+local-only. Record its requested mode, effective mode, destination, manifest,
+approvals, and decision in local provenance before writing externally.
+
 ## Monitoring and recovery
 
-Training runs in a detached supervisor. The supervisor writes `worker.json` while active and atomically writes `terminal.json` on completion, failure, or timeout. `monitor` merges terminal files into `state.json` and launches eligible pending work only after the same launch checks pass.
+Training runs in a detached supervisor. The supervisor owns the training process
+group until every child exits. On timeout, cancellation, heartbeat failure, or
+another exceptional exit, it terminates and reaps that group before releasing
+the GPU lock. It writes `worker.json` heartbeats while active, atomically writes
+`terminal.json` on completion, failure, or timeout, and then creates a pending
+`notification.json` terminal event. Notification failure cannot change terminal
+status. `monitor` merges terminal and notification files into `state.json` and
+launches eligible pending work only after the same launch checks pass.
+`monitor --no-launch` is strictly read-only for delegated monitoring.
 
 If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
 
-Use adaptive same-task polling if the Codex automation tool is available:
+Run `notify-worker --once --root logs/research` from a scheduled task or another
+persistent local scheduler. Launch and dry-run operations register the exact
+managed root with `.mjepa-research-root.json`. Register a pre-existing root once
+with `register-root --root logs/research`; this also migrates the legacy marker.
+The marker binds its canonical `root_path`, and the notification worker rejects
+missing, mismatched, symlinked, repository, home, and broad roots before any
+recursive scan. The worker connects to an existing Codex app-server daemon
+through `codex app-server proxy` or an explicitly selected WebSocket-over-Unix
+socket. It validates the terminal event, serializes delivery per task, starts an
+idle task or steers its sole active turn, and records acceptance only after the
+RPC succeeds. Failed deliveries use bounded full-jitter exponential backoff and
+require explicit `notify --requeue` after the eighth failure or a permanent
+validation error. Training never starts or waits for app-server.
+
+Keep sparse routine monitoring as a fallback:
 
 - check 10 minutes after launch;
 - check again 20 minutes after launch;
 - if both checks show normal progress, poll every 30 minutes for the rest of the phase;
 - return to 10-minute checks for the first two checks after a retry or a newly launched phase.
+
+Advance the routine-check count only when that run's `next_check_at` is due and the check is performed. A terminal wake for one run must clear only that run's schedule and preserve schedules and budgets for other active runs.
 
 A lower-cost monitor is appropriate for these read-only checks. Prefer Luna 5.6 at medium reasoning when the scheduled follow-up supports a model override. Its task is limited to `status`, `monitor --no-launch`, terminal-log inspection, and concise failure reporting. It must not launch pending work, change code or Git state, call `summarize`, select a winner, or delete checkpoints. The primary goal agent performs those state transitions.
 
@@ -105,7 +137,7 @@ Each monitoring pass should:
 
 The primary goal agent calls `summarize`, commits and pushes result or schedule changes, and launches the next phase.
 
-This is polling, not event delivery. After startup checks, a finished job can wait up to 30 minutes. Scheduled tasks require the host and Codex app to remain running. When scheduling or model override is unavailable, the persistent goal and atomic state permit the primary task to recover with `status`.
+App-server delivery is at least once and deduplicated by terminal-event ID. The wake prompt contains only validated identifiers, status, and the absolute terminal-state path, never raw logs or stack traces. A host or scheduler failure can still miss a wake, so scheduled tasks require the host and Codex app to remain running. When app-server or scheduling is unavailable, the sparse monitor and atomic state let the primary task recover with `status`.
 
 ## Storage and retention
 

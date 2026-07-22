@@ -7,7 +7,8 @@
 - `config/pretrain/` holds YAML experiment configs (e.g., `vit-small.yaml`).
 - `logs/` is the default training output directory.
 - `research/studies/` contains committed study specifications; `research/LOG.md` is the append-only result record.
-- `.agents/skills/run-jepa-research/` defines the goal-mode research workflow and retention protocol.
+- `.agents/skills/autoresearch/` defines the generic empirical-research safety contract vendored from the template.
+- `.agents/skills/run-jepa-research/` adds the JEPA and CIFAR-10 adapter protocol.
 - `tests/` contains unit, configuration-migration, and optional multi-GPU tests.
 - `Makefile`, `pyproject.toml`, and `uv.lock` define tooling and dependencies.
 
@@ -27,6 +28,10 @@
 - `uv run python scripts/research.py preflight <study.yaml>`: verify code, environment, GPUs, data, and storage.
 - `uv run python scripts/research.py launch <study.yaml>`: launch pending managed jobs on physical GPUs 1 and 2.
 - `uv run python scripts/research.py monitor <study.yaml>`: recover terminal state and launch the next eligible jobs.
+- `uv run python scripts/research.py monitor <study.yaml> --no-launch`: strictly read-only monitoring for delegated agents.
+- `uv run python scripts/research.py notify <study.yaml> <run-id> [--requeue]`: reconstruct or explicitly requeue one terminal notification.
+- `uv run python scripts/research.py register-root --root logs/research`: register or migrate one exact notification root.
+- `uv run python scripts/research.py notify-worker --once --root logs/research`: deliver due notifications through an existing local Codex app-server daemon.
 - `uv run python scripts/research.py summarize <study.yaml>`: compute convergence and promotion results.
 - `uv run python scripts/research.py inventory`: index legacy and managed local run artifacts without changing them.
 
@@ -73,4 +78,9 @@
 - Require `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free before every launch.
 - Never delete legacy weights. Managed retention may delete only terminal rejected runs under the exact study run directory, and deleted weights are not recoverable.
 - Do not launch from dirty, stale, unpushed, protected, editable, or SHA-mismatched study environments.
-- Poll at 10 and 20 minutes after launch, then every 30 minutes. Luna 5.6 medium may perform read-only polling; the primary goal agent owns state transitions and mutations.
+- Apply the repository-scoped `$autoresearch` skill before `$run-jepa-research`.
+- Declare and gate W&B emissions per operation. Launch emits `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`. Record requested and effective modes locally before an external write.
+- Use app-server terminal notifications with sparse monitoring as a fallback. Check at 10 and 20 minutes after launch, then every 30 minutes. Luna 5.6 medium may perform read-only monitoring; the primary goal agent owns state transitions and mutations.
+- Advance a run's routine-check count only when its recorded `next_check_at` is due. A wake for another run must preserve its schedule.
+- Never let training wait for Codex or let notification failure change terminal run status. Test app-server integration only with fake servers.
+- Run notification sweeps only against an exact root registered by the research launcher or `register-root`; reject missing, mismatched, symlinked, repository, home, or broad roots before scanning.

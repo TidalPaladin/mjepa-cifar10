@@ -26,6 +26,11 @@ wandb:
   entity: replace-me
   project: mjepa-cifar10
   group: example-jepa-study
+  authorized: false
+  approved_data_classes: []
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
 
 code_shas:
   parent: REQUIRED

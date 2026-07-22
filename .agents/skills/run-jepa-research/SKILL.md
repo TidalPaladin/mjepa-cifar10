@@ -5,6 +5,11 @@ description: Run bounded, recoverable JEPA ablation studies in this repository. 
 
 # Run JEPA Research
 
+Apply the repository-scoped `$autoresearch` skill from `.agents/skills/autoresearch`
+first. It supplies the recoverability, provenance, monitoring, notification,
+logging, and retention rules. This document supplies only the JEPA/CIFAR-10
+adapter details.
+
 Use `scripts/research.py` as the persistent interface for JEPA studies. W&B stores metrics, configs, and provenance. `logs/research/<study-id>/state.json` lets a later goal turn recover the run without transcript context.
 
 ## Preconditions
@@ -23,7 +28,7 @@ Use `scripts/research.py` as the persistent interface for JEPA studies. W&B stor
 5. Add regression tests before the implementation. Preserve the fixed 45,000/5,000 train/validation split and reserve the official test set for the confirmed baseline and winner.
 6. Run `preflight`. Do not launch until both repositories are clean, pushed, tested, pinned, and installed from the recorded commits.
 7. Launch with `scripts/research.py launch`. The harness exposes one physical GPU to each process, uses only GPUs 1 and 2, permits two jobs, and stops each job after 24 hours.
-8. Arrange same-task scheduled follow-ups when the automation tool is available. Check at 10 and 20 minutes to catch startup failures, then every 30 minutes. Keep the host and Codex app running. If scheduled tasks are unavailable, rely on persistent goal polling and `status` recovery.
+8. Run the one-shot notification worker from a same-task scheduled follow-up when automation is available. It resumes the originating task after a terminal event through an existing local Codex app-server daemon. Keep the host and Codex app running.
 9. Use Luna 5.6 at medium reasoning for read-only polling when scheduled follow-ups support a model override. The monitor may run `status` or `monitor --no-launch` and report failures. The primary goal agent retains launches, summaries, promotion decisions, code and Git changes, and checkpoint deletion.
 10. Promote, replicate, fine-tune, and record results only through the thresholds in the study protocol. Do not exceed eight pretraining trials.
 11. Append the result to `research/LOG.md`, commit and push the result, then apply eligible retention. Never delete legacy weights.
@@ -35,6 +40,10 @@ uv run python scripts/research.py preflight research/studies/<study-id>.yaml
 uv run python scripts/research.py launch research/studies/<study-id>.yaml
 uv run python scripts/research.py status research/studies/<study-id>.yaml
 uv run python scripts/research.py monitor research/studies/<study-id>.yaml
+uv run python scripts/research.py monitor research/studies/<study-id>.yaml --no-launch  # read-only monitor
+uv run python scripts/research.py notify research/studies/<study-id>.yaml <run-id> [--requeue]
+uv run python scripts/research.py register-root --root logs/research
+uv run python scripts/research.py notify-worker --once --root logs/research
 uv run python scripts/research.py summarize research/studies/<study-id>.yaml --record
 uv run python scripts/research.py inventory --wandb-entity <entity>
 uv run python scripts/research.py storage-report research/studies/<study-id>.yaml

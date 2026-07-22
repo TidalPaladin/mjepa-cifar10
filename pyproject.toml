@@ -13,6 +13,7 @@ authors = [
     { name = "Scott Chase Waggener", email = "chase.waggener@icloud.com" },
 ]
 dependencies = [
+    "filelock==3.31.1",
     "torch==2.13.0",
     "torchvision==0.28.0",
     "pyyaml==6.0.3",
@@ -22,6 +23,7 @@ dependencies = [
     "vit",
     "mjepa",
     "wandb==0.28.1",
+    "websockets==16.1.1",
 ]
 
 readme = "README.md"

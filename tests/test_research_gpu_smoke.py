@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import time
@@ -45,6 +46,9 @@ wandb:
   entity: tidalpaladin
   project: mjepa-cifar10
   group: gpu-smoke
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
 code_shas: {{}}
 resources:
   physical_gpus: [1, 2]
@@ -75,8 +79,20 @@ resources:
     run_dir = Path(run.run_dir)
     checkpoint = run_dir / "checkpoint.pt"
     assert checkpoint.is_file()
-    for artifact in ("config.yaml", "metrics.jsonl", "metadata.json", "provenance.json", "terminal.json"):
+    for artifact in (
+        "config.yaml",
+        "metrics.jsonl",
+        "metadata.json",
+        "notification.json",
+        "provenance.json",
+        "terminal.json",
+    ):
         assert (run_dir / artifact).is_file()
+    tracker = json.loads((run_dir / "provenance.json").read_text(encoding="utf-8"))["external_tracker"]
+    assert tracker["operation"] == "launch"
+    assert tracker["requested_mode"] == "offline"
+    assert tracker["effective_mode"] == "local-only"
+    assert tracker["emitted_data_classes"] == ["configs", "metrics", "provenance"]
 
     resume_environment = dict(os.environ)
     resume_environment["CUDA_VISIBLE_DEVICES"] = "2"

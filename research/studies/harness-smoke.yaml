@@ -20,6 +20,9 @@ wandb:
   entity: tidalpaladin
   project: mjepa-cifar10
   group: harness-smoke
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
 
 code_shas:
   parent: REQUIRED
