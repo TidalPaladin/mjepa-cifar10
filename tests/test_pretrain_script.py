@@ -1,5 +1,6 @@
 import importlib.util
 import sys
+from dataclasses import fields
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -7,6 +8,7 @@ import pytest
 import yaml
 from mjepa import JEPAConfig
 from mjepa.trainer import CheckpointMetadata
+from vit import ViTConfig
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +16,12 @@ PRETRAIN_CONFIG_PATHS = (
     REPO_ROOT / "config" / "pretrain" / "vit-small.yaml",
     REPO_ROOT / "config" / "pretrain" / "vit-tiny.yaml",
 )
+SRELU_WIDTH_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536.yaml": 1536,
+    REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h2304.yaml": 2304,
+    REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h2305.yaml": 2305,
+}
+SRELU_CHANGED_BACKBONE_FIELDS = frozenset(("activation", "ffn_hidden_size", "mlp_dropout"))
 
 
 def load_pretrain_script_module() -> ModuleType:
@@ -35,6 +43,25 @@ def test_pretrain_configs_preserve_gram_anchoring_and_predictor_mode(config_path
     assert isinstance(jepa_config, JEPAConfig)
     assert jepa_config.use_gram_anchoring is True
     assert jepa_config.predictor_attention_mode == "cross_attention"
+
+
+@pytest.mark.parametrize(("config_path", "expected_width"), SRELU_WIDTH_CONFIGS.items())
+def test_srelu_width_configs_change_only_mlp_fields(config_path: Path, expected_width: int) -> None:
+    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    candidate = yaml.full_load(config_path.read_text())
+    baseline_backbone = baseline["backbone"]
+    candidate_backbone = candidate["backbone"]
+
+    assert isinstance(baseline_backbone, ViTConfig)
+    assert isinstance(candidate_backbone, ViTConfig)
+    assert candidate_backbone.activation == "srelu"
+    assert candidate_backbone.ffn_hidden_size == expected_width
+    assert candidate_backbone.mlp_dropout == pytest.approx(baseline_backbone.hidden_dropout)
+    for field in fields(ViTConfig):
+        if field.name not in SRELU_CHANGED_BACKBONE_FIELDS:
+            assert getattr(candidate_backbone, field.name) == getattr(baseline_backbone, field.name)
+    for section in ("trainer", "jepa", "optimizer"):
+        assert candidate[section] == baseline[section]
 
 
 def test_instantiate_jepa_forwards_predictor_configuration(mocker) -> None:

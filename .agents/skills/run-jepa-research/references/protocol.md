@@ -44,7 +44,13 @@ The online linear probe applies the student classifier head to teacher features.
 
 ## Pretraining trial policy
 
-Permit at most eight pretraining trials.
+Permit at most eight pretraining trials per managed study. A larger goal-wide
+budget requires explicit user authorization and a recorded allocation across
+linked study specifications. The user-authorized SReLU MLP program may use at
+most 16 scientific pretraining runs: one fresh seed-0 SwiGLU baseline, three
+seed-0 width candidates, up to six seed-0 directional-tuning candidates, and
+six fresh paired-confirmation runs. Its one-epoch mechanical smoke run is
+excluded from this scientific-run count.
 
 1. Run the baseline at seed 0 and up to three seed-0 variants.
 2. Promote at most one candidate if it satisfies at least one condition:
@@ -68,6 +74,11 @@ candidate qualifies, record `reference-promotion` and retain its weights, but do
 not call it confirmed, launch supervised evaluation, or report paired effects.
 Those steps require separately authorized baseline seeds 1 and 2 and the normal
 confirmation rule.
+
+For the SReLU MLP program, use `baseline_reference` only for its seed-0 width
+and directional-tuning screens. Preserve the committed baseline curve and hash
+across both screens. Even when a referenced candidate qualifies, paired
+confirmation must launch fresh baseline and winner runs at seeds 0, 1, and 2.
 
 ## Convergence metrics
 
@@ -194,6 +205,16 @@ reset time, and the change from the prior reported snapshot when known. This
 observation must not advance a routine-check count or change `next_check_at`.
 Never create a scheduled task, start or wake a turn, wait, or poll solely for
 usage reporting.
+
+Token-use limits apply only to intervals spent polling or inspecting live
+experiment state. Capture token totals at the start and end of each such
+interval when available. Exclude initial setup, implementation, tests,
+benchmarks, preflight, launch preparation and execution, terminal analysis,
+summaries, Git work, and any code or configuration changes required during the
+study. Close the monitoring interval before starting excluded work. If the
+interval cannot be isolated, mark it unmeasured. Never substitute aggregate
+goal or task token usage, and never block a study for excess token use unless
+the monitoring-only counter exceeds the applicable limit.
 
 The primary goal agent calls `summarize`, commits and pushes result or schedule changes, and launches the next phase.
 

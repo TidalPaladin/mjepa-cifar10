@@ -294,6 +294,28 @@ Never create a scheduled task, start or wake a turn, wait, or poll solely to
 collect usage telemetry. If it is unavailable, omit it or report that once
 without retrying.
 
+### Monitoring token accounting
+
+Apply token-use limits only to work whose primary purpose is polling or
+inspecting a live experiment. This includes scheduled or sparse status checks,
+progress and log inspection, notification triage, and the monitoring report
+produced from those observations.
+
+Exclude all other research work. Excluded work includes initial recovery and
+study design, implementation, configuration, tests, benchmarks, preflight,
+launch preparation and execution, result analysis, promotion decisions,
+summaries, and Git operations. Code, configuration, test, or validation work
+that becomes necessary during a study is also excluded.
+
+When token totals are available, capture the total immediately before and
+after each monitoring interval and add only that positive delta to the
+monitoring token counter. Close the interval before switching to excluded work.
+If a reset, missing snapshot, or mixed interval prevents attribution, mark that
+interval unmeasured. Never substitute aggregate goal or task token usage.
+Evaluate any excess-use stop or block rule only against the monitoring token
+counter. Rate-limit window percentages remain informational and are not a
+monitoring token counter.
+
 Check shortly after launch to catch startup failures. Use the next check to obtain a progress-rate estimate. After every positive epoch delta, calculate:
 
 ```text
