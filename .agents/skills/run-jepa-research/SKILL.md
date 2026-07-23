@@ -28,7 +28,7 @@ Use `scripts/research.py` as the persistent interface for JEPA studies. W&B stor
 5. Add regression tests before the implementation. Preserve the fixed 45,000/5,000 train/validation split and reserve the official test set for the confirmed baseline and winner.
 6. Run `preflight`. Do not launch until both repositories are clean, pushed, tested, pinned, and installed from the recorded commits.
 7. Launch with `scripts/research.py launch`. The harness exposes one physical GPU to each process, uses only GPUs 1 and 2, permits two jobs, and stops each job after 24 hours.
-8. Run `event-controller` as the primary wake path for new launches. It may wake once after the first train-validation-checkpoint cycle, on a supervisor loss or progress stall, and on terminal state. Never keep a Codex turn open to sleep or poll. Keep the host and Codex app running.
+8. Run `event-controller --study-id <study-id>` as the primary wake path for new launches. Direct Unix-socket delivery is the default, and the CLI discovers the running daemon socket. Study-scoped delivery prevents unrelated historical notification failures from disarming the active wake path. It may wake once after the first train-validation-checkpoint cycle, on a supervisor loss or progress stall, and on terminal state. Never keep a Codex turn open to sleep or poll. Keep the host and Codex app running.
 9. Pin read-only scheduled fallback checks to GPT-5.6 Luna with medium reasoning instead of inheriting the chat default. The monitor may run `status` or `monitor --no-launch` and report failures. The primary goal agent retains launches, summaries, promotion decisions, code and Git changes, and checkpoint deletion.
 10. Add one opportunistic Codex rate-limit snapshot to research reports that are already being produced when live telemetry is available. Do not schedule, wake, wait, or poll for usage alone.
 11. Promote, replicate, fine-tune, and record results only through the thresholds in the study protocol. Do not exceed eight pretraining trials.
@@ -44,8 +44,8 @@ uv run python scripts/research.py monitor research/studies/<study-id>.yaml
 uv run python scripts/research.py monitor research/studies/<study-id>.yaml --no-launch  # read-only monitor
 uv run python scripts/research.py notify research/studies/<study-id>.yaml <run-id> [--requeue]
 uv run python scripts/research.py register-root --root logs/research
-uv run python scripts/research.py notify-worker --once --root logs/research
-uv run python scripts/research.py event-controller --root logs/research
+uv run python scripts/research.py notify-worker --once --root logs/research --study-id <study-id>
+uv run python scripts/research.py event-controller --root logs/research --study-id <study-id>
 uv run python scripts/research.py summarize research/studies/<study-id>.yaml --record
 uv run python scripts/research.py inventory --wandb-entity <entity>
 uv run python scripts/research.py storage-report research/studies/<study-id>.yaml

@@ -6,7 +6,7 @@
 - `scripts/pretrain.py` is the CLI entrypoint used by the Makefile targets.
 - `config/pretrain/` holds YAML experiment configs (e.g., `vit-small.yaml`).
 - `logs/` is the default training output directory.
-- `research/studies/` contains committed study specifications; `research/LOG.md` is the append-only result record.
+- `research/studies/` contains committed study specifications; `research/baselines/` contains immutable, hashed metric curves approved for fixed-reference follow-ups; `research/LOG.md` is the append-only result record.
 - `.agents/skills/autoresearch/` defines the generic empirical-research safety contract vendored from the template.
 - `.agents/skills/run-jepa-research/` adds the JEPA and CIFAR-10 adapter protocol.
 - `tests/` contains unit, configuration-migration, and optional multi-GPU tests.
@@ -31,8 +31,8 @@
 - `uv run python scripts/research.py monitor <study.yaml> --no-launch`: strictly read-only monitoring for delegated agents.
 - `uv run python scripts/research.py notify <study.yaml> <run-id> [--requeue]`: reconstruct or explicitly requeue one terminal notification.
 - `uv run python scripts/research.py register-root --root logs/research`: register or migrate one exact notification root.
-- `uv run python scripts/research.py notify-worker --once --root logs/research`: deliver due notifications through an existing local Codex app-server daemon.
-- `uv run python scripts/research.py event-controller --root logs/research`: watch trainer, supervisor, and terminal lifecycle events without model polling.
+- `uv run python scripts/research.py notify-worker --once --root logs/research --study-id <study-id>`: deliver due notifications for one study directly through the running local Codex app-server daemon socket.
+- `uv run python scripts/research.py event-controller --root logs/research --study-id <study-id>`: watch trainer, supervisor, and terminal lifecycle events without model polling while isolating delivery from unrelated historical notification failures.
 - `uv run python scripts/research.py summarize <study.yaml>`: compute convergence and promotion results.
 - `uv run python scripts/research.py inventory`: index legacy and managed local run artifacts without changing them.
 
@@ -76,15 +76,17 @@
 - Preserve the online probe invariant: classifier-head gradients are allowed, while teacher features remain detached under `torch.inference_mode()`.
 - Use the fixed 45,000/5,000 stratified training split. Reserve the official test set for the confirmed baseline and winner.
 - Do not exceed eight pretraining trials, two concurrent jobs, physical GPUs 1 and 2, or 24 hours per job.
+- A Muon-only follow-up may reuse a completed seed-0 baseline only through `baseline_reference`: commit the exact metric curve under `research/baselines/`, record its SHA-256 in the study YAML, run all configured candidates at seed 0, and label a qualifying result `reference-promotion`. This does not authorize paired confirmation or supervised evaluation.
 - Require `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free before every launch.
 - Never delete legacy weights. Managed retention may delete only terminal rejected runs under the exact study run directory, and deleted weights are not recoverable.
 - Do not launch from dirty, stale, unpushed, protected, editable, or SHA-mismatched study environments.
 - Apply the repository-scoped `$autoresearch` skill before `$run-jepa-research`.
 - Declare and gate W&B emissions per operation. Launch emits `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`. Record requested and effective modes locally before an external write.
 - Use app-server lifecycle notifications as the primary wake path and sparse monitoring only as a fallback. Never keep a Codex turn open to sleep or poll. Check at 10 and 20 minutes after launch, then every 30 minutes. Pin read-only scheduled checks to GPT-5.6 Luna with medium reasoning; the primary goal agent owns state transitions and mutations.
-- Run the non-model event controller for new managed launches. It watches durable state with inotify, supervisor exits with pidfds, and progress deadlines with local timers. Wake once after the first train-validation-checkpoint cycle, on exceptional safety events, and on terminal state. Never wake for routine progress writes or notification retry writes.
+- Run the non-model event controller for new managed launches with the active `--study-id`. Direct Unix-socket delivery is the default, and the CLI discovers the running daemon socket. It watches durable state with inotify, supervisor exits with pidfds, and progress deadlines with local timers. Study-scoped delivery prevents a stale notification from another study from disarming the active wake path. Wake once after the first train-validation-checkpoint cycle, on exceptional safety events, and on terminal state. Never wake for routine progress writes or notification retry writes.
 - When a research report is already being produced, sample current Codex rate-limit telemetry once if available and include a compact usage snapshot. Never schedule, wake, wait, or poll solely for usage reporting, and do not advance research monitoring counters for it.
 - Advance a run's routine-check count only when its recorded `next_check_at` is due. A wake for another run must preserve its schedule.
 - Never let training wait for Codex or let notification failure change terminal run status. Test app-server integration only with fake servers.
+- Lifecycle delivery must query the originating thread goal and transition only `blocked` goals back to `active` before waking the task. Respect explicit `paused`, `complete`, `usageLimited`, and `budgetLimited` states.
 - Run notification sweeps only against an exact root registered by the research launcher or `register-root`; reject missing, mismatched, symlinked, repository, home, or broad roots before scanning.
 - When an authorized pull request contains terminal comparative research results, update its body after the result commit is pushed with a `## Findings` table generated from the committed structured summary. Include every evaluated variant, key hyperparameters, primary and convergence metrics, elapsed wall time, decision, total study span, and summed run time or compute cost; mark censored values and distinguish active from wall time. Omit the section for protocol-only changes and active studies.

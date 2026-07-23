@@ -19,6 +19,7 @@ from uuid import UUID
 from filelock import FileLock
 from filelock import Timeout as FileLockTimeout
 from websockets.asyncio.client import ClientConnection, unix_connect
+from websockets.exceptions import WebSocketException
 
 from .lifecycle_events import (
     LIFECYCLE_FILENAMES,
@@ -690,78 +691,6 @@ class MessageTransport(Protocol):
     async def close(self) -> None: ...
 
 
-class JsonlStdioTransport:
-    """JSONL transport through ``codex app-server proxy`` to an existing daemon."""
-
-    command: tuple[str, ...] = ("codex", "app-server", "proxy")
-
-    def __init__(self, process: asyncio.subprocess.Process) -> None:
-        self._process = process
-
-    @classmethod
-    async def connect(cls, socket_path: Path | None = None) -> JsonlStdioTransport:
-        command = [*cls.command]
-        if socket_path is not None:
-            command.extend(("--sock", str(socket_path.expanduser().resolve(strict=False))))
-        try:
-            process = await asyncio.create_subprocess_exec(
-                *command,
-                stdin=asyncio.subprocess.PIPE,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                limit=APP_SERVER_MESSAGE_LIMIT_BYTES,
-            )
-        except OSError as error:
-            raise AppServerProtocolError(f"could not start app-server proxy: {error}") from error
-        if process.stdin is None or process.stdout is None:
-            process.kill()
-            await process.wait()
-            raise AppServerProtocolError("app-server proxy did not expose stdin and stdout")
-        return cls(process)
-
-    async def send(self, message: JsonObject) -> None:
-        stream = self._process.stdin
-        if stream is None or stream.is_closing():
-            raise AppServerProtocolError("app-server proxy stdin is closed")
-        try:
-            stream.write(json.dumps(message, separators=(",", ":")).encode() + b"\n")
-            await stream.drain()
-        except (BrokenPipeError, ConnectionError, OSError) as error:
-            raise AppServerProtocolError(f"could not write to app-server proxy: {error}") from error
-
-    async def receive(self) -> JsonObject:
-        stream = self._process.stdout
-        if stream is None:
-            raise AppServerProtocolError("app-server proxy stdout is unavailable")
-        line = await stream.readline()
-        if not line:
-            detail = ""
-            if self._process.stderr is not None:
-                try:
-                    raw_error = await asyncio.wait_for(self._process.stderr.read(2048), timeout=0.1)
-                    detail = raw_error.decode(errors="replace").strip()
-                except TimeoutError:
-                    pass
-            raise AppServerProtocolError(f"app-server proxy closed the connection{f': {detail}' if detail else ''}")
-        return _decode_message(line)
-
-    async def close(self) -> None:
-        stream = self._process.stdin
-        if stream is not None and not stream.is_closing():
-            stream.close()
-            with suppress(BrokenPipeError, ConnectionError):
-                await stream.wait_closed()
-        try:
-            await asyncio.wait_for(self._process.wait(), timeout=1.0)
-        except TimeoutError:
-            self._process.terminate()
-            try:
-                await asyncio.wait_for(self._process.wait(), timeout=1.0)
-            except TimeoutError:
-                self._process.kill()
-                await self._process.wait()
-
-
 class UnixWebSocketTransport:
     """One-JSON-message-per-frame transport over a local Unix socket."""
 
@@ -772,8 +701,14 @@ class UnixWebSocketTransport:
     async def connect(cls, socket_path: Path) -> UnixWebSocketTransport:
         path = socket_path.expanduser().resolve(strict=False)
         try:
-            connection = await unix_connect(path=str(path), uri="ws://localhost")
-        except (OSError, ValueError) as error:
+            connection = await unix_connect(
+                path=str(path),
+                uri="ws://localhost",
+                compression=None,
+                max_size=APP_SERVER_MESSAGE_LIMIT_BYTES,
+                user_agent_header=None,
+            )
+        except (OSError, ValueError, WebSocketException) as error:
             raise AppServerProtocolError(f"could not connect to app-server Unix socket {path}: {error}") from error
         return cls(connection)
 
@@ -923,6 +858,22 @@ def _thread_from_result(result: JsonObject, method: str, expected_thread_id: str
     return cast(JsonObject, thread)
 
 
+async def _resume_blocked_goal(client: RpcClient, thread_id: str) -> None:
+    """Re-arm a blocked persistent goal before delivering a lifecycle wake."""
+    result = await client.request("thread/goal/get", {"threadId": thread_id})
+    goal = result.get("goal")
+    if goal is None:
+        return
+    if not isinstance(goal, dict) or not isinstance(goal.get("status"), str):
+        raise AppServerProtocolError("thread/goal/get returned an invalid goal")
+    if goal["status"] != "blocked":
+        return
+    await client.request(
+        "thread/goal/set",
+        {"threadId": thread_id, "status": "active"},
+    )
+
+
 async def deliver_notification(
     event: NotificationEvent,
     transport: MessageTransport,
@@ -944,6 +895,7 @@ async def deliver_notification(
         await client.notify("initialized", {})
         resumed = await client.request("thread/resume", {"threadId": thread_id})
         _thread_from_result(resumed, "thread/resume", thread_id)
+        await _resume_blocked_goal(client, thread_id)
         fresh = await client.request("thread/read", {"threadId": thread_id, "includeTurns": True})
         thread = _thread_from_result(fresh, "thread/read", thread_id)
         status = thread.get("status")
@@ -976,9 +928,9 @@ async def deliver_notification(
                 raise AppServerProtocolError("turn/start response is missing the accepted turn ID")
             return Acceptance("turn/start", turn["id"])
         if status["type"] == "active":
-            if len(in_progress) != 1:
-                raise AppServerProtocolError("active thread does not have exactly one steerable in-progress turn")
-            expected_turn_id = cast(str, in_progress[0]["id"])
+            if not in_progress:
+                raise AppServerProtocolError("active thread does not have a steerable in-progress turn")
+            expected_turn_id = cast(str, in_progress[-1]["id"])
             result = await client.request(
                 "turn/steer",
                 {
@@ -1191,7 +1143,7 @@ async def _deliver_path(
             return ("failed" if exhausted else "retrying"), f"{path}: {updated.last_error}"
 
 
-def _notification_paths(root: Path) -> list[Path]:
+def _notification_paths(root: Path, study_ids: frozenset[str] | None = None) -> list[Path]:
     lifecycle_notification_names = {f"{Path(name).stem}.notification.json" for name in LIFECYCLE_FILENAMES}
     return sorted(
         path
@@ -1199,6 +1151,7 @@ def _notification_paths(root: Path) -> list[Path]:
         if path.name in {NOTIFICATION_FILENAME, *lifecycle_notification_names}
         and path.parent.parent.name == "runs"
         and "attempts" not in path.parts
+        and (study_ids is None or path.parents[2].name in study_ids)
     )
 
 
@@ -1209,6 +1162,7 @@ async def sweep_notifications(
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
     random: Random | None = None,
     request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
+    study_ids: frozenset[str] | None = None,
 ) -> SweepResult:
     managed_root = root.expanduser().resolve(strict=False)
     if managed_root == Path(managed_root.anchor):
@@ -1220,8 +1174,11 @@ async def sweep_notifications(
     if selected_now.tzinfo is None or selected_now.utcoffset() is None:
         raise NotificationStateError("worker clock must return an offset-aware datetime")
     selected_now = selected_now.astimezone(UTC)
+    selected_study_ids = (
+        None if study_ids is None else frozenset(_validate_identifier(study_id, "study id") for study_id in study_ids)
+    )
     generator = random or Random()
-    paths = _notification_paths(managed_root)
+    paths = _notification_paths(managed_root, selected_study_ids)
     counts = {"accepted": 0, "retrying": 0, "failed": 0, "skipped": 0}
     due = 0
     problems: list[str] = []
@@ -1251,13 +1208,6 @@ async def sweep_notifications(
         skipped=counts["skipped"],
         problems=tuple(problems),
     )
-
-
-def stdio_connector(socket_path: Path | None = None) -> Callable[[], Awaitable[MessageTransport]]:
-    async def connect() -> MessageTransport:
-        return await JsonlStdioTransport.connect(socket_path)
-
-    return connect
 
 
 def unix_connector(socket_path: Path) -> Callable[[], Awaitable[MessageTransport]]:

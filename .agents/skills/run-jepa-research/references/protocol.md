@@ -57,6 +57,18 @@ Permit at most eight pretraining trials.
 
 Confirmation requires the three-seed mean to meet the same promotion threshold and at least two paired seeds to move in the required direction. Report mean, sample standard deviation, per-seed paired differences, and censored runs. Three pairs do not support a statistical-significance claim.
 
+An explicitly authorized candidate-only follow-up may reuse one completed
+seed-0 baseline instead of launching a new baseline. Commit the exact validation
+metric curve under `research/baselines/`, record its source study/run and
+SHA-256 in `baseline_reference`, and preserve the original metric names and
+active-time clock. The harness must verify the hash, schedule every configured
+variant at seed 0, and count only the new candidate jobs against the eight-trial
+limit. Use the reference curve to derive targets and common horizons. If a
+candidate qualifies, record `reference-promotion` and retain its weights, but do
+not call it confirmed, launch supervised evaluation, or report paired effects.
+Those steps require separately authorized baseline seeds 1 and 2 and the normal
+confirmation rule.
+
 ## Convergence metrics
 
 Derive fixed targets at 90% and 95% of the baseline seed-0 peak online-probe validation accuracy. For every run, report:
@@ -112,17 +124,21 @@ run attempt.
 
 If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
 
-Run `event-controller --root logs/research` as a persistent local non-model
-process for new launches. Launch and dry-run operations register the exact
+Run `event-controller --root logs/research --study-id <study-id>` as a
+persistent local non-model process for new launches. Direct Unix-socket
+delivery is the default, and the CLI discovers the running daemon socket.
+Study-scoped delivery prevents a
+pending or retrying notification from another study from disarming the active
+wake path. Launch and dry-run operations register the exact
 managed root with `.mjepa-research-root.json`. Register a pre-existing root once
 with `register-root --root logs/research`; this also migrates the legacy marker.
 The marker binds its canonical `root_path`, and the notification worker rejects
 missing, mismatched, symlinked, repository, home, and broad roots before any
-recursive scan. The worker connects to an existing Codex app-server daemon
-through `codex app-server proxy` or an explicitly selected WebSocket-over-Unix
-socket. It validates the terminal event, serializes delivery per task, starts an
-idle task or steers its sole active turn, and records acceptance only after the
-RPC succeeds. Failed deliveries use bounded full-jitter exponential backoff and
+recursive scan. The worker connects directly to the discovered Codex app-server
+daemon Unix socket. It validates the terminal event, serializes delivery per
+task, starts an idle task or steers its newest in-progress turn with an
+expected-turn guard, and records acceptance only after the RPC succeeds. Failed
+deliveries use bounded full-jitter exponential backoff and
 require explicit `notify --requeue` after the eighth failure or a permanent
 validation error. Training never starts or waits for app-server.
 
@@ -197,7 +213,7 @@ Retention applies only to new managed runs under `logs/research/<study-id>/runs/
 
 - rejected run: delete `checkpoint.pt` after metrics, provenance, rejection decision, and result commit are pushed;
 - rejected run at study close: also delete `backbone.safetensors`;
-- baseline or confirmed winner: retain full and backbone weights;
+- baseline, confirmed winner, or fixed-reference promoted candidate: retain full and backbone weights;
 - retryable failure: retain weights until retry or study close.
 
 Before deleting, verify that the run is terminal, the state decision permits deletion, and the resolved path is the exact managed run directory. Log each path and byte count in `retention.jsonl`. Weight deletion is not recoverable. Do not inspect for deletion or alter the existing legacy checkpoint collection unless the user makes a separate cleanup request.

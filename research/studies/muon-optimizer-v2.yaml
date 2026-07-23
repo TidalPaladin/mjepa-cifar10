@@ -1,0 +1,125 @@
+id: muon-optimizer-v2
+question: Can a focused sweep of correctly routed Muon learning-rate scaling and weight decay beat the fixed AdamW seed-0 baseline on ViT-S/4 MJEPA pretraining?
+hypothesis: At least one higher-rate Muon configuration will meet a preregistered accuracy or convergence promotion threshold against the immutable AdamW baseline curve from muon-optimizer-v1.
+rejection_condition: Reject the hypothesis if none of the six Muon seed-0 variants meets a promotion threshold against the fixed AdamW reference.
+
+baseline:
+  id: adamw-fixed-v1
+  config: config/pretrain/vit-small.yaml
+  hypothesis: The formal AdamW seed-0 result from muon-optimizer-v1 remains the fixed comparator without a new AdamW launch.
+  mechanism: Reuse the committed validation curve from the completed formal baseline to preserve its exact 90% and 95% convergence targets.
+  changes: []
+
+baseline_reference:
+  study_id: muon-optimizer-v1
+  run_id: pretrain-adamw-baseline-seed0
+  metrics: research/baselines/muon-optimizer-v1-adamw-seed0.metrics.jsonl
+  metrics_sha256: f794d512ac3b3b4023f50a53e66c57ef3f8b48e013ee1cb0785cc102dd748977
+
+variants:
+  - id: muon-match-lr3e3-wd1e1
+    config: config/pretrain/vit-small-muon-v2-match-lr3e3-wd1e1.yaml
+    hypothesis: Raising the matched-RMS Muon rate from 0.002 to 0.003 improves convergence without losing more than 0.005 peak accuracy.
+    mechanism: Apply Moonshot-style RMS matching to hidden 2-D matrices while increasing only the Muon branch rate above the best prior setting.
+    changes:
+      - Set nominal Muon learning rate to 0.003 with match_rms_adamw scaling.
+      - Set Muon weight decay to 0.1 while holding auxiliary AdamW at learning rate 0.002 and weight decay 0.2.
+  - id: muon-original-lr1e2-wd1e1
+    config: config/pretrain/vit-small-muon-v2-original-lr1e2-wd1e1.yaml
+    hypothesis: Original Muon scaling at raw rate 0.01 better matches the heterogeneous ViT matrix shapes than matched-RMS scaling.
+    mechanism: Use Keller Jordan's original per-matrix adjustment with a raw 0.01 Muon rate and unchanged auxiliary AdamW controls.
+    changes:
+      - Set nominal Muon learning rate to 0.01 with original scaling.
+      - Set Muon weight decay to 0.1 while holding auxiliary AdamW at learning rate 0.002 and weight decay 0.2.
+  - id: muon-match-lr4e3-wd1e1
+    config: config/pretrain/vit-small-muon-v2-match-lr4e3-wd1e1.yaml
+    hypothesis: A matched-RMS Muon rate of 0.004 reaches the fixed targets faster while remaining within the peak-accuracy constraint.
+    mechanism: Double the prior matched-RMS rate on hidden matrices without changing routing, momentum, Newton-Schulz iterations, or auxiliary AdamW.
+    changes:
+      - Set nominal Muon learning rate to 0.004 with match_rms_adamw scaling.
+      - Set Muon weight decay to 0.1 while holding auxiliary AdamW at learning rate 0.002 and weight decay 0.2.
+  - id: muon-original-lr2e2-wd1e1
+    config: config/pretrain/vit-small-muon-v2-original-lr2e2-wd1e1.yaml
+    hypothesis: The upstream original-scaling rate of 0.02 provides the strongest useful hidden-matrix updates without destabilizing JEPA pretraining.
+    mechanism: Use the original Muon adjustment and its commonly documented raw rate while preserving all non-Muon controls.
+    changes:
+      - Set nominal Muon learning rate to 0.02 with original scaling.
+      - Set Muon weight decay to 0.1 while holding auxiliary AdamW at learning rate 0.002 and weight decay 0.2.
+  - id: muon-match-lr3e3-wd5e2
+    config: config/pretrain/vit-small-muon-v2-match-lr3e3-wd5e2.yaml
+    hypothesis: Lower Muon-only weight decay improves peak accuracy at the moderate higher matched-RMS rate.
+    mechanism: Reduce only hidden-matrix Muon weight decay, leaving the probe and other auxiliary AdamW parameters at the formal baseline decay.
+    changes:
+      - Set nominal Muon learning rate to 0.003 with match_rms_adamw scaling and Muon weight decay to 0.05.
+      - Hold auxiliary AdamW at learning rate 0.002 and weight decay 0.2.
+  - id: muon-original-lr1e2-wd5e2
+    config: config/pretrain/vit-small-muon-v2-original-lr1e2-wd5e2.yaml
+    hypothesis: Lower Muon-only weight decay improves peak accuracy under the moderate original-scaling rate.
+    mechanism: Combine the less aggressive original rate with reduced hidden-matrix decay while preserving auxiliary AdamW controls.
+    changes:
+      - Set nominal Muon learning rate to 0.01 with original scaling and Muon weight decay to 0.05.
+      - Hold auxiliary AdamW at learning rate 0.002 and weight decay 0.2.
+
+methodology:
+  sources:
+    - https://docs.pytorch.org/docs/stable/generated/torch.optim.Muon.html
+    - https://github.com/KellerJordan/Muon
+    - https://arxiv.org/abs/2502.16982
+  routing_audit:
+    muon_tensors: 69
+    muon_parameters: 37896192
+    rule: Only trainable hidden student and predictor matrices with ndim equal to 2 use Muon.
+    adamw_exclusions: Learned positions, classifier head, convolutional patch stem, biases, normalization gains, and token-like parameters.
+  fixed_optimizer_controls:
+    muon_momentum: 0.95
+    muon_nesterov: true
+    muon_ns_steps: 5
+    auxiliary_adamw_lr: 0.002
+    auxiliary_adamw_weight_decay: 0.2
+  comparison:
+    baseline_peak_accuracy: 0.9057999849319458
+    target_90_accuracy: 0.8152199864387512
+    target_95_accuracy: 0.8605099856853485
+    baseline_active_seconds_to_95: 5255.813697144389
+    baseline_active_time_auc: 0.795830815463135
+    limitation: A promotion is relative to one immutable seed-0 AdamW curve; paired AdamW replication and formal confirmation are outside this Muon-only study.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: muon-optimizer-v2
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 35934d979078a0f26a83921e2d80821338f41375
+  vit: f8b40c753d7bea5b9d788b379bda1445af0748aa
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 6
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

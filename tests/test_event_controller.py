@@ -23,10 +23,10 @@ def make_root(tmp_path: Path) -> tuple[Path, Path]:
     return root, run_dir
 
 
-def test_controller_discovers_stdio_daemon_socket_for_readiness_events() -> None:
+def test_controller_discovers_unix_daemon_socket_for_direct_delivery() -> None:
     output = json.dumps({"status": "running", "socketPath": str(DAEMON_SOCKET)})
 
-    resolved = resolve_event_controller_socket(None, "stdio", daemon_version=lambda: output)
+    resolved = resolve_event_controller_socket(None, daemon_version=lambda: output)
 
     assert resolved == DAEMON_SOCKET
 

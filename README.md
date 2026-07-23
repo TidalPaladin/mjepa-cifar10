@@ -68,14 +68,23 @@ uv run python scripts/research.py status research/studies/<study-id>.yaml
 uv run python scripts/research.py monitor research/studies/<study-id>.yaml
 uv run python scripts/research.py notify research/studies/<study-id>.yaml <run-id>
 uv run python scripts/research.py register-root --root logs/research
-uv run python scripts/research.py notify-worker --once --root logs/research
-uv run python scripts/research.py event-controller --root logs/research
+uv run python scripts/research.py notify-worker --once --root logs/research --study-id <study-id>
+uv run python scripts/research.py event-controller --root logs/research --study-id <study-id>
 uv run python scripts/research.py summarize research/studies/<study-id>.yaml --record
 uv run python scripts/research.py storage-report research/studies/<study-id>.yaml
 uv run python scripts/research.py inventory --wandb-entity <entity>
 ```
 
 `launch --dry-run` creates the atomic study state without starting training. A real launch uses physical GPUs 1 and 2, exposes one GPU to each process, runs at most two jobs, and enforces a 24-hour job timeout. Before each launch, the harness checks for at least `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free.
+
+An explicitly scoped candidate-only follow-up can set `baseline_reference` in
+its study YAML instead of launching another baseline. The referenced
+`metrics.jsonl` curve must be committed under `research/baselines/` with its
+SHA-256 recorded in the specification. The harness uses that curve for the
+fixed convergence targets and common horizons, schedules every configured
+seed-0 candidate, and reports a qualifying result as `reference-promotion`.
+That phase is a fixed-reference screen, not paired three-seed confirmation, and
+does not trigger supervised evaluation.
 
 Managed trainers write `progress.json` locally and create `first-cycle.json` only
 after the first train, validation, and recoverable checkpoint cycle completes.
@@ -89,8 +98,12 @@ legacy marker. The marker binds its canonical `root_path`, so the one-shot
 worker rejects missing, mismatched, symlinked, repository, home, and broad roots
 before scanning. It connects to an existing local Codex app-server daemon,
 resumes the originating task, and uses `turn/start` for an idle task or
-`turn/steer` for its sole active turn. It retries with bounded jitter, serializes
+`turn/steer` for its newest in-progress turn. The steer includes the expected
+turn ID so app-server rejects a race. It retries with bounded jitter, serializes
 delivery per task, and records acceptance only after app-server accepts the RPC.
+Before delivering a wake, it reactivates a goal whose status is `blocked` via
+the app-server goal API; explicitly paused, completed, and usage-limited goals
+remain untouched.
 Training never waits for Codex, and delivery failure cannot alter terminal run
 status.
 
@@ -100,7 +113,10 @@ timer. Routine progress and notification retry writes never wake Codex. A run
 can wake once after its first train-validation-checkpoint cycle, on a supervisor
 loss or progress stall, and on terminal state. The controller queues events
 even when app-server is unavailable and stops delivery attempts until the daemon
-socket is replaced after a transport failure.
+socket is replaced after a transport failure. Pass the active `--study-id` so a
+stale retry from another study cannot disarm delivery for the current study.
+Direct Unix-socket delivery is the default. The CLI discovers the current
+socket path from `codex app-server daemon version`.
 
 Never keep a Codex turn open to sleep or poll. Use a same-task scheduled
 follow-up only as a sparse fallback: check at 10 and 20 minutes to catch startup
@@ -118,11 +134,12 @@ Start the controller with:
 ```bash
 uv run python scripts/research.py event-controller \
   --root logs/research \
+  --study-id <study-id> \
   --progress-timeout-seconds 1800
 ```
 
-Use `--transport unix --socket <absolute-socket-path>` for direct local Unix
-delivery. Use `--defer-until-socket-replaced` after a confirmed transport
+Use `--socket <absolute-socket-path>` only to override the daemon-discovered
+socket. Use `--defer-until-socket-replaced` after a confirmed transport
 failure so pending events remain durable without spending retries until the
 operator restarts the daemon. Runs launched before this instrumentation do not
 emit trainer progress or first-cycle events, but the controller can still watch

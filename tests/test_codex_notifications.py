@@ -10,16 +10,17 @@ from random import Random
 from typing import Any, ParamSpec
 
 import pytest
+from websockets.asyncio.server import ServerConnection, unix_serve
 
 from mjepa_cifar10.research.codex_notifications import (
     APP_SERVER_MESSAGE_LIMIT_BYTES,
     MANAGED_ROOT_SCHEMA_VERSION,
     MAX_DELIVERY_ATTEMPTS,
     AppServerProtocolError,
-    JsonlStdioTransport,
     NotificationEvent,
     NotificationStateError,
     RpcClient,
+    UnixWebSocketTransport,
     build_wake_prompt,
     deliver_notification,
     ensure_notification,
@@ -54,25 +55,36 @@ def run_async(function: Callable[P, Coroutine[Any, Any, None]]) -> Callable[P, N
 
 
 @run_async
-async def test_stdio_transport_allows_large_app_server_messages(monkeypatch: pytest.MonkeyPatch) -> None:
-    captured_kwargs: dict[str, Any] = {}
+async def test_unix_transport_uses_app_server_compatible_handshake(tmp_path: Path) -> None:
+    socket_path = tmp_path / "fake-app-server.sock"
+    request_headers: dict[str, str] = {}
+    request_received = asyncio.Event()
 
-    class FakeProcess:
-        stdin = object()
-        stdout = object()
+    async def handler(connection: ServerConnection) -> None:
+        assert connection.request is not None
+        request_headers.update(connection.request.headers)
+        request_received.set()
+        await connection.send(json.dumps({"payload": "x" * (APP_SERVER_MESSAGE_LIMIT_BYTES // 4)}))
+        await connection.wait_closed()
 
-        def kill(self) -> None:
-            raise AssertionError("process should remain open")
+    server = await unix_serve(
+        handler,
+        path=str(socket_path),
+        compression=None,
+        server_header=None,
+    )
+    try:
+        transport = await UnixWebSocketTransport.connect(socket_path)
+        await request_received.wait()
+        message = await transport.receive()
+        await transport.close()
+    finally:
+        server.close()
+        await server.wait_closed()
 
-    async def create_subprocess_exec(*_command: str, **kwargs: Any) -> FakeProcess:
-        captured_kwargs.update(kwargs)
-        return FakeProcess()
-
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_subprocess_exec)
-
-    await JsonlStdioTransport.connect()
-
-    assert captured_kwargs["limit"] == APP_SERVER_MESSAGE_LIMIT_BYTES
+    assert "sec-websocket-extensions" not in request_headers
+    assert "user-agent" not in request_headers
+    assert len(message["payload"]) == APP_SERVER_MESSAGE_LIMIT_BYTES // 4
 
 
 class ScriptedTransport:
@@ -110,7 +122,12 @@ class GatedStartTransport(ScriptedTransport):
         await super().send(message)
 
 
-def app_server_handler(status: str, turns: list[dict[str, Any]]) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+def app_server_handler(
+    status: str,
+    turns: list[dict[str, Any]],
+    *,
+    goal_status: str = "active",
+) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
     def handle(message: dict[str, Any]) -> list[dict[str, Any]]:
         if "id" not in message:
             return []
@@ -121,6 +138,10 @@ def app_server_handler(status: str, turns: list[dict[str, Any]]) -> Callable[[di
             result: dict[str, Any] = {}
         elif method in ("thread/resume", "thread/read"):
             result = {"thread": thread}
+        elif method == "thread/goal/get":
+            result = {"goal": {"threadId": THREAD_ID, "status": goal_status}}
+        elif method == "thread/goal/set":
+            result = {"goal": {"threadId": THREAD_ID, "status": message["params"]["status"]}}
         elif method == "turn/start":
             result = {"turn": {"id": "new-turn"}}
         elif method == "turn/steer":
@@ -130,6 +151,17 @@ def app_server_handler(status: str, turns: list[dict[str, Any]]) -> Callable[[di
         return [{"id": request_id, "result": result}]
 
     return handle
+
+
+@run_async
+async def test_blocked_goal_is_resumed_before_wake(tmp_path: Path) -> None:
+    _root, event = queued_notification(tmp_path)
+    transport = ScriptedTransport(app_server_handler("idle", [], goal_status="blocked"))
+
+    await deliver_notification(event, transport)
+
+    goal_set = next(message for message in transport.sent if message.get("method") == "thread/goal/set")
+    assert goal_set["params"] == {"threadId": THREAD_ID, "status": "active"}
 
 
 def queued_notification(tmp_path: Path, *, thread_id: str | None = THREAD_ID) -> tuple[Path, NotificationEvent]:
@@ -273,12 +305,32 @@ async def test_active_thread_steers_existing_turn(tmp_path: Path) -> None:
     assert "effort" not in steer["params"]
 
 
+@run_async
+async def test_active_thread_steers_newest_turn_when_history_contains_stale_in_progress_turn(
+    tmp_path: Path,
+) -> None:
+    _root, event = queued_notification(tmp_path)
+    turns = [
+        {"id": "stale-turn", "status": "inProgress"},
+        {"id": "completed-turn", "status": "completed"},
+        {"id": "active-turn", "status": "inProgress"},
+    ]
+    transport = ScriptedTransport(app_server_handler("active", turns))
+
+    acceptance = await deliver_notification(event, transport)
+
+    assert acceptance.rpc_method == "turn/steer"
+    assert acceptance.turn_id == "active-turn"
+    steer = next(message for message in transport.sent if message.get("method") == "turn/steer")
+    assert steer["params"]["expectedTurnId"] == "active-turn"
+
+
 @pytest.mark.parametrize(
     ("status", "turns"),
     (
         ("notLoaded", []),
         ("active", []),
-        ("active", [{"id": "a", "status": "inProgress"}, {"id": "b", "status": "inProgress"}]),
+        ("active", [{"id": "a", "status": "completed"}, {"id": "b", "status": "completed"}]),
         ("idle", [{"id": "a", "status": "inProgress"}]),
     ),
 )
@@ -345,6 +397,59 @@ async def test_sweep_accepts_once_and_deduplicates_event(tmp_path: Path) -> None
     assert calls == 1
     assert persisted.state == "accepted"
     assert notification_lock_path(root, THREAD_ID).is_file()
+
+
+@run_async
+async def test_sweep_can_isolate_one_study_from_unrelated_notification_failures(tmp_path: Path) -> None:
+    root, study_a_event = queued_notification(tmp_path)
+    run_dir = root / "study-b" / "runs" / "run-b"
+    terminal_path = run_dir / "terminal.json"
+    atomic_write_json(
+        terminal_path,
+        {
+            "status": "completed",
+            "exit_code": 0,
+            "started_at": (NOW - timedelta(minutes=1)).isoformat(),
+            "finished_at": NOW.isoformat(),
+            "physical_gpu": 2,
+            "wandb_run_id": "wandb-2",
+            "error": None,
+            "attempt": 1,
+            "terminal_event_id": "87654321-4321-5678-9234-567812345678",
+            "originating_thread_id": THREAD_ID,
+        },
+    )
+    study_b_event = queue_notification_from_terminal(
+        terminal_path,
+        root,
+        study_id="study-b",
+        run_id="run-b",
+    )
+    calls = 0
+
+    async def connect() -> ScriptedTransport:
+        nonlocal calls
+        calls += 1
+        return ScriptedTransport(app_server_handler("idle", []))
+
+    result = await sweep_notifications(
+        root,
+        connect=connect,
+        now=lambda: NOW,
+        study_ids=frozenset({"study-b"}),
+    )
+
+    assert result.discovered == 1
+    assert result.accepted == 1
+    assert calls == 1
+    assert (
+        read_notification_event(Path(study_a_event.terminal_state_path).with_name("notification.json"), root).state
+        == "pending"
+    )
+    assert (
+        read_notification_event(Path(study_b_event.terminal_state_path).with_name("notification.json"), root).state
+        == "accepted"
+    )
 
 
 @run_async

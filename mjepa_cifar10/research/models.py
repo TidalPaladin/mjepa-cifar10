@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 from dataclasses import asdict, dataclass, field
@@ -49,6 +50,31 @@ class VariantSpec:
             mechanism=str(value.get("mechanism", "")),
             changes=tuple(str(change) for change in value.get("changes", ())),
         )
+
+
+@dataclass(frozen=True)
+class BaselineReference:
+    study_id: str
+    run_id: str
+    metrics: Path
+    metrics_sha256: str
+
+    @classmethod
+    def from_mapping(cls, value: Mapping[str, Any]) -> Self:
+        return cls(
+            study_id=str(value["study_id"]),
+            run_id=str(value["run_id"]),
+            metrics=Path(os.path.expandvars(str(value["metrics"]))),
+            metrics_sha256=str(value["metrics_sha256"]),
+        )
+
+    def to_dict(self) -> dict[str, str]:
+        return {
+            "study_id": self.study_id,
+            "run_id": self.run_id,
+            "metrics": str(self.metrics),
+            "metrics_sha256": self.metrics_sha256,
+        }
 
 
 @dataclass(frozen=True)
@@ -136,6 +162,7 @@ class StudySpec:
     variants: tuple[VariantSpec, ...]
     data: Path
     log_root: Path
+    baseline_reference: BaselineReference | None = None
     model_class: str = ""
     seeds: tuple[int, ...] = DEFAULT_SEEDS
     wandb_entity: str | None = None
@@ -218,6 +245,11 @@ class StudySpec:
             variants=tuple(VariantSpec.from_mapping(value) for value in raw.get("variants", ())),
             data=Path(os.path.expandvars(str(raw["data"]))),
             log_root=Path(os.path.expandvars(str(raw.get("log_root", "logs/research")))),
+            baseline_reference=(
+                BaselineReference.from_mapping(raw["baseline_reference"])
+                if raw.get("baseline_reference") is not None
+                else None
+            ),
             model_class=str(raw.get("model_class", Path(raw["baseline"]["config"]).stem)),
             seeds=tuple(int(seed) for seed in raw.get("seeds", DEFAULT_SEEDS)),
             wandb_entity=wandb.get("entity"),
@@ -254,15 +286,33 @@ class StudySpec:
         variant_ids = [self.baseline.id, *(variant.id for variant in self.variants)]
         if len(variant_ids) != len(set(variant_ids)):
             raise ValueError("baseline and variant IDs must be unique")
+        if self.baseline_reference is not None:
+            if len(self.variants) > self.resources.max_pretraining_trials:
+                raise ValueError("reference-baseline candidate count exceeds the pretraining trial limit")
+            if not re.fullmatch(r"[0-9a-f]{64}", self.baseline_reference.metrics_sha256):
+                raise ValueError("baseline reference metrics_sha256 must be a lowercase SHA-256 digest")
         if require_files:
             root = relative_to or Path.cwd()
             for config in (self.baseline.config, *(variant.config for variant in self.variants)):
                 resolved_config = config if config.is_absolute() else root / config
                 if not resolved_config.is_file():
                     raise FileNotFoundError(resolved_config)
+            if self.baseline_reference is not None:
+                metrics = self.baseline_reference.metrics
+                resolved_metrics = metrics if metrics.is_absolute() else root / metrics
+                if not resolved_metrics.is_file():
+                    raise FileNotFoundError(resolved_metrics)
+                observed_sha256 = hashlib.sha256(resolved_metrics.read_bytes()).hexdigest()
+                if observed_sha256 != self.baseline_reference.metrics_sha256:
+                    raise ValueError(
+                        "baseline reference metrics hash mismatch: "
+                        f"expected {self.baseline_reference.metrics_sha256}, observed {observed_sha256}"
+                    )
 
     def initial_runs(self) -> tuple[RunSpec, ...]:
-        screening_variants = (self.baseline, *self.variants[:3])
+        screening_variants = (
+            self.variants if self.baseline_reference is not None else (self.baseline, *self.variants[:3])
+        )
         return tuple(
             RunSpec(
                 id=f"pretrain-{variant.id}-seed0",

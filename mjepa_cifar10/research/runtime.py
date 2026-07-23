@@ -376,6 +376,7 @@ def validate_managed_paths(spec: StudySpec, repo_root: Path) -> None:
     source_paths = [
         *(spec.baseline.config,),
         *(variant.config for variant in spec.variants),
+        *((spec.baseline_reference.metrics,) if spec.baseline_reference is not None else ()),
         spec.data,
     ]
     for source in source_paths:
