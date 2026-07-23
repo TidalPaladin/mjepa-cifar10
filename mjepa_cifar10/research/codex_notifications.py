@@ -858,6 +858,22 @@ def _thread_from_result(result: JsonObject, method: str, expected_thread_id: str
     return cast(JsonObject, thread)
 
 
+async def _resume_blocked_goal(client: RpcClient, thread_id: str) -> None:
+    """Re-arm a blocked persistent goal before delivering a lifecycle wake."""
+    result = await client.request("thread/goal/get", {"threadId": thread_id})
+    goal = result.get("goal")
+    if goal is None:
+        return
+    if not isinstance(goal, dict) or not isinstance(goal.get("status"), str):
+        raise AppServerProtocolError("thread/goal/get returned an invalid goal")
+    if goal["status"] != "blocked":
+        return
+    await client.request(
+        "thread/goal/set",
+        {"threadId": thread_id, "status": "active"},
+    )
+
+
 async def deliver_notification(
     event: NotificationEvent,
     transport: MessageTransport,
@@ -879,6 +895,7 @@ async def deliver_notification(
         await client.notify("initialized", {})
         resumed = await client.request("thread/resume", {"threadId": thread_id})
         _thread_from_result(resumed, "thread/resume", thread_id)
+        await _resume_blocked_goal(client, thread_id)
         fresh = await client.request("thread/read", {"threadId": thread_id, "includeTurns": True})
         thread = _thread_from_result(fresh, "thread/read", thread_id)
         status = thread.get("status")

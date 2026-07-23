@@ -101,6 +101,9 @@ resumes the originating task, and uses `turn/start` for an idle task or
 `turn/steer` for its newest in-progress turn. The steer includes the expected
 turn ID so app-server rejects a race. It retries with bounded jitter, serializes
 delivery per task, and records acceptance only after app-server accepts the RPC.
+Before delivering a wake, it reactivates a goal whose status is `blocked` via
+the app-server goal API; explicitly paused, completed, and usage-limited goals
+remain untouched.
 Training never waits for Codex, and delivery failure cannot alter terminal run
 status.
 

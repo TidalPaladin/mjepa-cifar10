@@ -34,3 +34,6 @@ registers the exact root with `.mjepa-research-root.json`. Use `register-root
 migrates the legacy marker. Sweeps validate the marker's exact canonical root
 before scanning. Use
 `notify <study> <run> --requeue` only to reset a permanently failed delivery.
+If the originating goal is blocked by a prior bounded wait, delivery resumes it
+through `thread/goal/set` before sending the lifecycle prompt. User-paused and
+terminal goal states are never overridden.

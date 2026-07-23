@@ -122,7 +122,12 @@ class GatedStartTransport(ScriptedTransport):
         await super().send(message)
 
 
-def app_server_handler(status: str, turns: list[dict[str, Any]]) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+def app_server_handler(
+    status: str,
+    turns: list[dict[str, Any]],
+    *,
+    goal_status: str = "active",
+) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
     def handle(message: dict[str, Any]) -> list[dict[str, Any]]:
         if "id" not in message:
             return []
@@ -133,6 +138,10 @@ def app_server_handler(status: str, turns: list[dict[str, Any]]) -> Callable[[di
             result: dict[str, Any] = {}
         elif method in ("thread/resume", "thread/read"):
             result = {"thread": thread}
+        elif method == "thread/goal/get":
+            result = {"goal": {"threadId": THREAD_ID, "status": goal_status}}
+        elif method == "thread/goal/set":
+            result = {"goal": {"threadId": THREAD_ID, "status": message["params"]["status"]}}
         elif method == "turn/start":
             result = {"turn": {"id": "new-turn"}}
         elif method == "turn/steer":
@@ -142,6 +151,17 @@ def app_server_handler(status: str, turns: list[dict[str, Any]]) -> Callable[[di
         return [{"id": request_id, "result": result}]
 
     return handle
+
+
+@run_async
+async def test_blocked_goal_is_resumed_before_wake(tmp_path: Path) -> None:
+    _root, event = queued_notification(tmp_path)
+    transport = ScriptedTransport(app_server_handler("idle", [], goal_status="blocked"))
+
+    await deliver_notification(event, transport)
+
+    goal_set = next(message for message in transport.sent if message.get("method") == "thread/goal/set")
+    assert goal_set["params"] == {"threadId": THREAD_ID, "status": "active"}
 
 
 def queued_notification(tmp_path: Path, *, thread_id: str | None = THREAD_ID) -> tuple[Path, NotificationEvent]:
