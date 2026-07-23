@@ -22,10 +22,12 @@ from mjepa_cifar10.research.codex_notifications import (
     RpcClient,
     UnixWebSocketTransport,
     build_wake_prompt,
+    capture_wake_context,
     deliver_notification,
     ensure_notification,
     initialize_notification_root,
     notification_lock_path,
+    persist_wake_context,
     queue_notification_from_lifecycle,
     queue_notification_from_terminal,
     read_notification_event,
@@ -36,13 +38,22 @@ from mjepa_cifar10.research.codex_notifications import (
 )
 from mjepa_cifar10.research.lifecycle_events import persist_first_cycle_event
 from mjepa_cifar10.research.runtime import atomic_write_json
+from mjepa_cifar10.research.wake_context import WakeContext
 
 
 EVENT_ID = "12345678-1234-5678-9234-567812345678"
 THREAD_ID = "019f8098-aa66-7011-bc23-c3b3a78f7501"
 EXPECTED_WAKE_MODEL = "gpt-5.6-luna"
 EXPECTED_WAKE_EFFORT = "medium"
+PERMISSION_PROFILE = ":danger-full-access"
+APPROVAL_POLICY = "never"
 NOW = datetime(2026, 7, 20, 12, 0, tzinfo=UTC)
+WAKE_CONTEXT = WakeContext(
+    thread_id=THREAD_ID,
+    permission_profile=PERMISSION_PROFILE,
+    approval_policy=APPROVAL_POLICY,
+    captured_at=NOW,
+)
 P = ParamSpec("P")
 
 
@@ -127,6 +138,8 @@ def app_server_handler(
     turns: list[dict[str, Any]],
     *,
     goal_status: str = "active",
+    permission_profile: str = PERMISSION_PROFILE,
+    approval_policy: str = APPROVAL_POLICY,
 ) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
     def handle(message: dict[str, Any]) -> list[dict[str, Any]]:
         if "id" not in message:
@@ -136,7 +149,13 @@ def app_server_handler(
         thread = {"id": THREAD_ID, "status": {"type": status}, "turns": turns}
         if method == "initialize":
             result: dict[str, Any] = {}
-        elif method in ("thread/resume", "thread/read"):
+        elif method == "thread/resume":
+            result = {
+                "thread": thread,
+                "activePermissionProfile": {"id": permission_profile},
+                "approvalPolicy": approval_policy,
+            }
+        elif method == "thread/read":
             result = {"thread": thread}
         elif method == "thread/goal/get":
             result = {"goal": {"threadId": THREAD_ID, "status": goal_status}}
@@ -154,12 +173,39 @@ def app_server_handler(
 
 
 @run_async
+async def test_capture_wake_context_records_effective_profile_and_approval_policy() -> None:
+    transport = ScriptedTransport(app_server_handler("active", []))
+
+    context = await capture_wake_context(
+        thread_id=THREAD_ID,
+        expected_permission_profile=PERMISSION_PROFILE,
+        transport=transport,
+        captured_at=NOW,
+    )
+
+    assert context == WAKE_CONTEXT
+    resume = next(message for message in transport.sent if message.get("method") == "thread/resume")
+    assert resume["params"] == {
+        "threadId": THREAD_ID,
+        "permissions": PERMISSION_PROFILE,
+    }
+
+
+@run_async
 async def test_blocked_goal_is_resumed_before_wake(tmp_path: Path) -> None:
     _root, event = queued_notification(tmp_path)
     transport = ScriptedTransport(app_server_handler("idle", [], goal_status="blocked"))
 
     await deliver_notification(event, transport)
 
+    methods = [message.get("method") for message in transport.sent]
+    assert methods.index("thread/resume") < methods.index("thread/goal/set")
+    resume = next(message for message in transport.sent if message.get("method") == "thread/resume")
+    assert resume["params"] == {
+        "threadId": THREAD_ID,
+        "permissions": PERMISSION_PROFILE,
+        "approvalPolicy": APPROVAL_POLICY,
+    }
     goal_set = next(message for message in transport.sent if message.get("method") == "thread/goal/set")
     assert goal_set["params"] == {"threadId": THREAD_ID, "status": "active"}
 
@@ -168,6 +214,8 @@ def queued_notification(tmp_path: Path, *, thread_id: str | None = THREAD_ID) ->
     root = tmp_path / "logs" / "research"
     initialize_notification_root(root)
     run_dir = root / "study-a" / "runs" / "run-a"
+    if thread_id is not None:
+        persist_wake_context(run_dir, root, WAKE_CONTEXT)
     terminal_path = run_dir / "terminal.json"
     atomic_write_json(
         terminal_path,
@@ -204,11 +252,28 @@ def test_wake_prompt_contains_only_validated_terminal_identifiers(tmp_path: Path
     assert "wandb-1" not in prompt
 
 
+def test_persisted_wake_context_cannot_be_replaced(tmp_path: Path) -> None:
+    root, event = queued_notification(tmp_path)
+
+    with pytest.raises(NotificationStateError, match="different immutable wake context"):
+        persist_wake_context(
+            Path(event.terminal_state_path).parent,
+            root,
+            WakeContext(
+                thread_id=THREAD_ID,
+                permission_profile=":workspace",
+                approval_policy=APPROVAL_POLICY,
+                captured_at=NOW,
+            ),
+        )
+
+
 def test_lifecycle_wake_prompt_contains_only_validated_event_identifiers(tmp_path: Path) -> None:
     root = tmp_path / "logs" / "research"
     initialize_notification_root(root)
     run_dir = root / "study-a" / "runs" / "run-a"
     run_dir.mkdir(parents=True)
+    persist_wake_context(run_dir, root, WAKE_CONTEXT)
     checkpoint = run_dir / "checkpoint.pt"
     checkpoint.touch()
     lifecycle = persist_first_cycle_event(
@@ -240,6 +305,7 @@ async def test_sweep_accepts_lifecycle_event_once(tmp_path: Path) -> None:
     initialize_notification_root(root)
     run_dir = root / "study-a" / "runs" / "run-a"
     run_dir.mkdir(parents=True)
+    persist_wake_context(run_dir, root, WAKE_CONTEXT)
     checkpoint = run_dir / "checkpoint.pt"
     checkpoint.touch()
     lifecycle = persist_first_cycle_event(
@@ -288,6 +354,30 @@ async def test_idle_thread_starts_turn(tmp_path: Path) -> None:
     assert start["params"]["clientUserMessageId"] == EVENT_ID
     assert start["params"]["model"] == EXPECTED_WAKE_MODEL
     assert start["params"]["effort"] == EXPECTED_WAKE_EFFORT
+    assert start["params"]["permissions"] == PERMISSION_PROFILE
+    assert start["params"]["approvalPolicy"] == APPROVAL_POLICY
+
+
+@run_async
+async def test_profile_mismatch_fails_before_goal_reactivation(tmp_path: Path) -> None:
+    _root, event = queued_notification(tmp_path)
+    transport = ScriptedTransport(
+        app_server_handler(
+            "idle",
+            [],
+            goal_status="blocked",
+            permission_profile=":workspace",
+        )
+    )
+
+    with pytest.raises(AppServerProtocolError, match="permission profile mismatch") as error:
+        await deliver_notification(event, transport)
+
+    assert error.value.permanent
+    assert not any(
+        message.get("method") in {"thread/goal/set", "thread/read", "turn/start", "turn/steer"}
+        for message in transport.sent
+    )
 
 
 @run_async
@@ -403,6 +493,16 @@ async def test_sweep_accepts_once_and_deduplicates_event(tmp_path: Path) -> None
 async def test_sweep_can_isolate_one_study_from_unrelated_notification_failures(tmp_path: Path) -> None:
     root, study_a_event = queued_notification(tmp_path)
     run_dir = root / "study-b" / "runs" / "run-b"
+    persist_wake_context(
+        run_dir,
+        root,
+        WakeContext(
+            thread_id=THREAD_ID,
+            permission_profile=PERMISSION_PROFILE,
+            approval_policy=APPROVAL_POLICY,
+            captured_at=NOW,
+        ),
+    )
     terminal_path = run_dir / "terminal.json"
     atomic_write_json(
         terminal_path,

@@ -52,6 +52,7 @@ from mjepa_cifar10.research.runtime import (
     cleanup_run_weights,
     configure_lifecycle_environment,
     estimate_checkpoint_size,
+    launch_available_runs,
     persist_terminal_and_queue_notification,
     prepare_retryable_runs,
     process_exit_error,
@@ -68,6 +69,7 @@ from mjepa_cifar10.research.summary import (
     calculate_study_summaries,
     publish_summaries_to_wandb,
 )
+from mjepa_cifar10.research.wake_context import WAKE_CONTEXT_FILENAME, WakeContext
 
 
 def make_summary(
@@ -374,6 +376,45 @@ def test_prepare_retryable_runs_reconciles_terminal_state_first(tmp_path: Path) 
     assert run.status == "pending"
     assert run.attempt == 2
     assert not (run_dir / "terminal.json").exists()
+
+
+def test_managed_launch_persists_immutable_wake_context_before_spawn(
+    mocker,
+    tmp_path: Path,
+) -> None:
+    spec = make_spec(tmp_path, variants=0)
+    study_path = tmp_path / "study.yaml"
+    study_path.write_text("id: test-study\n")
+    wake_context = WakeContext(
+        thread_id="thread-a",
+        permission_profile=":danger-full-access",
+        approval_policy="never",
+        captured_at=datetime(2026, 7, 23, tzinfo=UTC),
+    )
+    mocker.patch("mjepa_cifar10.research.runtime.assert_storage_available")
+    mocker.patch(
+        "mjepa_cifar10.research.runtime.available_physical_gpus",
+        return_value=(1,),
+    )
+
+    def spawn(*_args, **_kwargs):
+        context_path = tmp_path / "logs" / spec.id / "runs" / spec.initial_runs()[0].id / WAKE_CONTEXT_FILENAME
+        assert context_path.is_file()
+        return SimpleNamespace(pid=1234)
+
+    mocker.patch("mjepa_cifar10.research.runtime.subprocess.Popen", side_effect=spawn)
+
+    state = launch_available_runs(
+        spec,
+        study_path,
+        tmp_path,
+        development=True,
+        lock_root=tmp_path / "locks",
+        wake_context=wake_context,
+    )
+
+    launched = state.runs[spec.initial_runs()[0].id]
+    assert launched.originating_thread_id == wake_context.thread_id
 
 
 def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:

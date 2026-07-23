@@ -11,6 +11,8 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Sequence
 
 from .codex_notifications import (
+    UnixWebSocketTransport,
+    capture_wake_context,
     ensure_notification,
     initialize_notification_root,
     register_notification_root,
@@ -33,6 +35,11 @@ from .runtime import (
     validate_managed_paths,
 )
 from .summary import append_research_log, apply_rejected_retention, summarize_study
+from .wake_context import (
+    CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE,
+    CODEX_THREAD_ENVIRONMENT_VARIABLE,
+    WakeContext,
+)
 
 
 def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -254,12 +261,18 @@ def command_launch(args: argparse.Namespace) -> int:
         payload = {"study_id": spec.id, "dry_run": True, "state": str(store.path), "runs": list(state.runs)}
     else:
         preflight_payload(spec, repo_root, development=False)
+        wake_context = capture_launch_wake_context()
         if args.retry_failed:
             with StateStore(study_directory(spec, repo_root)) as store:
                 retry_state = store.load()
                 prepare_retryable_runs(retry_state)
                 store.save(retry_state)
-        state = launch_available_runs(spec, args.study, repo_root)
+        state = launch_available_runs(
+            spec,
+            args.study,
+            repo_root,
+            wake_context=wake_context,
+        )
         payload = _state_payload(state)
     print(json.dumps(payload, indent=2))
     return 0
@@ -315,7 +328,12 @@ def command_monitor(args: argparse.Namespace) -> int:
             store.save(state)
     if not args.no_launch:
         preflight_payload(spec, repo_root, development=False)
-        state = launch_available_runs(spec, args.study, repo_root)
+        state = launch_available_runs(
+            spec,
+            args.study,
+            repo_root,
+            wake_context=capture_launch_wake_context(),
+        )
     print(json.dumps(_state_payload(state), indent=2))
     return 0
 
@@ -387,6 +405,27 @@ def resolve_event_controller_socket(
     if not isinstance(socket_path, str) or not socket_path or not Path(socket_path).is_absolute():
         raise RuntimeError("Codex app-server daemon did not report an absolute running socket path")
     return Path(socket_path).resolve(strict=False)
+
+
+def capture_launch_wake_context() -> WakeContext:
+    """Capture the effective originating-thread permissions for new runs."""
+    thread_id = os.environ.get(CODEX_THREAD_ENVIRONMENT_VARIABLE)
+    permission_profile = os.environ.get(CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE)
+    if not thread_id:
+        raise RuntimeError(f"{CODEX_THREAD_ENVIRONMENT_VARIABLE} is required for a managed launch")
+    if not permission_profile:
+        raise RuntimeError(f"{CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE} is required for a managed launch")
+    socket_path = resolve_event_controller_socket(None)
+
+    async def capture() -> WakeContext:
+        transport = await UnixWebSocketTransport.connect(socket_path)
+        return await capture_wake_context(
+            thread_id=thread_id,
+            expected_permission_profile=permission_profile,
+            transport=transport,
+        )
+
+    return asyncio.run(capture())
 
 
 def command_event_controller(args: argparse.Namespace) -> int:

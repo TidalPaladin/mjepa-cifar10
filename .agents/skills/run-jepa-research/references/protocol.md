@@ -154,10 +154,17 @@ with `register-root --root logs/research`; this also migrates the legacy marker.
 The marker binds its canonical `root_path`, and the notification worker rejects
 missing, mismatched, symlinked, repository, home, and broad roots before any
 recursive scan. The worker connects directly to the discovered Codex app-server
-daemon Unix socket. It validates the terminal event, serializes delivery per
-task, starts an idle task or steers its newest in-progress turn with an
-expected-turn guard, and records acceptance only after the RPC succeeds. Failed
-deliveries use bounded full-jitter exponential backoff and
+daemon Unix socket. Before each managed spawn, the launcher captures the live
+originating thread's effective named permission profile and approval policy and
+persists them in the run's immutable `wake-context.json`. The worker validates
+the event, serializes delivery per task, resumes with that exact context, and
+verifies the returned effective context before it can reactivate a blocked
+goal. It starts an idle task with the same context or steers its newest
+in-progress turn with an expected-turn guard, and records acceptance only after
+the RPC succeeds. Missing or mismatched wake context is a permanent validation
+failure; the worker never substitutes app-server defaults or a broader
+hardcoded profile. Other delivery failures use bounded full-jitter exponential
+backoff and
 require explicit `notify --requeue` after the eighth failure or a permanent
 validation error. Training never starts or waits for app-server.
 

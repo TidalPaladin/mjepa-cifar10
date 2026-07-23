@@ -28,6 +28,11 @@ from .lifecycle_events import (
     read_lifecycle_event,
 )
 from .runtime import atomic_write_json
+from .wake_context import (
+    WAKE_CONTEXT_FILENAME,
+    WakeContext,
+    WakeContextValidationError,
+)
 
 
 SCHEMA_VERSION = 1
@@ -42,7 +47,7 @@ IDENTIFIER_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 TERMINAL_STATUSES = frozenset({"completed", "failed", "crashed", "timed_out", "cancelled"})
 DELIVERY_STATES = frozenset({"pending", "accepted", "failed"})
 MAX_LAST_ERROR_LENGTH = 500
-APP_SERVER_BASELINE = "0.144.5"
+APP_SERVER_BASELINE = "0.145.0"
 CLIENT_NAME = "mjepa_cifar10_autoresearch"
 CLIENT_TITLE = "MJEPA CIFAR-10 Autoresearch"
 CLIENT_VERSION = "1.0.0"
@@ -243,6 +248,39 @@ def validate_notification_root(root: Path) -> Path:
     return managed_root
 
 
+def _read_wake_context(run_dir: Path, root: Path) -> WakeContext | None:
+    managed_run_dir = _managed_path(run_dir.absolute(), root, "managed run directory")
+    context_path = managed_run_dir / WAKE_CONTEXT_FILENAME
+    if context_path.is_symlink():
+        raise NotificationStateError("wake context must not be a symlink")
+    if not context_path.exists():
+        return None
+    if not context_path.is_file():
+        raise NotificationStateError("wake context must be a file")
+    try:
+        return WakeContext.from_dict(_load_json(context_path))
+    except WakeContextValidationError as error:
+        raise NotificationStateError(f"wake context in {context_path} is invalid: {error}") from error
+
+
+def persist_wake_context(run_dir: Path, root: Path, context: WakeContext) -> Path:
+    """Persist one immutable permission context before dispatching a managed run."""
+    managed_root = validate_notification_root(root)
+    managed_run_dir = _managed_path(run_dir.absolute(), managed_root, "managed run directory")
+    if managed_run_dir.parent.name != "runs":
+        raise NotificationStateError("wake context path is not an exact managed run directory")
+    managed_run_dir.mkdir(parents=True, exist_ok=True)
+    context_path = managed_run_dir / WAKE_CONTEXT_FILENAME
+    with FileLock(str(managed_run_dir / NOTIFICATION_LOCK_FILENAME)):
+        current = _read_wake_context(managed_run_dir, managed_root)
+        if current is not None:
+            if current != context:
+                raise NotificationStateError("managed run already has a different immutable wake context")
+            return context_path
+        atomic_write_json(context_path, context.to_dict())
+    return context_path
+
+
 @dataclass(frozen=True, slots=True)
 class TerminalEvent:
     event_id: str
@@ -301,6 +339,7 @@ class NotificationEvent:
     accepted_rpc_method: str | None = None
     accepted_turn_id: str | None = None
     event_kind: EventKind = "terminal"
+    wake_context: WakeContext | None = None
 
     def __post_init__(self) -> None:
         if self.event_kind == "terminal":
@@ -362,9 +401,16 @@ class NotificationEvent:
                 raise NotificationStateError("new pending notification must not contain retry metadata")
             if self.attempt_count > 0 and any(value is None for value in retry_metadata):
                 raise NotificationStateError("retried pending notification has incomplete retry metadata")
+        if self.wake_context is not None and self.wake_context.thread_id != self.originating_thread_id:
+            raise NotificationStateError("wake context thread does not match the originating thread")
 
     @classmethod
-    def from_terminal(cls, terminal: TerminalEvent) -> NotificationEvent:
+    def from_terminal(
+        cls,
+        terminal: TerminalEvent,
+        *,
+        wake_context: WakeContext | None = None,
+    ) -> NotificationEvent:
         return cls(
             event_id=terminal.event_id,
             study_id=terminal.study_id,
@@ -374,10 +420,16 @@ class NotificationEvent:
             occurred_at=terminal.occurred_at,
             originating_thread_id=terminal.originating_thread_id,
             terminal_state_path=terminal.terminal_state_path,
+            wake_context=wake_context,
         )
 
     @classmethod
-    def from_lifecycle(cls, event: LifecycleEvent) -> NotificationEvent:
+    def from_lifecycle(
+        cls,
+        event: LifecycleEvent,
+        *,
+        wake_context: WakeContext | None = None,
+    ) -> NotificationEvent:
         return cls(
             event_id=event.event_id,
             study_id=event.study_id,
@@ -388,6 +440,7 @@ class NotificationEvent:
             originating_thread_id=event.originating_thread_id,
             terminal_state_path=event.event_state_path,
             event_kind=event.kind,
+            wake_context=wake_context,
         )
 
     def as_terminal(self) -> TerminalEvent:
@@ -590,6 +643,10 @@ def read_notification_event(path: Path, root: Path) -> NotificationEvent:
     ):
         raise NotificationStateError("notification path is not an exact managed run notification")
     event = NotificationEvent.from_dict(_load_json(resolved))
+    event = replace(
+        event,
+        wake_context=_read_wake_context(resolved.parent, root),
+    )
     if resolved.name == NOTIFICATION_FILENAME:
         terminal = read_terminal_event(resolved.with_name(TERMINAL_FILENAME), root)
         if event.event_kind != "terminal" or event.as_terminal() != terminal:
@@ -643,7 +700,10 @@ def queue_notification_from_terminal(
             if current.event_id != terminal.event_id:
                 raise NotificationStateError("current notification belongs to a different terminal event")
             return current
-        event = NotificationEvent.from_terminal(terminal)
+        event = NotificationEvent.from_terminal(
+            terminal,
+            wake_context=_read_wake_context(resolved_terminal_path.parent, root),
+        )
         write_notification_event(event, root)
         return event
 
@@ -660,7 +720,10 @@ def queue_notification_from_lifecycle(event_path: Path, root: Path) -> Notificat
             if current.event_id != lifecycle.event_id:
                 raise NotificationStateError("current notification belongs to a different lifecycle event")
             return current
-        event = NotificationEvent.from_lifecycle(lifecycle)
+        event = NotificationEvent.from_lifecycle(
+            lifecycle,
+            wake_context=_read_wake_context(resolved_event_path.parent, managed_root),
+        )
         write_notification_event(event, managed_root)
         return event
 
@@ -858,6 +921,72 @@ def _thread_from_result(result: JsonObject, method: str, expected_thread_id: str
     return cast(JsonObject, thread)
 
 
+def _wake_context_from_resume(
+    result: JsonObject,
+    *,
+    thread_id: str,
+    expected_permission_profile: str,
+    captured_at: datetime,
+) -> WakeContext:
+    active_profile = result.get("activePermissionProfile")
+    profile_id = active_profile.get("id") if isinstance(active_profile, dict) else None
+    if profile_id != expected_permission_profile:
+        raise AppServerProtocolError(
+            "thread/resume permission profile mismatch: "
+            f"expected {expected_permission_profile!r}, received {profile_id!r}",
+            permanent=True,
+        )
+    if "approvalPolicy" not in result:
+        raise AppServerProtocolError(
+            "thread/resume response is missing the effective approval policy",
+            permanent=True,
+        )
+    try:
+        return WakeContext(
+            thread_id=thread_id,
+            permission_profile=expected_permission_profile,
+            approval_policy=result["approvalPolicy"],
+            captured_at=captured_at,
+        )
+    except WakeContextValidationError as error:
+        raise AppServerProtocolError(
+            f"thread/resume returned an invalid permission context: {error}",
+            permanent=True,
+        ) from error
+
+
+async def capture_wake_context(
+    *,
+    thread_id: str,
+    expected_permission_profile: str,
+    transport: MessageTransport,
+    captured_at: datetime | None = None,
+    request_timeout: float = DEFAULT_REQUEST_TIMEOUT,
+) -> WakeContext:
+    """Capture the effective live thread authority before a managed dispatch."""
+    selected_at = captured_at or datetime.now(UTC)
+    async with RpcClient(transport, request_timeout=request_timeout) as client:
+        await client.request(
+            "initialize",
+            {"clientInfo": {"name": CLIENT_NAME, "title": CLIENT_TITLE, "version": CLIENT_VERSION}},
+        )
+        await client.notify("initialized", {})
+        resumed = await client.request(
+            "thread/resume",
+            {
+                "threadId": thread_id,
+                "permissions": expected_permission_profile,
+            },
+        )
+        _thread_from_result(resumed, "thread/resume", thread_id)
+        return _wake_context_from_resume(
+            resumed,
+            thread_id=thread_id,
+            expected_permission_profile=expected_permission_profile,
+            captured_at=selected_at,
+        )
+
+
 async def _resume_blocked_goal(client: RpcClient, thread_id: str) -> None:
     """Re-arm a blocked persistent goal before delivering a lifecycle wake."""
     result = await client.request("thread/goal/get", {"threadId": thread_id})
@@ -887,14 +1016,32 @@ async def deliver_notification(
     if event.state != "pending":
         await transport.close()
         raise AppServerProtocolError("only pending notifications can be delivered", permanent=True)
+    wake_context = event.wake_context
+    if wake_context is None:
+        await transport.close()
+        raise AppServerProtocolError(
+            "notification has no captured wake permission context",
+            permanent=True,
+        )
     async with RpcClient(transport, request_timeout=request_timeout) as client:
         await client.request(
             "initialize",
             {"clientInfo": {"name": CLIENT_NAME, "title": CLIENT_TITLE, "version": CLIENT_VERSION}},
         )
         await client.notify("initialized", {})
-        resumed = await client.request("thread/resume", {"threadId": thread_id})
+        resumed = await client.request("thread/resume", wake_context.resume_params())
         _thread_from_result(resumed, "thread/resume", thread_id)
+        resumed_context = _wake_context_from_resume(
+            resumed,
+            thread_id=thread_id,
+            expected_permission_profile=wake_context.permission_profile,
+            captured_at=wake_context.captured_at,
+        )
+        if resumed_context.approval_policy != wake_context.approval_policy:
+            raise AppServerProtocolError(
+                "thread/resume approval policy mismatch",
+                permanent=True,
+            )
         await _resume_blocked_goal(client, thread_id)
         fresh = await client.request("thread/read", {"threadId": thread_id, "includeTurns": True})
         thread = _thread_from_result(fresh, "thread/read", thread_id)
@@ -916,7 +1063,7 @@ async def deliver_notification(
             result = await client.request(
                 "turn/start",
                 {
-                    "threadId": thread_id,
+                    **wake_context.resume_params(),
                     "input": input_items,
                     "clientUserMessageId": event.event_id,
                     "model": TERMINAL_WAKE_MODEL,
