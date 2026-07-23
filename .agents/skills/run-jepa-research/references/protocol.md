@@ -22,12 +22,18 @@ When `mjepa` changes:
 1. Create `codex/research/<study-id>` in both repositories.
 2. Develop with the editable sibling checkout.
 3. Run each repository's `make check` and `make test-ci` targets.
-4. Commit and push the `mjepa` branch first.
+4. Commit the `mjepa` branch locally. Push it only when the user separately authorizes the tandem-repository push.
 5. Pin that full SHA in the parent `pyproject.toml`, update `uv.lock`, and build a frozen parent environment.
 6. Verify the imported `mjepa` and `vit` sources match the recorded commits.
 7. Commit and push the parent branch.
 
-Never push `main` or `master`, rewrite published history, or open a pull request without a separate request. Refuse a launch when either research repository is dirty, unpushed, on a protected branch, stale relative to `uv.lock`, or installed from a mismatched source.
+Apply the same local-commit rule to `vit`. Never push a tandem repository,
+`main`, or `master`, rewrite published history, or open a pull request without
+the corresponding permission. Refuse a launch when the parent is dirty,
+unpushed, protected, or stale relative to `uv.lock`. Refuse a launch when a
+tandem repository is dirty, protected, not locally committed at its recorded
+SHA, or installed from a mismatched source. Do not reject a clean exact-SHA
+tandem commit merely because it has no upstream or has not been pushed.
 
 ## Dataset and probes
 
@@ -106,11 +112,13 @@ Use W&B namespaces consistently:
 
 Declare the emitted-data manifest for every W&B operation in the study YAML. A
 launch emits `metrics`, `configs`, and `provenance`; a summary emits `metrics`
-and `provenance`. Gate each operation independently. Online W&B requires an
-explicit entity, `authorized: true`, an explicit matching manifest, and approval
-for every class that operation emits. Otherwise that complete operation stays
-local-only. Record its requested mode, effective mode, destination, manifest,
-approvals, and decision in local provenance before writing externally.
+and `provenance`. W&B online operations have standing authorization in this
+repository. Set `authorized: true`, approve every emitted class, and use an
+explicit matching manifest so provenance records that authorization. Treat a
+missing destination, manifest, or approved class, or an offline launch request,
+as a preflight error for a scientific study instead of silently falling back
+to local-only mode. Gate and record launch, summary, and any backfill operation
+independently.
 
 ## Monitoring and recovery
 
@@ -218,6 +226,14 @@ the monitoring-only counter exceeds the applicable limit.
 
 The primary goal agent calls `summarize`, commits and pushes result or schedule changes, and launches the next phase.
 
+After a launch returns, verify that every dispatched run has a supervisor PID,
+GPU assignment, run directory, tracker identity, and durable startup state.
+Then immediately return the persistent goal to its notification wait state,
+using `blocked` when the surface policy permits it. Do the same after processing
+a nonterminal lifecycle event when no immediate mutation remains. The event
+controller reactivates a blocked goal on the next lifecycle event. Do not leave
+the goal active for back-to-back no-event continuations.
+
 App-server delivery is at least once and deduplicated by lifecycle-event ID. The wake prompt contains only validated identifiers, status, and the absolute event-state path, never raw logs or stack traces. A host or scheduler failure can still miss a wake. When app-server or the controller is unavailable, the sparse monitor and atomic state let the primary task recover with `status`.
 
 ## Storage and retention
@@ -246,7 +262,7 @@ Before publishing a result:
 1. Validate the skill with `quick_validate.py`.
 2. Exercise `launch --dry-run` for the study.
 3. Run `make check` and `make test-ci` in both repositories.
-4. Run the one-epoch W&B-offline GPU smoke study on physical GPU 1 or 2, including progress, first-cycle notification, checkpoint, resume, status, summary, and retention behavior.
+4. Run the one-epoch GPU smoke study on physical GPU 1 or 2, including W&B tracking, progress, first-cycle notification, checkpoint, resume, status, summary, and retention behavior. Use offline mode only when the smoke explicitly targets the local fallback path.
 5. Confirm the study ID recovers its copied config, local metrics, provenance, state, W&B identity, research-log entry, and retained checkpoint.
 6. Commit and push the result update. Do not open a pull request unless requested.
 7. If pull-request publication is authorized and the branch contains terminal comparative results, create or refresh a `## Findings` section after the result commit is pushed. Generate its table from `summary.json`; include every evaluated variant, key optimizer hyperparameters, peak and final validation accuracy, convergence metrics, per-run wall time, decision, total study span, and summed run time. Mark censored values and distinguish active from wall time and nominal from effective Muon learning rates. Omit the section for smoke-only, protocol-only, and active studies.

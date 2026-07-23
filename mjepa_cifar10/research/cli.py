@@ -183,7 +183,7 @@ def _wandb_viewer() -> dict[str, Any]:
 def wandb_preflight_errors(spec: StudySpec, environment: Mapping[str, str]) -> list[str]:
     mode = environment.get("WANDB_MODE", "online").strip().lower()
     if mode in WANDB_LOCAL_MODES:
-        return []
+        return ["authorized W&B study requires online tracking"] if spec.wandb_authorized else []
     decision = spec.wandb_operation_decision("launch", mode)
     errors: list[str] = []
     if not spec.wandb_entity:

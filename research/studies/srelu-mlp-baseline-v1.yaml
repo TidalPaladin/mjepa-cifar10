@@ -100,11 +100,18 @@ wandb:
   entity: tidalpaladin
   project: mjepa-cifar10
   group: srelu-mlp-baseline-v1
-  authorized: false
-  approved_data_classes: []
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
   emitted_data_classes:
     launch: [metrics, configs, provenance]
     summary: [metrics, provenance]
+
+publication_amendment:
+  date: 2026-07-23
+  reason: Standing authorization now requires online W&B tracking for scientific experiments.
+  current_run: The already-running seed-0 baseline remains offline because tracker mode is immutable after launch.
+  terminal_action: Backfill its offline W&B run after terminal state, then publish the authorized summary.
+  backfill_emitted_data_classes: [metrics, configs, provenance]
 
 code_shas:
   parent: REQUIRED
