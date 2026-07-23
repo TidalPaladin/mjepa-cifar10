@@ -75,6 +75,18 @@ LIFECYCLE_STATUS_BY_KIND: dict[LifecycleKind, str] = {
 }
 
 
+def _initialize_params() -> JsonObject:
+    """Declare the capability required for permission-aware thread resumes."""
+    return {
+        "clientInfo": {
+            "name": CLIENT_NAME,
+            "title": CLIENT_TITLE,
+            "version": CLIENT_VERSION,
+        },
+        "capabilities": {"experimentalApi": True},
+    }
+
+
 class NotificationStateError(ValueError):
     """Persisted notification state violates the schema or managed-path contract."""
 
@@ -966,10 +978,7 @@ async def capture_wake_context(
     """Capture the effective live thread authority before a managed dispatch."""
     selected_at = captured_at or datetime.now(UTC)
     async with RpcClient(transport, request_timeout=request_timeout) as client:
-        await client.request(
-            "initialize",
-            {"clientInfo": {"name": CLIENT_NAME, "title": CLIENT_TITLE, "version": CLIENT_VERSION}},
-        )
+        await client.request("initialize", _initialize_params())
         await client.notify("initialized", {})
         resumed = await client.request(
             "thread/resume",
@@ -1024,10 +1033,7 @@ async def deliver_notification(
             permanent=True,
         )
     async with RpcClient(transport, request_timeout=request_timeout) as client:
-        await client.request(
-            "initialize",
-            {"clientInfo": {"name": CLIENT_NAME, "title": CLIENT_TITLE, "version": CLIENT_VERSION}},
-        )
+        await client.request("initialize", _initialize_params())
         await client.notify("initialized", {})
         resumed = await client.request("thread/resume", wake_context.resume_params())
         _thread_from_result(resumed, "thread/resume", thread_id)

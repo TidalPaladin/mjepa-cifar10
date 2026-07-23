@@ -141,14 +141,28 @@ def app_server_handler(
     permission_profile: str = PERMISSION_PROFILE,
     approval_policy: str = APPROVAL_POLICY,
 ) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
+    experimental_api = False
+
     def handle(message: dict[str, Any]) -> list[dict[str, Any]]:
+        nonlocal experimental_api
         if "id" not in message:
             return []
         request_id = message["id"]
         method = message["method"]
         thread = {"id": THREAD_ID, "status": {"type": status}, "turns": turns}
         if method == "initialize":
+            experimental_api = message["params"].get("capabilities", {}).get("experimentalApi") is True
             result: dict[str, Any] = {}
+        elif method == "thread/resume" and message["params"].get("permissions") and not experimental_api:
+            return [
+                {
+                    "id": request_id,
+                    "error": {
+                        "code": -32600,
+                        "message": "thread/resume.permissions requires experimentalApi capability",
+                    },
+                }
+            ]
         elif method == "thread/resume":
             result = {
                 "thread": thread,
@@ -184,6 +198,8 @@ async def test_capture_wake_context_records_effective_profile_and_approval_polic
     )
 
     assert context == WAKE_CONTEXT
+    initialize = next(message for message in transport.sent if message.get("method") == "initialize")
+    assert initialize["params"]["capabilities"] == {"experimentalApi": True}
     resume = next(message for message in transport.sent if message.get("method") == "thread/resume")
     assert resume["params"] == {
         "threadId": THREAD_ID,
