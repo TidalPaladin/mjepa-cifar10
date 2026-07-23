@@ -1,0 +1,123 @@
+id: srelu-mlp-width-v1
+question: Which Squared ReLU FFN width best matches or improves the SwiGLU seed-0 baseline under nominal-width, compute-equivalent, and parameter-equivalent workloads?
+hypothesis: The tensor-core-aligned SReLU width 2304 will preserve baseline peak accuracy within 0.005 while improving active-time AUC or time to the fixed 95 percent target enough to qualify for directional tuning.
+rejection_condition: Reject the width hypothesis if no SReLU candidate meets a promotion threshold against the immutable SwiGLU curve. Continue only with the nonqualifying Pareto-best SReLU when the linked protocol still authorizes directional tuning.
+checkpoint_plan: Retain the baseline reference outside managed retention. Retain candidate checkpoints through width analysis and directional preregistration; delete only terminal rejected managed weights after their result and disposition are committed and pushed.
+
+baseline:
+  id: swiglu-fixed-v1
+  config: config/pretrain/vit-small.yaml
+  hypothesis: The completed seed-0 SwiGLU curve remains the immutable comparator for the linked SReLU width and tuning screens.
+  mechanism: Reuse the exact validation curve from srelu-mlp-baseline-v1 without scheduling another baseline run.
+  changes: []
+
+baseline_reference:
+  study_id: srelu-mlp-baseline-v1
+  run_id: pretrain-swiglu-baseline-seed0
+  metrics: research/baselines/srelu-mlp-baseline-v1-swiglu-seed0.metrics.jsonl
+  metrics_sha256: acd548d3b7d2f400a089371b78fd30b7c11af0beef3e49b673c8b181682f8cfc
+
+variants:
+  - id: srelu-h1536
+    config: config/pretrain/vit-small-srelu-h1536.yaml
+    hypothesis: SReLU at the nominal SwiGLU up-projection width reduces wall time substantially enough to offset its lower parameter count without losing more than 0.005 peak accuracy.
+    mechanism: Replace gated SwiGLU with Squared ReLU while retaining FFN width 1536, all attention shapes, depth, optimizer settings, and dropout.
+    changes:
+      - Set activation to srelu at FFN width 1536.
+      - Preserve attention, depth, AdamW learning rate 0.002, weight decay 0.2, and MLP dropout 0.1.
+  - id: srelu-h2304
+    config: config/pretrain/vit-small-srelu-h2304.yaml
+    hypothesis: Tensor-core-aligned SReLU width 2304 provides the best same-workload tradeoff by matching SwiGLU parameter count and measured component latency while improving convergence.
+    mechanism: Replace gated SwiGLU with Squared ReLU and expand the up-projection to the aligned compute-equivalent width 2304.
+    changes:
+      - Set activation to srelu and FFN width to 2304.
+      - Preserve attention, depth, AdamW learning rate 0.002, weight decay 0.2, and MLP dropout 0.1.
+  - id: srelu-h2305
+    config: config/pretrain/vit-small-srelu-h2305.yaml
+    hypothesis: Exact parameter-equivalent SReLU width 2305 preserves SwiGLU accuracy and reveals whether alignment, rather than parameter count, determines wall-clock performance.
+    mechanism: Replace gated SwiGLU with Squared ReLU and expand the up-projection to exact parameter-equivalent width 2305.
+    changes:
+      - Set activation to srelu and FFN width to 2305.
+      - Preserve attention, depth, AdamW learning rate 0.002, weight decay 0.2, and MLP dropout 0.1.
+
+methodology:
+  linked_program: srelu-mlp-v1
+  scientific_run_allocation:
+    total_authorized: 16
+    completed_fresh_baseline: 1
+    this_width_screen: 3
+    reserved_directional_tuning: 6
+    reserved_paired_confirmation: 6
+    mechanical_smoke_excluded: true
+  comparison:
+    baseline_peak_accuracy: 0.9057999849319458
+    target_90_accuracy: 0.8152199864387513
+    target_95_accuracy: 0.8605099856853484
+    baseline_active_seconds_to_90: 3889.9740167483687
+    baseline_active_seconds_to_95: 5278.717640997842
+    baseline_active_time_auc: 0.7957377415845792
+    baseline_supervisor_wall_seconds: 11115.263943
+    common_horizons: Use the shortest completed optimizer-step and trainer-active-time horizons across the fixed baseline and all three candidates.
+  workload_equivalence:
+    swiglu_h1536_trainable_parameters: 38041866
+    srelu_h1536_trainable_parameters: 28580106
+    srelu_h2304_trainable_parameters: 38029578
+    srelu_h2305_trainable_parameters: 38041882
+    parameter_equivalent_delta_h2305: 16
+    component_benchmark:
+      device: NVIDIA GeForce RTX 3090
+      shape: batch 512, sequence 72, hidden 384, bfloat16 autocast
+      swiglu_h1536_mean_ms: 9.103694586117408
+      srelu_h1536_mean_ms: 6.297243515259126
+      srelu_h2304_mean_ms: 8.603691948219437
+      srelu_h2305_mean_ms: 10.574259239618693
+  selection:
+    qualifying_thresholds: Use the promotion block without modification.
+    ranking: Common-horizon active-time AUC, peak validation accuracy, active seconds to the fixed 95 percent target, then supervisor wall time.
+    next_stage: If a candidate qualifies, use the top-ranked candidate for directional tuning. Otherwise use the Pareto-best SReLU by peak accuracy and active-time AUC without calling it promoted.
+  metrics:
+    - optimizer step and cumulative trainer-active wall seconds to fixed 90 and 95 percent baseline targets
+    - peak and final online-probe validation accuracy
+    - validation-accuracy AUC over common optimizer-step and trainer-active-time horizons
+    - supervisor start-to-finish wall seconds
+    - component forward-backward latency and peak CUDA memory from the committed preregistration
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: srelu-mlp-width-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 35934d979078a0f26a83921e2d80821338f41375
+  vit: 52a4a676575bde0e756376a59b001aa55d5d6eaa
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 3
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
