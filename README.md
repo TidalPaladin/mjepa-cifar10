@@ -56,8 +56,8 @@ Invoke the repository-scoped `$autoresearch` skill followed by
 hypothesis through evaluation and retention. The generic skill supplies the
 research safety contract; the JEPA skill supplies this repository's commands,
 metrics, data protocol, and retention rules. The harness stores recoverable
-local state under `logs/research/<study-id>` and can use W&B for authorized
-metrics and provenance.
+local state under `logs/research/<study-id>` and tracks declared metrics,
+configs, and provenance in W&B online by default.
 
 Create a committed YAML file under `research/studies/`, then use:
 
@@ -76,6 +76,12 @@ uv run python scripts/research.py inventory --wandb-entity <entity>
 ```
 
 `launch --dry-run` creates the atomic study state without starting training. A real launch uses physical GPUs 1 and 2, exposes one GPU to each process, runs at most two jobs, and enforces a 24-hour job timeout. Before each launch, the harness checks for at least `50 GiB + 2 * concurrent_jobs * estimated_checkpoint_size` free.
+
+The primary study repository must be clean and pushed at its recorded SHA.
+Tandem repositories such as `mjepa` and `vit` may remain local: a clean commit
+on a study branch, an exact recorded SHA, a matching dependency pin, and a
+frozen import from that commit satisfy provenance. Local tandem branches and
+commits are authorized, but their pushes require separate permission.
 
 An explicitly scoped candidate-only follow-up can set `baseline_reference` in
 its study YAML instead of launching another baseline. The referenced
@@ -106,6 +112,13 @@ the app-server goal API; explicitly paused, completed, and usage-limited goals
 remain untouched.
 Training never waits for Codex, and delivery failure cannot alter terminal run
 status.
+
+After a launch returns, verify the supervisor PID, GPU, run directory, tracker
+identity, and durable startup state for every dispatched run, then return the
+goal to its notification-wait state immediately when the surface permits it.
+After a nonterminal lifecycle event, do the same when no immediate mutation
+remains. This prevents active-goal continuations from repeatedly checking a run
+that is already covered by the event controller.
 
 Run `event-controller` as the primary local event source. It uses Linux inotify
 for durable state, pidfds for supervisor exits, and a local progress-deadline
@@ -161,13 +174,15 @@ time or compute cost separately, mark censored results, and distinguish active
 time from wall time and nominal from effective hyperparameters. Omit this
 section for protocol-only changes and studies that are still active.
 
-W&B consent is checked independently for every operation. Launch emits
+W&B online operations have standing authorization in this repository. Launch emits
 `metrics`, `configs`, and `provenance`; summary emits `metrics` and `provenance`.
-Each operation can run online only with a named entity, explicit authorization,
-an explicit matching manifest, and approval for all of its emitted classes.
-Otherwise it stays local-only. Local provenance records the requested mode,
-effective mode, destination, manifest, approvals, and gate decision before the
-external write.
+Every scientific study records `authorized: true`, a named entity, an explicit
+matching manifest, and approval for all emitted classes. Preflight rejects an
+offline request or incomplete W&B declaration instead of silently changing a
+scientific launch to local-only mode. Local provenance records the requested
+mode, effective mode, destination, manifest, standing authorization, and gate
+decision before each launch, summary, or backfill write. Offline mode remains
+available only for an explicitly scoped fallback test or a recorded outage.
 
 The fixed CIFAR-10 evaluation protocol uses 45,000 training examples and a stratified 5,000-example validation set with 500 examples per class. The official test set is reserved for the confirmed baseline and winner. The online probe applies the classifier head to teacher features computed under `torch.inference_mode()`, so isolated probe loss updates only the head.
 

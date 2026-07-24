@@ -1,6 +1,6 @@
 # Study specifications
 
-Copy `example.yaml` to a study-specific filename. Replace every placeholder before launch. Keep the question and hypothesis falsifiable, record the full code references, and use at most eight pretraining trials.
+Copy `example.yaml` to a study-specific filename. Replace every placeholder before launch. Keep the question and hypothesis falsifiable, record the full code references, and use at most eight pretraining trials per managed study. A larger user-authorized goal budget must be allocated across linked study specifications and recorded in the repository protocol.
 
 Set `CIFAR10_DATA` in the launch environment so the committed specification does not expose a machine-specific dataset path.
 
@@ -13,13 +13,15 @@ configured variant at seed 0. A qualifying result ends in
 `reference-promotion`, which is provisional because no paired baseline seeds
 were run. Do not use it to claim confirmation or start supervised evaluation.
 
-External W&B publication is opt-in and gated per operation. Keep the explicit
-`wandb.emitted_data_classes` manifests from `example.yaml`: launch emits
-`metrics`, `configs`, and `provenance`, while summary emits `metrics` and
-`provenance`. When a study includes a W&B entity, set `wandb.authorized: true`
-and approve every class needed by the operation. Leave it unauthorized for
-local-only tracking. Local provenance records the requested and effective modes
-before any external write.
+Online W&B tracking has standing authorization and is required for scientific
+studies. Keep the explicit `wandb.emitted_data_classes` manifests from
+`example.yaml`: launch emits `metrics`, `configs`, and `provenance`, while
+summary emits `metrics` and `provenance`. Set `wandb.authorized: true`, name the
+destination entity, and approve every emitted class. Preflight rejects an
+offline request or incomplete declaration instead of silently launching a
+scientific study in local-only mode. Use an unauthorized offline specification
+only for an explicitly scoped fallback test or to preserve an immutable
+historical study record.
 
 `monitor --no-launch` is strictly read-only and is suitable for a delegated
 monitor. The primary coordinator uses `monitor` to reconcile terminal state and

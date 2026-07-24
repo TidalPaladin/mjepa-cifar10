@@ -1,0 +1,113 @@
+{
+  "schema_version": 1,
+  "analysis": "final-checkpoint-mlp-signals",
+  "study_id": "srelu-mlp-width-v1",
+  "status": "directional-diagnostic",
+  "primary_protocol": {
+    "device": "cpu",
+    "dtype": "float32",
+    "model_mode": "eval",
+    "dataset_split": "fixed-validation-holdout",
+    "dataset_split_sha256": "bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b",
+    "batch_size": 8,
+    "num_batches": 4,
+    "images": 32,
+    "mask_seed": 1,
+    "checkpoint_step": 17400,
+    "checkpoint_epoch": 399
+  },
+  "metrics": [
+    {
+      "run_id": "pretrain-swiglu-baseline-seed0",
+      "activation": "swiglu",
+      "ffn_hidden_size": 1536,
+      "reduced_loss": 0.9449509829282761,
+      "mean_gate_negative_fraction": 0.8036103142632379,
+      "mean_sampled_never_positive_channel_fraction": 0.07769097411558808,
+      "mean_negative_gate_upstream_gradient_energy_fraction": 0.7011620525373315,
+      "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.9917008435378677,
+      "mean_gate_value": -1.604872614145279,
+      "first_layer_gate_negative_fraction": 0.8131871541341146,
+      "last_layer_gate_negative_fraction": 0.9782552083333333,
+      "first_layer_sampled_never_positive_channel_fraction": 0.0494791679084301,
+      "last_layer_sampled_never_positive_channel_fraction": 0.6334635615348816,
+      "first_layer_negative_gate_upstream_gradient_energy_fraction": 0.6089395642960322,
+      "last_layer_negative_gate_upstream_gradient_energy_fraction": 0.8982850062492449
+    },
+    {
+      "run_id": "pretrain-srelu-h1536-seed0",
+      "activation": "srelu",
+      "ffn_hidden_size": 1536,
+      "reduced_loss": 1.0207722634077072,
+      "mean_gate_negative_fraction": 0.915130403306749,
+      "mean_sampled_never_positive_channel_fraction": 0.3857421850164731,
+      "mean_negative_gate_upstream_gradient_energy_fraction": 0.8480340596482386,
+      "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.0,
+      "mean_gate_value": -1.2011200759145948,
+      "first_layer_gate_negative_fraction": 0.882177734375,
+      "last_layer_gate_negative_fraction": 0.9906112670898437,
+      "first_layer_sampled_never_positive_channel_fraction": 0.517578125,
+      "last_layer_sampled_never_positive_channel_fraction": 0.6236979365348816,
+      "first_layer_negative_gate_upstream_gradient_energy_fraction": 0.8796904930083788,
+      "last_layer_negative_gate_upstream_gradient_energy_fraction": 0.986628330254311
+    },
+    {
+      "run_id": "pretrain-srelu-h2304-seed0",
+      "activation": "srelu",
+      "ffn_hidden_size": 2304,
+      "reduced_loss": 1.004128098487854,
+      "mean_gate_negative_fraction": 0.9310260631419994,
+      "mean_sampled_never_positive_channel_fraction": 0.4658564900358518,
+      "mean_negative_gate_upstream_gradient_energy_fraction": 0.8632145278035918,
+      "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.0,
+      "mean_gate_value": -1.091483375540486,
+      "first_layer_gate_negative_fraction": 0.9087046305338542,
+      "last_layer_gate_negative_fraction": 0.9954152425130208,
+      "first_layer_sampled_never_positive_channel_fraction": 0.6566840410232544,
+      "last_layer_sampled_never_positive_channel_fraction": 0.7682291865348816,
+      "first_layer_negative_gate_upstream_gradient_energy_fraction": 0.8830021042282885,
+      "last_layer_negative_gate_upstream_gradient_energy_fraction": 0.9925167122802159
+    }
+  ],
+  "dropout_mode_replication": {
+    "model_mode": "train",
+    "batch_size": 4,
+    "num_batches": 2,
+    "images": 8,
+    "mask_seed": 0,
+    "metrics": [
+      {
+        "run_id": "pretrain-swiglu-baseline-seed0",
+        "mean_gate_negative_fraction": 0.8017557779947917,
+        "mean_sampled_never_positive_channel_fraction": 0.09857856168916139,
+        "mean_negative_gate_upstream_gradient_energy_fraction": 0.7154245319116868
+      },
+      {
+        "run_id": "pretrain-srelu-h1536-seed0",
+        "mean_gate_negative_fraction": 0.9146536367910879,
+        "mean_sampled_never_positive_channel_fraction": 0.4216037318110466,
+        "mean_negative_gate_upstream_gradient_energy_fraction": 0.8526504387342122
+      },
+      {
+        "run_id": "pretrain-srelu-h2304-seed0",
+        "mean_gate_negative_fraction": 0.9303347740644291,
+        "mean_sampled_never_positive_channel_fraction": 0.5141420712073644,
+        "mean_negative_gate_upstream_gradient_energy_fraction": 0.8551466216824823
+      }
+    ]
+  },
+  "interpretation": {
+    "observation": "Both SReLU checkpoints route materially more gates and upstream gradient energy into the exactly clipped negative half-space than the SwiGLU checkpoint. Wider SReLU increases, rather than reduces, the sampled inactive-channel burden.",
+    "direction": "Prioritize interventions that preserve or restore negative-side gradient flow before broad AdamW tuning. Dropout-only tuning is unlikely to address the eval-mode clipping pattern.",
+    "limitations": [
+      "This is a cross-sectional final-checkpoint diagnostic and does not establish when the gate distribution emerged.",
+      "A sampled-never-positive channel was nonpositive only across these images, masks, and tokens; it is not proven globally dead.",
+      "CPU float32 diagnostics differ from the GPU bfloat16 autocast used during training.",
+      "The in-flight h2305 checkpoint was neither read nor modified."
+    ]
+  },
+  "raw_artifacts": [
+    "logs/research/srelu-mlp-width-v1/diagnostics/final-checkpoints/eval-seed1-b8x4.json",
+    "logs/research/srelu-mlp-width-v1/diagnostics/final-checkpoints/train-seed0-b4x2.json"
+  ]
+}

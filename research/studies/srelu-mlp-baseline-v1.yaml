@@ -1,0 +1,139 @@
+id: srelu-mlp-baseline-v1
+question: What validation-probe convergence, endpoint quality, and wall-clock cost does the current SwiGLU ViT-S/4 MJEPA baseline achieve in the SReLU study environment?
+hypothesis: The fresh SwiGLU seed-0 run will complete within 24 hours and yield a recoverable curve suitable as the immutable comparator for adaptive SReLU waves.
+rejection_condition: Reject the operational baseline if it times out, lacks a recoverable curve or checkpoint, or its lifecycle notification is not accepted.
+checkpoint_plan: Retain the baseline full checkpoint and backbone. Retain all later study weights unless the user separately authorizes managed deletion.
+
+baseline:
+  id: swiglu-baseline
+  config: config/pretrain/vit-small.yaml
+  hypothesis: The current SwiGLU configuration provides the paired environment and fixed convergence targets for the SReLU study.
+  mechanism: Use the existing gated SwiGLU MLP at width 1536 with the unchanged attention stack, optimizer, and training protocol.
+  changes: []
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+dataset_split:
+  train_examples: 45000
+  validation_examples: 5000
+  validation_examples_per_class: 500
+  official_test_use: confirmed-baseline-and-winner-only
+
+methodology:
+  goal_run_budget: 16
+  mechanical_smoke_excluded_from_scientific_trial_count: true
+  stages:
+    - id: fresh-baseline
+      maximum_runs: 1
+      purpose: Produce one immutable seed-0 SwiGLU curve in the exact SReLU source and hardware environment.
+    - id: width-screen
+      maximum_runs: 3
+      purpose: Compare SReLU at width 1536, aligned compute-equivalent width 2304, and exact parameter-equivalent width 2305.
+    - id: directional-tuning
+      maximum_runs: 6
+      purpose: Select MLP dropout, AdamW learning rate, and weight-decay directions from completed width curves, then preregister exact candidates in a dated amendment.
+    - id: paired-confirmation
+      maximum_runs: 6
+      purpose: If and only if a seed-0 candidate qualifies, rerun baseline and winner at seeds 0, 1, and 2.
+  width_candidates:
+    - id: srelu-h1536
+      trainable_parameters: 28580106
+      role: Same nominal FFN width and lower-cost SReLU.
+    - id: srelu-h2304
+      trainable_parameters: 38029578
+      role: Tensor-core-aligned compute-equivalent SReLU; 0.032 percent fewer trainable parameters than baseline.
+    - id: srelu-h2305
+      trainable_parameters: 38041882
+      role: Exact parameter-equivalent SReLU; 16 more trainable parameters than baseline.
+  baseline_trainable_parameters: 38041866
+  directional_tuning_rules:
+    dropout:
+      lower: [0.0, 0.05]
+      higher: [0.15, 0.2]
+      choose_lower_when: The selected width is slower to early targets or loses peak accuracy without a larger late peak-to-final decline than baseline.
+      choose_higher_when: The selected width has a larger late peak-to-final decline than baseline while reaching early targets at least as fast.
+      choose_mixed_when: The accuracy and convergence signals point in different directions; use 0.05 and 0.15.
+    learning_rate:
+      lower: [0.001, 0.0015]
+      higher: [0.003, 0.004]
+      choose_lower_when: Validation growth is fast early but unstable or deteriorates late.
+      choose_higher_when: Validation growth is slower than baseline without instability or a late decline.
+      choose_mixed_when: The curve is close to baseline; use 0.0015 and 0.003.
+    weight_decay:
+      lower: [0.05, 0.1]
+      higher: [0.3, 0.4]
+      choose_lower_when: Peak accuracy is below baseline and the peak-to-final decline is no worse.
+      choose_higher_when: Peak accuracy is competitive but the peak-to-final decline is worse.
+      choose_mixed_when: The accuracy and late-curve signals disagree; use 0.1 and 0.3.
+    allocation:
+      dropout_only_runs: 2
+      learning_rate_only_runs: 2
+      joint_learning_rate_weight_decay_runs: 2
+  selection:
+    qualifying_thresholds: Use the promotion block without modification.
+    ranking: Common-horizon trainer-active-time AUC, peak validation accuracy, active wall seconds to the fixed 95 percent target, then supervisor wall time.
+    nonqualifying_tuning_base: If no width qualifies, tune the Pareto-best SReLU by peak accuracy and trainer-active-time AUC; this does not count as promotion.
+  metrics:
+    - optimizer step and cumulative trainer-active wall seconds to fixed 90 and 95 percent baseline targets
+    - peak and final online-probe validation accuracy
+    - validation-accuracy AUC over common optimizer-step and trainer-active-time horizons
+    - supervisor start-to-finish wall seconds
+    - component forward-backward latency and peak CUDA memory
+  benchmark:
+    artifact_root: logs/benchmarks/srelu-mlp-v1
+    device: physical GPU 1, NVIDIA GeForce RTX 3090
+    shape: batch 512, sequence 72, hidden 384, float32 parameters and inputs, bfloat16 autocast
+    swiglu_h1536_mean_ms: 9.103694586117408
+    swiglu_h1536_memory_mb: 730.7421875
+    srelu_h1536_mean_ms: 6.297243515259126
+    srelu_h1536_memory_mb: 473.150390625
+    srelu_h2304_mean_ms: 8.603691948219437
+    srelu_h2304_memory_mb: 612.5283203125
+    srelu_h2305_mean_ms: 10.574259239618693
+    srelu_h2305_memory_mb: 723.779296875
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: srelu-mlp-baseline-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+publication_amendment:
+  date: 2026-07-23
+  reason: Standing authorization now requires online W&B tracking for scientific experiments.
+  current_run: The already-running seed-0 baseline remains offline because tracker mode is immutable after launch.
+  terminal_action: Backfill its offline W&B run after terminal state, then publish the authorized summary.
+  backfill_emitted_data_classes: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 35934d979078a0f26a83921e2d80821338f41375
+  vit: 52a4a676575bde0e756376a59b001aa55d5d6eaa
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 86400
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

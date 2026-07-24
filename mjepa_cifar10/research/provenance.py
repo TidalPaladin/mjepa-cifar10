@@ -77,16 +77,18 @@ def collect_provenance(spec: StudySpec, repo_root: Path) -> ProvenanceReport:
     lockfile_sha256 = hashlib.sha256(lockfile_path.read_bytes()).hexdigest()
     installed_sources = {name: _installed_source(name) for name in ("mjepa", "vit")}
     errors: list[str] = []
-    for name, provenance in (("parent", parent), ("mjepa", mjepa)):
+    if parent.dirty:
+        errors.append("parent repository is dirty")
+    if parent.branch in PROTECTED_BRANCHES or not parent.branch.startswith(STUDY_BRANCH_PREFIX):
+        errors.append(f"parent branch must start with {STUDY_BRANCH_PREFIX!r}")
+    if not parent.pushed:
+        errors.append("parent branch is not pushed at its current SHA")
+    for name, provenance in (("mjepa", mjepa), ("vit", vit)):
         if provenance.dirty:
             errors.append(f"{name} repository is dirty")
         if provenance.branch in PROTECTED_BRANCHES or not provenance.branch.startswith(STUDY_BRANCH_PREFIX):
             errors.append(f"{name} branch must start with {STUDY_BRANCH_PREFIX!r}")
-        if not provenance.pushed:
-            errors.append(f"{name} branch is not pushed at its current SHA")
-    if vit.dirty:
-        errors.append("vit repository is dirty")
-    expected_shas = {"parent": parent, "mjepa": mjepa}
+    expected_shas = {"parent": parent, "mjepa": mjepa, "vit": vit}
     for name, expected_sha in spec.code_shas.items():
         if name in expected_shas and expected_sha not in ("", "REQUIRED"):
             actual_sha = expected_shas[name].sha

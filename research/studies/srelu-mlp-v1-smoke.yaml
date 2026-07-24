@@ -1,0 +1,55 @@
+id: srelu-mlp-v1-smoke
+question: Can the pinned SReLU study environment train, validate, checkpoint, resume, summarize, and notify through one managed GPU epoch?
+hypothesis: The one-epoch SReLU smoke run will complete with valid local metrics, isolated MLP dropout, recoverable optimizer state, and accepted lifecycle notifications.
+rejection_condition: Reject the mechanical validation if the run fails, times out, lacks a first-cycle event or required artifact, cannot resume, or its notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint locally. No deletion is authorized.
+
+baseline:
+  id: srelu-smoke
+  config: config/pretrain/smoke-srelu.yaml
+  hypothesis: The committed SReLU and MLP-dropout configuration completes one managed epoch.
+  mechanism: Exercise the same activation and configuration path used by the formal ablations at smoke scale.
+  changes:
+    - Replace SwiGLU with Squared ReLU.
+    - Set the explicit MLP-only dropout override to 0.0 while retaining the smoke attention dropout.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: srelu-mlp-v1-smoke
+  authorized: false
+  approved_data_classes: []
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 35934d979078a0f26a83921e2d80821338f41375
+  vit: 52a4a676575bde0e756376a59b001aa55d5d6eaa
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

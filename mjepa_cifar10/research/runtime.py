@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import IO, Any, Final, Mapping, Self, Sequence
 
 from .models import WANDB_LOCAL_MODES, RunSpec, RunState, StudySpec, StudyState
+from .wake_context import WakeContext
 
 
 GIB: Final[int] = 1024**3
@@ -880,14 +881,17 @@ def launch_available_runs(
     *,
     development: bool = False,
     lock_root: Path = Path("/tmp/mjepa-cifar10-research"),
+    wake_context: WakeContext | None = None,
 ) -> StudyState:
+    if not development and wake_context is None:
+        raise RuntimeError("managed launch requires a captured Codex wake permission context")
     if not development:
         from .provenance import assert_launch_provenance
 
         assert_launch_provenance(spec, repo_root)
     assert_storage_available(spec, repo_root)
     study_dir = study_directory(spec, repo_root)
-    from .codex_notifications import initialize_notification_root
+    from .codex_notifications import initialize_notification_root, persist_wake_context
 
     initialize_notification_root(study_dir.parent)
     with StateStore(study_dir) as store:
@@ -905,12 +909,20 @@ def launch_available_runs(
             assert_storage_available(spec, repo_root)
             run_dir = (study_dir / "runs" / run.spec.id).resolve()
             run_dir.mkdir(parents=True, exist_ok=True)
+            if wake_context is not None:
+                if run.originating_thread_id is not None and run.originating_thread_id != wake_context.thread_id:
+                    raise RuntimeError(f"run {run.spec.id} belongs to a different originating Codex thread")
+                persist_wake_context(run_dir, study_dir.parent, wake_context)
             run.status = "launching"
             run.physical_gpu = physical_gpu
             run.started_at = utc_now()
             run.run_dir = str(run_dir)
             run.wandb_run_id = run.wandb_run_id or uuid.uuid4().hex[:8]
-            run.originating_thread_id = run.originating_thread_id or os.environ.get("CODEX_THREAD_ID")
+            run.originating_thread_id = (
+                wake_context.thread_id
+                if wake_context is not None
+                else run.originating_thread_id or os.environ.get("CODEX_THREAD_ID")
+            )
             run.notification_state = "not-requested"
             supervisor_log = (run_dir / "supervisor.log").open("a", encoding="utf-8")
             try:

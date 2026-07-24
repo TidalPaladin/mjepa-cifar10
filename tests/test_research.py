@@ -39,7 +39,7 @@ from mjepa_cifar10.research.models import (
     StudyState,
     VariantSpec,
 )
-from mjepa_cifar10.research.provenance import assert_launch_provenance
+from mjepa_cifar10.research.provenance import GitProvenance, assert_launch_provenance, collect_provenance
 from mjepa_cifar10.research.runtime import (
     GIB,
     GPULock,
@@ -52,6 +52,7 @@ from mjepa_cifar10.research.runtime import (
     cleanup_run_weights,
     configure_lifecycle_environment,
     estimate_checkpoint_size,
+    launch_available_runs,
     persist_terminal_and_queue_notification,
     prepare_retryable_runs,
     process_exit_error,
@@ -68,6 +69,7 @@ from mjepa_cifar10.research.summary import (
     calculate_study_summaries,
     publish_summaries_to_wandb,
 )
+from mjepa_cifar10.research.wake_context import WAKE_CONTEXT_FILENAME, WakeContext
 
 
 def make_summary(
@@ -374,6 +376,45 @@ def test_prepare_retryable_runs_reconciles_terminal_state_first(tmp_path: Path) 
     assert run.status == "pending"
     assert run.attempt == 2
     assert not (run_dir / "terminal.json").exists()
+
+
+def test_managed_launch_persists_immutable_wake_context_before_spawn(
+    mocker,
+    tmp_path: Path,
+) -> None:
+    spec = make_spec(tmp_path, variants=0)
+    study_path = tmp_path / "study.yaml"
+    study_path.write_text("id: test-study\n")
+    wake_context = WakeContext(
+        thread_id="thread-a",
+        permission_profile=":danger-full-access",
+        approval_policy="never",
+        captured_at=datetime(2026, 7, 23, tzinfo=UTC),
+    )
+    mocker.patch("mjepa_cifar10.research.runtime.assert_storage_available")
+    mocker.patch(
+        "mjepa_cifar10.research.runtime.available_physical_gpus",
+        return_value=(1,),
+    )
+
+    def spawn(*_args, **_kwargs):
+        context_path = tmp_path / "logs" / spec.id / "runs" / spec.initial_runs()[0].id / WAKE_CONTEXT_FILENAME
+        assert context_path.is_file()
+        return SimpleNamespace(pid=1234)
+
+    mocker.patch("mjepa_cifar10.research.runtime.subprocess.Popen", side_effect=spawn)
+
+    state = launch_available_runs(
+        spec,
+        study_path,
+        tmp_path,
+        development=True,
+        lock_root=tmp_path / "locks",
+        wake_context=wake_context,
+    )
+
+    launched = state.runs[spec.initial_runs()[0].id]
+    assert launched.originating_thread_id == wake_context.thread_id
 
 
 def test_timeout_terminates_process_group(mocker, tmp_path: Path) -> None:
@@ -860,6 +901,91 @@ def test_provenance_errors_refuse_launch(mocker, tmp_path: Path) -> None:
         assert_launch_provenance(spec, tmp_path)
 
 
+def test_provenance_accepts_clean_unpushed_tandem_commits(mocker, tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        code_shas={
+            "parent": "parent-sha",
+            "mjepa": "mjepa-sha",
+            "vit": "vit-sha",
+        },
+    )
+    (tmp_path / "uv.lock").write_text("locked\n")
+    mocker.patch(
+        "mjepa_cifar10.research.provenance.git_provenance",
+        side_effect=(
+            GitProvenance(
+                str(tmp_path),
+                "parent-sha",
+                "codex/research/test-study",
+                False,
+                "origin/codex/research/test-study",
+                True,
+            ),
+            GitProvenance(
+                str(tmp_path.parent / "mjepa"),
+                "mjepa-sha",
+                "codex/research/test-study",
+                False,
+                None,
+                False,
+            ),
+            GitProvenance(
+                str(tmp_path.parent / "vit"),
+                "vit-sha",
+                "codex/research/test-study",
+                False,
+                None,
+                False,
+            ),
+        ),
+    )
+    mocker.patch(
+        "mjepa_cifar10.research.provenance._installed_source",
+        side_effect=lambda name: {"vcs_info": {"commit_id": f"{name}-sha"}},
+    )
+
+    report = collect_provenance(spec, tmp_path)
+
+    assert report.errors == ()
+
+
+def test_provenance_still_requires_pushed_parent_and_exact_tandem_head(mocker, tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        code_shas={
+            "parent": "parent-sha",
+            "mjepa": "mjepa-sha",
+            "vit": "vit-sha",
+        },
+    )
+    (tmp_path / "uv.lock").write_text("locked\n")
+    mocker.patch(
+        "mjepa_cifar10.research.provenance.git_provenance",
+        side_effect=(
+            GitProvenance(str(tmp_path), "parent-sha", "codex/research/test-study", False, None, False),
+            GitProvenance(str(tmp_path.parent / "mjepa"), "mjepa-sha", "codex/research/test-study", False, None, False),
+            GitProvenance(
+                str(tmp_path.parent / "vit"),
+                "other-vit-sha",
+                "codex/research/test-study",
+                False,
+                None,
+                False,
+            ),
+        ),
+    )
+    mocker.patch(
+        "mjepa_cifar10.research.provenance._installed_source",
+        side_effect=lambda name: {"vcs_info": {"commit_id": f"{name}-sha"}},
+    )
+
+    errors = collect_provenance(spec, tmp_path).errors
+
+    assert "parent branch is not pushed at its current SHA" in errors
+    assert "vit SHA mismatch: expected vit-sha, got other-vit-sha" in errors
+
+
 def test_inventory_combines_config_metrics_packages_and_weight_availability(tmp_path: Path) -> None:
     run_dir = tmp_path / "logs" / "legacy-run"
     wandb_files = run_dir / "wandb" / "run-abc" / "files"
@@ -989,6 +1115,17 @@ def test_online_wandb_requires_destination_authorization_and_every_emitted_class
     assert any("configs" in error and "provenance" in error for error in wandb_preflight_errors(partial_approval, {}))
     assert wandb_preflight_errors(fully_approved, {}) == []
     assert wandb_preflight_errors(missing_destination, {"WANDB_MODE": "offline"}) == []
+
+
+def test_authorized_wandb_study_refuses_local_mode(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        wandb_entity="entity",
+        wandb_authorized=True,
+        wandb_approved_data_classes=("metrics", "configs", "provenance"),
+    )
+
+    assert wandb_preflight_errors(spec, {"WANDB_MODE": "offline"}) == ["authorized W&B study requires online tracking"]
 
 
 def test_wandb_gates_each_operation_against_its_emission_manifest(tmp_path: Path) -> None:

@@ -22,12 +22,18 @@ When `mjepa` changes:
 1. Create `codex/research/<study-id>` in both repositories.
 2. Develop with the editable sibling checkout.
 3. Run each repository's `make check` and `make test-ci` targets.
-4. Commit and push the `mjepa` branch first.
+4. Commit the `mjepa` branch locally. Push it only when the user separately authorizes the tandem-repository push.
 5. Pin that full SHA in the parent `pyproject.toml`, update `uv.lock`, and build a frozen parent environment.
 6. Verify the imported `mjepa` and `vit` sources match the recorded commits.
 7. Commit and push the parent branch.
 
-Never push `main` or `master`, rewrite published history, or open a pull request without a separate request. Refuse a launch when either research repository is dirty, unpushed, on a protected branch, stale relative to `uv.lock`, or installed from a mismatched source.
+Apply the same local-commit rule to `vit`. Never push a tandem repository,
+`main`, or `master`, rewrite published history, or open a pull request without
+the corresponding permission. Refuse a launch when the parent is dirty,
+unpushed, protected, or stale relative to `uv.lock`. Refuse a launch when a
+tandem repository is dirty, protected, not locally committed at its recorded
+SHA, or installed from a mismatched source. Do not reject a clean exact-SHA
+tandem commit merely because it has no upstream or has not been pushed.
 
 ## Dataset and probes
 
@@ -44,7 +50,13 @@ The online linear probe applies the student classifier head to teacher features.
 
 ## Pretraining trial policy
 
-Permit at most eight pretraining trials.
+Permit at most eight pretraining trials per managed study. A larger goal-wide
+budget requires explicit user authorization and a recorded allocation across
+linked study specifications. The user-authorized SReLU MLP program may use at
+most 16 scientific pretraining runs: one fresh seed-0 SwiGLU baseline, three
+seed-0 width candidates, up to six seed-0 directional-tuning candidates, and
+six fresh paired-confirmation runs. Its one-epoch mechanical smoke run is
+excluded from this scientific-run count.
 
 1. Run the baseline at seed 0 and up to three seed-0 variants.
 2. Promote at most one candidate if it satisfies at least one condition:
@@ -68,6 +80,11 @@ candidate qualifies, record `reference-promotion` and retain its weights, but do
 not call it confirmed, launch supervised evaluation, or report paired effects.
 Those steps require separately authorized baseline seeds 1 and 2 and the normal
 confirmation rule.
+
+For the SReLU MLP program, use `baseline_reference` only for its seed-0 width
+and directional-tuning screens. Preserve the committed baseline curve and hash
+across both screens. Even when a referenced candidate qualifies, paired
+confirmation must launch fresh baseline and winner runs at seeds 0, 1, and 2.
 
 ## Convergence metrics
 
@@ -95,11 +112,13 @@ Use W&B namespaces consistently:
 
 Declare the emitted-data manifest for every W&B operation in the study YAML. A
 launch emits `metrics`, `configs`, and `provenance`; a summary emits `metrics`
-and `provenance`. Gate each operation independently. Online W&B requires an
-explicit entity, `authorized: true`, an explicit matching manifest, and approval
-for every class that operation emits. Otherwise that complete operation stays
-local-only. Record its requested mode, effective mode, destination, manifest,
-approvals, and decision in local provenance before writing externally.
+and `provenance`. W&B online operations have standing authorization in this
+repository. Set `authorized: true`, approve every emitted class, and use an
+explicit matching manifest so provenance records that authorization. Treat a
+missing destination, manifest, or approved class, or an offline launch request,
+as a preflight error for a scientific study instead of silently falling back
+to local-only mode. Gate and record launch, summary, and any backfill operation
+independently.
 
 ## Monitoring and recovery
 
@@ -135,10 +154,21 @@ with `register-root --root logs/research`; this also migrates the legacy marker.
 The marker binds its canonical `root_path`, and the notification worker rejects
 missing, mismatched, symlinked, repository, home, and broad roots before any
 recursive scan. The worker connects directly to the discovered Codex app-server
-daemon Unix socket. It validates the terminal event, serializes delivery per
-task, starts an idle task or steers its newest in-progress turn with an
-expected-turn guard, and records acceptance only after the RPC succeeds. Failed
-deliveries use bounded full-jitter exponential backoff and
+daemon Unix socket. Before each managed spawn, the launcher captures the live
+originating thread's effective permission-profile identity and approval policy
+and persists them in the run's immutable `wake-context.json`. An unset
+`CODEX_PERMISSION_PROFILE` means discovery: the launcher omits the override and
+persists the non-null profile ID resolved by app-server, including implicit
+built-in IDs. A missing or null effective profile fails launch before dispatch.
+The worker validates the event, serializes delivery per task, resumes with that
+exact context, and verifies the returned effective context before it can
+reactivate a blocked goal. It starts an idle task with the same context or
+steers its newest in-progress turn with an expected-turn guard, and records
+acceptance only after the RPC succeeds. Missing or mismatched wake context is a
+permanent validation failure. A legacy null-profile context requires explicit
+recovery; the worker never maps it to app-server defaults or a broader
+hardcoded profile. Other delivery failures use bounded full-jitter exponential
+backoff and
 require explicit `notify --requeue` after the eighth failure or a permanent
 validation error. Training never starts or waits for app-server.
 
@@ -195,7 +225,25 @@ observation must not advance a routine-check count or change `next_check_at`.
 Never create a scheduled task, start or wake a turn, wait, or poll solely for
 usage reporting.
 
+Token-use limits apply only to intervals spent polling or inspecting live
+experiment state. Capture token totals at the start and end of each such
+interval when available. Exclude initial setup, implementation, tests,
+benchmarks, preflight, launch preparation and execution, terminal analysis,
+summaries, Git work, and any code or configuration changes required during the
+study. Close the monitoring interval before starting excluded work. If the
+interval cannot be isolated, mark it unmeasured. Never substitute aggregate
+goal or task token usage, and never block a study for excess token use unless
+the monitoring-only counter exceeds the applicable limit.
+
 The primary goal agent calls `summarize`, commits and pushes result or schedule changes, and launches the next phase.
+
+After a launch returns, verify that every dispatched run has a supervisor PID,
+GPU assignment, run directory, tracker identity, and durable startup state.
+Then immediately return the persistent goal to its notification wait state,
+using `blocked` when the surface policy permits it. Do the same after processing
+a nonterminal lifecycle event when no immediate mutation remains. The event
+controller reactivates a blocked goal on the next lifecycle event. Do not leave
+the goal active for back-to-back no-event continuations.
 
 App-server delivery is at least once and deduplicated by lifecycle-event ID. The wake prompt contains only validated identifiers, status, and the absolute event-state path, never raw logs or stack traces. A host or scheduler failure can still miss a wake. When app-server or the controller is unavailable, the sparse monitor and atomic state let the primary task recover with `status`.
 
@@ -225,7 +273,7 @@ Before publishing a result:
 1. Validate the skill with `quick_validate.py`.
 2. Exercise `launch --dry-run` for the study.
 3. Run `make check` and `make test-ci` in both repositories.
-4. Run the one-epoch W&B-offline GPU smoke study on physical GPU 1 or 2, including progress, first-cycle notification, checkpoint, resume, status, summary, and retention behavior.
+4. Run the one-epoch GPU smoke study on physical GPU 1 or 2, including W&B tracking, progress, first-cycle notification, checkpoint, resume, status, summary, and retention behavior. Use offline mode only when the smoke explicitly targets the local fallback path.
 5. Confirm the study ID recovers its copied config, local metrics, provenance, state, W&B identity, research-log entry, and retained checkpoint.
 6. Commit and push the result update. Do not open a pull request unless requested.
 7. If pull-request publication is authorized and the branch contains terminal comparative results, create or refresh a `## Findings` section after the result commit is pushed. Generate its table from `summary.json`; include every evaluated variant, key optimizer hyperparameters, peak and final validation accuracy, convergence metrics, per-run wall time, decision, total study span, and summed run time. Mark censored values and distinguish active from wall time and nominal from effective Muon learning rates. Omit the section for smoke-only, protocol-only, and active studies.
