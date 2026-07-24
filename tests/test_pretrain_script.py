@@ -21,7 +21,7 @@ SRELU_WIDTH_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h2304.yaml": 2304,
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h2305.yaml": 2305,
 }
-SRELU_CHANGED_BACKBONE_FIELDS = frozenset(("activation", "ffn_hidden_size", "mlp_dropout"))
+SRELU_CHANGED_BACKBONE_FIELDS = frozenset(("activation", "ffn_hidden_size"))
 SRELU_BIAS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p2.yaml": 0.2,
@@ -60,7 +60,7 @@ def test_srelu_width_configs_change_only_mlp_fields(config_path: Path, expected_
     assert isinstance(candidate_backbone, ViTConfig)
     assert candidate_backbone.activation == "srelu"
     assert candidate_backbone.ffn_hidden_size == expected_width
-    assert candidate_backbone.mlp_dropout == pytest.approx(baseline_backbone.hidden_dropout)
+    assert candidate_backbone.hidden_dropout == pytest.approx(baseline_backbone.hidden_dropout)
     for field in fields(ViTConfig):
         if field.name not in SRELU_CHANGED_BACKBONE_FIELDS:
             assert getattr(candidate_backbone, field.name) == getattr(baseline_backbone, field.name)
@@ -77,10 +77,10 @@ def test_srelu_bias_configs_change_only_fc1_bias_initialization(config_path: Pat
 
     assert isinstance(baseline_backbone, ViTConfig)
     assert isinstance(candidate_backbone, ViTConfig)
-    assert candidate_backbone.mlp_fc1_bias_init == pytest.approx(expected_bias)
+    assert candidate["historical_mlp_fc1_bias_init"] == pytest.approx(expected_bias)
+    assert set(candidate) == {*baseline, "historical_mlp_fc1_bias_init"}
     for field in fields(ViTConfig):
-        if field.name != "mlp_fc1_bias_init":
-            assert getattr(candidate_backbone, field.name) == getattr(baseline_backbone, field.name)
+        assert getattr(candidate_backbone, field.name) == getattr(baseline_backbone, field.name)
     for section in ("trainer", "jepa", "optimizer"):
         assert candidate[section] == baseline[section]
 

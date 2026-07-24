@@ -20,7 +20,6 @@ backbone: !!python/object:vit.ViTConfig
   attention_bias: false
   attention_dropout: 0.1
   hidden_dropout: 0.1
-  mlp_dropout: 0.1
   drop_path_rate: 0.1
   num_register_tokens: 4
   num_cls_tokens: 4

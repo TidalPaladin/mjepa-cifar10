@@ -373,3 +373,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Scope: Six scientific seed-0 runs completed, plus one excluded mechanical smoke run. Ten authorized scientific runs remain unused.
 - Timing: The scientific program spanned 81,961.605 wall seconds. Summed run wall time was 62,065.142 seconds.
 - Structured result: `research/diagnostics/srelu-mlp-program-closeout-v1.json`.
+<!-- autoresearch-operation:{"content_sha256":"52d7db3432aade190ed2313b1c6a80ddbd235a05ef63ff2302d476cd3b61d990","operation_id":"srelu-mlp-v1-review-vit-pin-67eae237"} -->
+
+
+## srelu-mlp-v1 review dependency amendment
+
+- Recorded: 2026-07-24T19:03:25Z.
+- Execution provenance: Width runs used local `vit` commit `52a4a676575bde0e756376a59b001aa55d5d6eaa`; bias runs used local `vit` commit `06d6cee3a1872e2b70bc236dd7e85a2435a71b67`.
+- Review dependency: The adopted branch now pins landed `vit` master commit `67eae23786b8e458334b695be8f8a879d6994a43`, which provides graph-connected MLP tracing.
+- Equivalence: The local independent MLP dropout setting equaled `hidden_dropout`, so the landed pin preserves that effective dropout configuration.
+- Limitation: The landed pin does not apply the local FC1 bias-initialization extension. A fresh biased run would therefore not exactly reproduce its initialization. Completed checkpoints, run-local configurations, execution SHAs, W&B records, and committed diagnostics remain the canonical evidence. The user accepted this approximation for review.

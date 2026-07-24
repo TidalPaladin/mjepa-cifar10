@@ -1,5 +1,9 @@
 # ViT-S/4 MJEPA with Squared ReLU and a 0.2 MLP up-projection bias initialization.
 # All other model, optimizer, and training settings match vit-small-srelu-h1536.yaml.
+# Historical note: the recorded run used local vit commit 06d6cee3 for this initialization.
+# The review dependency pin retains this field as metadata but does not apply it on a fresh run.
+historical_mlp_fc1_bias_init: 0.2
+
 trainer: !!python/object:mjepa.TrainerConfig
   batch_size: 512
   num_workers: 24
@@ -17,11 +21,9 @@ backbone: !!python/object:vit.ViTConfig
   num_attention_heads: 12
   activation: "srelu"
   mlp_bias: true
-  mlp_fc1_bias_init: 0.2
   attention_bias: false
   attention_dropout: 0.1
   hidden_dropout: 0.1
-  mlp_dropout: 0.1
   drop_path_rate: 0.1
   num_register_tokens: 4
   num_cls_tokens: 4

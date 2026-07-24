@@ -24,6 +24,12 @@
     "attention_shapes_changed": false,
     "model_depth_changed": false
   },
+  "dependency_adoption": {
+    "execution_vit_commit": "06d6cee3a1872e2b70bc236dd7e85a2435a71b67",
+    "review_vit_commit": "67eae23786b8e458334b695be8f8a879d6994a43",
+    "review_vit_source": "landed master containing graph-connected MLP tracing support",
+    "limitation": "The execution commit included local-only independent MLP dropout and FC1 bias initialization changes. The recorded MLP dropout equaled hidden dropout, so the landed pin is equivalent for that setting. A fresh biased run from the landed pin would not exactly reproduce its initial FC1 bias. The user accepted this approximation for review."
+  },
   "metric_definition": {
     "primary": "peak online-probe validation accuracy",
     "convergence": "trainer-active seconds to 95 percent of the SwiGLU seed-0 peak",
