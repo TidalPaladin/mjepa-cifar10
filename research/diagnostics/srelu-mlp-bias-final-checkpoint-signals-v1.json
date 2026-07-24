@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "study_id": "srelu-mlp-bias-v1",
+  "analysis": "final-checkpoint-mlp-signals",
+  "status": "completed",
+  "primary_protocol": {
+    "device": "cpu",
+    "dtype": "float32",
+    "model_mode": "eval",
+    "dataset_split": "fixed-validation-holdout",
+    "dataset_split_sha256": "bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b",
+    "batch_size": 8,
+    "num_batches": 4,
+    "images": 32,
+    "mask_seed": 1,
+    "checkpoint_step": 17400,
+    "checkpoint_epoch": 399
+  },
+  "zero_bias_reference": {
+    "run_id": "pretrain-srelu-h1536-seed0",
+    "source_study_id": "srelu-mlp-width-v1",
+    "metrics": {
+      "peak_accuracy": 0.8898000121116638,
+      "final_accuracy": 0.8880000114440918,
+      "active_seconds_to_90": 5218.637743834406,
+      "active_seconds_to_95": 7110.2037734650075,
+      "active_time_auc_at_bias_study_horizon": 0.7416972632042155,
+      "active_time_horizon": 9419.53331322968,
+      "wall_seconds": 9554.522049,
+      "mean_fc1_bias": -0.16473104556401572,
+      "mean_gate_negative_fraction": 0.9151304033067492,
+      "mean_sampled_never_positive_channel_fraction": 0.3857421850164731,
+      "mean_negative_gate_upstream_gradient_energy_fraction": 0.8480340596482386,
+      "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.0,
+      "mean_gate_value": -1.2011200759145948
+    }
+  },
+  "metrics": [
+    {
+      "run_id": "pretrain-srelu-h1536-bias0p1-seed0",
+      "initial_fc1_bias": 0.1,
+      "activation": "srelu",
+      "ffn_hidden_size": 1536,
+      "peak_accuracy": 0.8730000257492065,
+      "final_accuracy": 0.8730000257492065,
+      "active_seconds_to_90": 5449.873379001394,
+      "active_seconds_to_95": 7814.483257429674,
+      "active_time_auc": 0.735754046511277,
+      "active_time_horizon": 9419.53331322968,
+      "wall_seconds": 9488.90873,
+      "peak_accuracy_delta_vs_zero_bias": -0.016799986362457275,
+      "active_seconds_to_95_relative_delta_vs_zero_bias": 0.09905194090118896,
+      "active_time_auc_relative_delta_vs_zero_bias": -0.008012995311945992,
+      "wall_seconds_relative_delta_vs_zero_bias": -0.006867252873927643,
+      "reduced_loss": 1.0045623630285263,
+      "mean_fc1_bias": -0.08643314149230719,
+      "mean_fc1_bias_delta_vs_zero_bias": 0.07829790407170853,
+      "mean_gate_negative_fraction": 0.9146141899956598,
+      "mean_gate_negative_fraction_delta_vs_zero_bias": -0.0005162133110894196,
+      "mean_sampled_never_positive_channel_fraction": 0.3613281274835269,
+      "mean_sampled_never_positive_channel_fraction_delta_vs_zero_bias": -0.02441405753294623,
+      "mean_negative_gate_upstream_gradient_energy_fraction": 0.8604533179615843,
+      "mean_negative_gate_upstream_gradient_energy_fraction_delta_vs_zero_bias": 0.012419258313345671,
+      "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.0,
+      "mean_gate_value": -1.3104278677039678,
+      "mean_gate_value_delta_vs_zero_bias": -0.109307791789373,
+      "first_layer_gate_negative_fraction": 0.8821309407552084,
+      "last_layer_gate_negative_fraction": 0.9968643188476562,
+      "first_layer_sampled_never_positive_channel_fraction": 0.515625,
+      "last_layer_sampled_never_positive_channel_fraction": 0.80078125,
+      "first_layer_fc1_bias_mean": -0.06076916679739952,
+      "last_layer_fc1_bias_mean": -0.19121815264225006
+    },
+    {
+      "run_id": "pretrain-srelu-h1536-bias0p2-seed0",
+      "initial_fc1_bias": 0.2,
+      "activation": "srelu",
+      "ffn_hidden_size": 1536,
+      "peak_accuracy": 0.868399977684021,
+      "final_accuracy": 0.868399977684021,
+      "active_seconds_to_90": 6123.305473452434,
+      "active_seconds_to_95": 9419.53331322968,
+      "active_time_auc": 0.7216625368450298,
+      "active_time_horizon": 9419.53331322968,
+      "wall_seconds": 9434.408024,
+      "peak_accuracy_delta_vs_zero_bias": -0.021400034427642822,
+      "active_seconds_to_95_relative_delta_vs_zero_bias": 0.32479090801630695,
+      "active_time_auc_relative_delta_vs_zero_bias": -0.027011999845642398,
+      "wall_seconds_relative_delta_vs_zero_bias": -0.012571432080432543,
+      "reduced_loss": 0.9247226715087891,
+      "mean_fc1_bias": -0.011171997245886208,
+      "mean_fc1_bias_delta_vs_zero_bias": 0.1535590483181295,
+      "mean_gate_negative_fraction": 0.9140198177761502,
+      "mean_gate_negative_fraction_delta_vs_zero_bias": -0.001110585530599062,
+      "mean_sampled_never_positive_channel_fraction": 0.3680013033250968,
+      "mean_sampled_never_positive_channel_fraction_delta_vs_zero_bias": -0.01774088169137633,
+      "mean_negative_gate_upstream_gradient_energy_fraction": 0.8753859677277099,
+      "mean_negative_gate_upstream_gradient_energy_fraction_delta_vs_zero_bias": 0.0273519080794713,
+      "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.0,
+      "mean_gate_value": -1.4331279330783422,
+      "mean_gate_value_delta_vs_zero_bias": -0.2320078571637474,
+      "first_layer_gate_negative_fraction": 0.8896825154622395,
+      "last_layer_gate_negative_fraction": 0.9965621948242187,
+      "first_layer_sampled_never_positive_channel_fraction": 0.5162760615348816,
+      "last_layer_sampled_never_positive_channel_fraction": 0.8333333134651184,
+      "first_layer_fc1_bias_mean": -0.01653069257736206,
+      "last_layer_fc1_bias_mean": -0.09739936143159866
+    }
+  ],
+  "dropout_mode_replication": {
+    "model_mode": "train",
+    "batch_size": 4,
+    "num_batches": 2,
+    "images": 8,
+    "mask_seed": 0,
+    "metrics": [
+      {
+        "run_id": "pretrain-srelu-h1536-bias0p1-seed0",
+        "mean_gate_negative_fraction": 0.9146595142505786,
+        "mean_sampled_never_positive_channel_fraction": 0.4085286445915699,
+        "mean_negative_gate_upstream_gradient_energy_fraction": 0.8648594730666194,
+        "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.0
+      },
+      {
+        "run_id": "pretrain-srelu-h1536-bias0p2-seed0",
+        "mean_gate_negative_fraction": 0.9135683412905092,
+        "mean_sampled_never_positive_channel_fraction": 0.4103190116584301,
+        "mean_negative_gate_upstream_gradient_energy_fraction": 0.875377781924434,
+        "mean_negative_gate_preactivation_gradient_nonzero_fraction": 0.0
+      }
+    ]
+  },
+  "notification_recovery": {
+    "terminal_events_persisted": true,
+    "controller_was_alive": true,
+    "automatic_delivery": "failed",
+    "failure_class": "permission-profile-identity-mismatch",
+    "launch_time_permission_profile": null,
+    "resumed_permission_profile": ":danger-full-access",
+    "approval_policy": "never",
+    "manual_terminal_recovery": true,
+    "training_status_affected": false
+  },
+  "interpretation": {
+    "observation": "Positive initialization changed the final learned bias relative to zero-bias SReLU but did not materially change the final negative-gate fraction. Both biased runs retained zero preactivation gradients at every sampled negative-gate position.",
+    "mechanism": "The trainable biases moved below zero by the final checkpoint, and the surrounding network adapted so gate means became more negative. The small reduction in sampled-never-positive channels did not reduce the upstream gradient energy routed into the clipped half-space.",
+    "outcome": "Both bias candidates were slower to the fixed 95 percent target and lost peak accuracy relative to zero-bias SReLU. Their small wall-time reductions came from run-speed variation and did not compensate for worse convergence or quality.",
+    "direction": "Reject positive initialization alone. If bias remains in scope, test a mechanism that preserves a positive operating point during training, such as a constrained or separately parameterized offset, before broad dropout or AdamW tuning.",
+    "limitations": [
+      "This is a cross-sectional final-checkpoint diagnostic and does not show when the learned biases crossed zero.",
+      "A sampled-never-positive channel was nonpositive only across these images, masks, and tokens; it is not proven globally dead.",
+      "CPU float32 diagnostics differ from the GPU bfloat16 autocast used during training.",
+      "Each bias value has one seed, so run-speed and endpoint differences are directional rather than replicated."
+    ]
+  },
+  "raw_artifacts": [
+    "logs/research/srelu-mlp-bias-v1/diagnostics/final-checkpoints/eval-seed1-b8x4.json",
+    "logs/research/srelu-mlp-bias-v1/diagnostics/final-checkpoints/train-seed0-b4x2.json",
+    "logs/research/srelu-mlp-bias-v1/summary.json",
+    "logs/research/srelu-mlp-width-v1/diagnostics/final-checkpoints/eval-seed1-b8x4.json"
+  ]
+}
