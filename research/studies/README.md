@@ -4,6 +4,12 @@ Copy `example.yaml` to a study-specific filename. Replace every placeholder befo
 
 Set `CIFAR10_DATA` in the launch environment so the committed specification does not expose a machine-specific dataset path.
 
+Set `promotion.cost_gain` only for a preregistered cost comparison. The harness
+then requires that fractional reduction in active time at the common final
+optimizer step, lower isolated path latency, and the existing peak-accuracy
+floor. A variant may set `finetune_config` when its backbone shape differs from
+the global `evaluation.finetune_config`.
+
 Use the normal inline `baseline` run for studies that can perform paired
 confirmation. For an explicitly candidate-only follow-up, add a
 `baseline_reference` mapping with `study_id`, `run_id`, `metrics`, and

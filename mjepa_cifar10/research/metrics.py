@@ -31,6 +31,9 @@ class ConvergenceSummary:
     active_time_auc: float
     step_horizon: int
     active_time_horizon: float
+    active_seconds_at_step_horizon: float
+    cls_path_latency_median_ms: float | None = None
+    cls_path_latency_p90_ms: float | None = None
 
     def to_dict(self) -> dict[str, float | int | None]:
         return asdict(self)
@@ -39,7 +42,7 @@ class ConvergenceSummary:
 @dataclass(frozen=True)
 class PromotionDecision:
     promoted: bool
-    criterion: Literal["accuracy", "time_to_95", "time_auc"] | None
+    criterion: Literal["accuracy", "time_to_95", "time_auc", "cost"] | None
     reasons: tuple[str, ...]
 
 
@@ -100,6 +103,16 @@ def _accuracy_at(points: Sequence[MetricPoint], axis: Axis, position: float) -> 
     return points[-1].accuracy
 
 
+def _active_seconds_at_step(points: Sequence[MetricPoint], step: int) -> float:
+    if step <= points[0].step:
+        return points[0].active_seconds
+    for previous, current in zip(points, points[1:], strict=False):
+        if step <= current.step:
+            fraction = (step - previous.step) / (current.step - previous.step)
+            return previous.active_seconds + fraction * (current.active_seconds - previous.active_seconds)
+    return points[-1].active_seconds
+
+
 def accuracy_auc(points: Sequence[MetricPoint], axis: Axis, horizon: float) -> float:
     """Return trapezoidal accuracy AUC normalized to the supplied common horizon."""
     ordered = _validate_points(points)
@@ -124,6 +137,8 @@ def summarize_convergence(
     *,
     step_horizon: int | None = None,
     active_time_horizon: float | None = None,
+    cls_path_latency_median_ms: float | None = None,
+    cls_path_latency_p90_ms: float | None = None,
 ) -> ConvergenceSummary:
     ordered = _validate_points(points)
     target_90, target_95 = derive_convergence_targets(baseline_peak_accuracy)
@@ -142,6 +157,9 @@ def summarize_convergence(
         active_time_auc=accuracy_auc(ordered, "active_seconds", effective_time_horizon),
         step_horizon=effective_step_horizon,
         active_time_horizon=effective_time_horizon,
+        active_seconds_at_step_horizon=_active_seconds_at_step(ordered, effective_step_horizon),
+        cls_path_latency_median_ms=cls_path_latency_median_ms,
+        cls_path_latency_p90_ms=cls_path_latency_p90_ms,
     )
 
 
@@ -181,6 +199,20 @@ def promotion_decision(
     if auc_qualifies:
         reasons.append("common-horizon active-time AUC improved without excessive peak-accuracy loss")
 
+    cost_qualifies = (
+        rules.cost_gain is not None
+        and baseline.cls_path_latency_median_ms is not None
+        and candidate.cls_path_latency_median_ms is not None
+        and candidate.active_seconds_at_step_horizon <= baseline.active_seconds_at_step_horizon * (1 - rules.cost_gain)
+        and candidate.cls_path_latency_median_ms < baseline.cls_path_latency_median_ms
+        and candidate.peak_accuracy >= accuracy_floor
+    )
+    if cost_qualifies:
+        reasons.append(
+            "common-step active time met the cost threshold and isolated CLS-path latency improved "
+            "without excessive peak-accuracy loss"
+        )
+
     criterion = None
     if accuracy_qualifies:
         criterion = "accuracy"
@@ -188,6 +220,8 @@ def promotion_decision(
         criterion = "time_to_95"
     elif auc_qualifies:
         criterion = "time_auc"
+    elif cost_qualifies:
+        criterion = "cost"
     if criterion is None:
         reasons.append("candidate did not meet any promotion threshold")
     return PromotionDecision(criterion is not None, criterion, tuple(reasons))
@@ -211,19 +245,50 @@ def rank_promoted_candidates(
 def confirmation_decision(
     baseline_by_seed: Sequence[ConvergenceSummary],
     candidate_by_seed: Sequence[ConvergenceSummary],
-    criterion: Literal["accuracy", "time_to_95", "time_auc"],
+    criterion: Literal["accuracy", "time_to_95", "time_auc", "cost"],
     rules: PromotionRules | None = None,
 ) -> ConfirmationDecision:
     if len(baseline_by_seed) != 3 or len(candidate_by_seed) != 3:
         raise ValueError("confirmation requires exactly three paired seeds")
     rules = rules or PromotionRules()
-    baseline_values, candidate_values = _criterion_values(baseline_by_seed, candidate_by_seed, criterion)
+    if criterion == "cost":
+        baseline_values = [summary.active_seconds_at_step_horizon for summary in baseline_by_seed]
+        candidate_values = [summary.active_seconds_at_step_horizon for summary in candidate_by_seed]
+    else:
+        baseline_values, candidate_values = _criterion_values(baseline_by_seed, candidate_by_seed, criterion)
     baseline_mean = statistics.mean(baseline_values)
     candidate_mean = statistics.mean(candidate_values)
     baseline_peak_mean = statistics.mean(summary.peak_accuracy for summary in baseline_by_seed)
     candidate_peak_mean = statistics.mean(summary.peak_accuracy for summary in candidate_by_seed)
     accuracy_constraint_met = candidate_peak_mean >= baseline_peak_mean - rules.maximum_accuracy_loss
-    if criterion == "accuracy":
+    if criterion == "cost":
+        if rules.cost_gain is None:
+            raise ValueError("cost confirmation requires promotion.cost_gain")
+        baseline_latencies = [summary.cls_path_latency_median_ms for summary in baseline_by_seed]
+        candidate_latencies = [summary.cls_path_latency_median_ms for summary in candidate_by_seed]
+        if any(value is None for value in (*baseline_latencies, *candidate_latencies)):
+            raise ValueError("cost confirmation requires isolated CLS-path latency for every run")
+        present_baseline_latencies = [value for value in baseline_latencies if value is not None]
+        present_candidate_latencies = [value for value in candidate_latencies if value is not None]
+        threshold_met = (
+            candidate_mean <= baseline_mean * (1 - rules.cost_gain)
+            and statistics.mean(present_candidate_latencies) < statistics.mean(present_baseline_latencies)
+            and accuracy_constraint_met
+        )
+        paired = sum(
+            candidate_time < baseline_time and candidate_latency < baseline_latency
+            for baseline_time, candidate_time, baseline_latency, candidate_latency in zip(
+                baseline_values,
+                candidate_values,
+                present_baseline_latencies,
+                present_candidate_latencies,
+                strict=True,
+            )
+        )
+        differences = [
+            baseline - candidate for baseline, candidate in zip(baseline_values, candidate_values, strict=True)
+        ]
+    elif criterion == "accuracy":
         threshold_met = candidate_mean >= baseline_mean + rules.accuracy_gain
         paired = sum(
             candidate > baseline for baseline, candidate in zip(baseline_values, candidate_values, strict=True)

@@ -2,12 +2,12 @@ from collections.abc import Callable
 from functools import partial
 from pathlib import Path
 from time import perf_counter
-from typing import Final, Literal
+from typing import Final, Literal, cast
 
 import torch
 import torch.nn.functional as F
 import torchmetrics as tm
-import wandb
+from mjepa.jepa import ADALN_CLS_PREDICTION_MODES, compute_jepa_prediction_loss
 from mjepa.metrics import CLSPatchAlignmentMetric
 from mjepa.model import MJEPA, MJEPAPredictions
 from mjepa.optimizer import OptimizerLike, SchedulerLike
@@ -30,6 +30,8 @@ from torchmetrics.wrappers import Running
 from tqdm import tqdm
 from vit import ViTFeatures
 
+import wandb
+
 from .classification import forward_classifier
 from .experiment import append_metric_record, save_safetensors_atomic
 from .train_utils import (
@@ -46,6 +48,7 @@ from .train_utils import (
 NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
+VALIDATION_DIAGNOSTIC_SEED: Final[int] = 0
 GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "pretrain/grad_clip_trigger_pct"
 CPA_RESULT_KEYS: Final[tuple[str, ...]] = ("cpa_mean", "cpa_std", "cpa_p90", "cpa_p99")
 ProgressPhase = Literal["training", "validation", "checkpointing", "checkpointed"]
@@ -59,6 +62,7 @@ __all__ = [
     "OptimizerStepResult",
     "clip_optimizer_grad_norm_",
     "compute_and_reset_cpa_metrics",
+    "compute_cls_aux_shuffle_diagnostic",
     "compute_and_reset_mean_percentage",
     "did_gradient_clip",
     "get_gradient_norm_stats",
@@ -107,6 +111,56 @@ def update_cls_patch_alignment_metric(metric: CLSPatchAlignmentMetric | None, fe
 
     metric.update(features.cls_tokens, features.visual_tokens)
     return True
+
+
+def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) -> dict[str, float]:
+    """Compare one CLS auxiliary prediction with the same batch's CLS embeddings cyclically shuffled."""
+    if output.pred_with_cls is None or not MJEPA._has_cls_tokens(output.student_output):
+        return {}
+    cls_tokens = output.student_output.cls_tokens
+    shuffled_cls_tokens = torch.roll(cls_tokens, shifts=1, dims=0)
+    raw_tokenized_size = output.teacher_output.tokenized_size
+    if raw_tokenized_size is None or len(raw_tokenized_size) != 2:
+        raise ValueError("teacher output must record tokenized_size for CLS diagnostics")
+    tokenized_size = cast(tuple[int, int], raw_tokenized_size)
+    if jepa.config.cls_prediction_mode in ADALN_CLS_PREDICTION_MODES:
+        true_prediction = jepa.forward_blind_cls_predictor(tokenized_size, cls_tokens[:, 0], output.target_mask)
+        shuffled_prediction = jepa.forward_blind_cls_predictor(
+            tokenized_size,
+            shuffled_cls_tokens[:, 0],
+            output.target_mask,
+        )
+    else:
+        true_prediction = jepa.forward_predictor(
+            tokenized_size,
+            cls_tokens,
+            None,
+            output.target_mask,
+            rope_seed=VALIDATION_DIAGNOSTIC_SEED,
+        )
+        shuffled_prediction = jepa.forward_predictor(
+            tokenized_size,
+            shuffled_cls_tokens,
+            None,
+            output.target_mask,
+            rope_seed=VALIDATION_DIAGNOSTIC_SEED,
+        )
+    target = jepa._masked_target(output.target_mask, output.teacher_output.visual_tokens)
+    true_loss = compute_jepa_prediction_loss(
+        true_prediction,
+        target,
+        kind=jepa.config.jepa_loss_kind,
+    ).item()
+    shuffled_loss = compute_jepa_prediction_loss(
+        shuffled_prediction,
+        target,
+        kind=jepa.config.jepa_loss_kind,
+    ).item()
+    return {
+        "pretrain/validation_cls_aux_loss": true_loss,
+        "pretrain/validation_cls_aux_loss_shuffled": shuffled_loss,
+        "pretrain/validation_cls_aux_shuffle_gap": shuffled_loss - true_loss,
+    }
 
 
 def run_optimizer_step(
@@ -332,13 +386,27 @@ def train(
             if val_cpa is not None:
                 val_cpa.reset()
 
-            for img, label in tqdm(val_dataloader, desc="Validating: ", disable=not is_rank_zero(), leave=False):
+            cls_aux_diagnostics: dict[str, float] = {}
+            for batch_index, (img, label) in enumerate(
+                tqdm(val_dataloader, desc="Validating: ", disable=not is_rank_zero(), leave=False)
+            ):
                 B = img.shape[0]
                 img = img.cuda()
                 label = label.cuda()
                 with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                    output = unwrapped_jepa.forward_teacher(img)
-                    probe_pred = unwrapped_jepa.forward_probe(output)["cls"].view(B, -1)
+                    if batch_index == 0:
+                        with torch.random.fork_rng(devices=[img.device]):
+                            torch.manual_seed(VALIDATION_DIAGNOSTIC_SEED)
+                            diagnostic_output = unwrapped_jepa(img, jepa_scale, epoch)
+                        output = diagnostic_output.teacher_output
+                        probe_pred = diagnostic_output.probes["cls"].view(B, -1)
+                        cls_aux_diagnostics = compute_cls_aux_shuffle_diagnostic(
+                            unwrapped_jepa,
+                            diagnostic_output,
+                        )
+                    else:
+                        output = unwrapped_jepa.forward_teacher(img)
+                        probe_pred = unwrapped_jepa.forward_probe(output)["cls"].view(B, -1)
                     val_acc.update(probe_pred, label)
                     update_cls_patch_alignment_metric(val_cpa, output)
 
@@ -354,6 +422,7 @@ def train(
             }
             if val_cpa is not None:
                 log_dict.update(compute_and_reset_cpa_metrics(val_cpa, prefix="pretrain/validation"))
+            log_dict.update(cls_aux_diagnostics)
 
             # Add histogram logging
             if is_rank_zero():

@@ -13,7 +13,6 @@ from typing import Final, NamedTuple
 
 import torch
 import torch.distributed as dist
-import wandb
 import yaml
 from mjepa.jepa import CrossAttentionPredictor, JEPAConfig
 from mjepa.optimizer import OptimizerConfig, OptimizerLike, SchedulerLike
@@ -32,9 +31,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 from vit import ViTConfig
 
+import wandb
 from mjepa_cifar10.data import cifar10_split_fingerprint, get_test_dataloader, get_train_dataloader, get_val_dataloader
-from mjepa_cifar10.experiment import write_run_metadata
+from mjepa_cifar10.experiment import append_metric_record, write_run_metadata
 from mjepa_cifar10.pretrain import CIFAR10MJEPA, FirstCycleCallback, train
+from mjepa_cifar10.research.cls_path_benchmark import benchmark_cls_prediction_path, write_cls_path_benchmark
 from mjepa_cifar10.research.lifecycle_events import RunLifecycleReporter
 from mjepa_cifar10.research.runtime import (
     LIFECYCLE_ATTEMPT_ENVIRONMENT_VARIABLE,
@@ -106,6 +107,7 @@ def instantiate_jepa(backbone_config: ViTConfig, jepa_config: JEPAConfig, device
         jepa_config.predictor_depth,
         device=device,
         attention_mode=jepa_config.predictor_attention_mode,
+        cls_prediction_mode=jepa_config.cls_prediction_mode,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     return CIFAR10MJEPA(jepa_config, backbone, predictor)
@@ -335,6 +337,15 @@ def main(args: Namespace) -> None:
                 "model_class": args.model_class,
             },
         )
+        cls_path_benchmark = benchmark_cls_prediction_path(unwrapped_jepa)
+        cls_path_metrics = cls_path_benchmark.to_metrics()
+        wandb.config.update({"cls_path_benchmark": cls_path_benchmark.to_dict()})
+        wandb.log(cls_path_metrics, step=initial_step)
+        append_metric_record(run_log_dir, initial_step, cls_path_metrics)
+        if run_log_dir is not None:
+            write_cls_path_benchmark(run_log_dir / "cls-path-benchmark.json", cls_path_benchmark)
+    if dist.is_initialized():
+        dist.barrier()
 
     ignore_warnings()
     lifecycle_reporter = build_managed_lifecycle_reporter(args, run_log_dir)

@@ -26,6 +26,11 @@ SRELU_BIAS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p2.yaml": 0.2,
 }
+CLS_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-shared.yaml": "adaln_shared",
+}
 
 
 def load_pretrain_script_module() -> ModuleType:
@@ -85,6 +90,38 @@ def test_srelu_bias_configs_change_only_fc1_bias_initialization(config_path: Pat
         assert candidate[section] == baseline[section]
 
 
+@pytest.mark.parametrize(("config_path", "cls_prediction_mode"), CLS_CONFIGS.items())
+def test_cls_configs_change_only_cls_count_and_prediction_mode(
+    config_path: Path,
+    cls_prediction_mode: str,
+) -> None:
+    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    candidate = yaml.full_load(config_path.read_text())
+
+    assert candidate["backbone"].num_cls_tokens == 1
+    assert candidate["jepa"].cls_prediction_mode == cls_prediction_mode
+    for field in fields(ViTConfig):
+        if field.name != "num_cls_tokens":
+            assert getattr(candidate["backbone"], field.name) == getattr(baseline["backbone"], field.name)
+    for field in fields(JEPAConfig):
+        if field.name != "cls_prediction_mode":
+            assert getattr(candidate["jepa"], field.name) == getattr(baseline["jepa"], field.name)
+    for section in ("trainer", "optimizer"):
+        assert candidate[section] == baseline[section]
+
+
+def test_single_cls_finetune_config_changes_only_cls_count() -> None:
+    baseline = yaml.full_load((REPO_ROOT / "config" / "finetune" / "vit-small.yaml").read_text())
+    single_cls = yaml.full_load((REPO_ROOT / "config" / "finetune" / "vit-small-single-cls.yaml").read_text())
+
+    assert single_cls["backbone"].num_cls_tokens == 1
+    for field in fields(ViTConfig):
+        if field.name != "num_cls_tokens":
+            assert getattr(single_cls["backbone"], field.name) == getattr(baseline["backbone"], field.name)
+    for section in ("trainer", "optimizer"):
+        assert single_cls[section] == baseline[section]
+
+
 def test_instantiate_jepa_forwards_predictor_configuration(mocker) -> None:
     pretrain_script = load_pretrain_script_module()
     backbone = object()
@@ -92,6 +129,7 @@ def test_instantiate_jepa_forwards_predictor_configuration(mocker) -> None:
     jepa_config = SimpleNamespace(
         predictor_depth=3,
         predictor_attention_mode="decoder",
+        cls_prediction_mode="legacy_cross_attention",
         disable_predictor_regularizers=True,
     )
     device = object()
@@ -109,6 +147,7 @@ def test_instantiate_jepa_forwards_predictor_configuration(mocker) -> None:
         jepa_config.predictor_depth,
         device=device,
         attention_mode=jepa_config.predictor_attention_mode,
+        cls_prediction_mode=jepa_config.cls_prediction_mode,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     model_constructor.assert_called_once_with(jepa_config, backbone, predictor)

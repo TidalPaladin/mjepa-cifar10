@@ -1,56 +1,55 @@
-# Config for training ViT-S/4 using MJEPA on CIFAR-10.
-# Assumes 2xGPUs
+# One-epoch local W&B fallback validation for the CLS/AdaLN study.
 trainer: !!python/object:mjepa.TrainerConfig
-  batch_size: 512
-  num_workers: 24 
-  num_epochs: 400
-  check_val_every_n_epoch: 10
-  accumulate_grad_batches: 2
+  batch_size: 16
+  num_workers: 0
+  num_epochs: 1
+  check_val_every_n_epoch: 1
+  accumulate_grad_batches: 1
 
 backbone: !!python/object:vit.ViTConfig
   in_channels: 3
-  hidden_size: 384
-  ffn_hidden_size: 1536
-  patch_size: [4, 4]
+  hidden_size: 32
+  ffn_hidden_size: 64
+  patch_size: [8, 8]
   img_size: [32, 32]
-  depth: 12
-  num_attention_heads: 12
-  activation: "swiglu"
+  depth: 1
+  num_attention_heads: 4
+  activation: swiglu
   mlp_bias: true
   attention_bias: false
-  attention_dropout: 0.1
-  hidden_dropout: 0.1
-  drop_path_rate: 0.1
-  num_register_tokens: 4
-  num_cls_tokens: 4
-  pos_enc: "rope"
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
+  drop_path_rate: 0.0
+  num_register_tokens: 1
+  num_cls_tokens: 1
+  pos_enc: rope
   rope_base: 100
   rope_rescale_coords: 2.0
   rope_shift_coords: null
   rope_jitter_coords: null
-  rope_normalize_coords: "separate"
+  rope_normalize_coords: separate
   layer_scale: 0.00001
-  norm_type: "layernorm"
+  norm_type: layernorm
   qk_normalization: true
   dtype: float32
   heads:
     cls: !!python/object:vit.HeadConfig
       out_features: 10
-      dropout: 0.1
+      dropout: 0.0
 
 jepa: !!python/object:mjepa.JEPAConfig
   momentum: 0.98
-  predictor_depth: 4
+  predictor_depth: 1
   predictor_attention_mode: cross_attention
-  cls_prediction_mode: legacy_cross_attention
+  cls_prediction_mode: adaln_blind
   context_ratio: 0.5
   target_ratio: 0.25
   scale: 2
   scheduled: false
   use_gram_anchoring: true
-  gram_teacher_epoch: 300
-  gram_start_epoch: 600
-  gram_update_interval_epoch: 100
+  gram_teacher_epoch: 1
+  gram_start_epoch: 2
+  gram_update_interval_epoch: 1
   gram_resolution_scale: 1.0
   gram_remove_neg: false
   gram_loss_weight: 1.0

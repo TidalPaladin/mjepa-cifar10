@@ -9,9 +9,10 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torchmetrics as tm
-from mjepa import JEPAConfig
-from mjepa.jepa import CrossAttentionPredictor
+from mjepa import CLSPredictionMode, JEPAConfig
+from mjepa.jepa import ADALN_BLIND_CLS_PREDICTION_MODE, CrossAttentionPredictor, compute_jepa_prediction_loss
 from mjepa.metrics import CLSPatchAlignmentMetric
+from mjepa.model import MJEPAPredictions
 from mjepa.optimizer import OptimizerConfig
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -25,6 +26,7 @@ from mjepa_cifar10.pretrain import (
     clip_optimizer_grad_norm_,
     compute_and_reset_cpa_metrics,
     compute_and_reset_mean_percentage,
+    compute_cls_aux_shuffle_diagnostic,
     did_gradient_clip,
     get_gradient_norm_stats,
     get_gradient_sync_context,
@@ -586,6 +588,7 @@ def make_model(
     *,
     num_cls_tokens: int,
     head_config: HeadConfig | AttentivePoolHeadConfig | None = None,
+    cls_prediction_mode: CLSPredictionMode = "legacy_cross_attention",
 ) -> CIFAR10MJEPA:
     backbone_config = ViTConfig(
         in_channels=3,
@@ -601,8 +604,13 @@ def make_model(
         heads={"cls": head_config} if head_config is not None else {},
     )
     backbone = backbone_config.instantiate()
-    predictor = CrossAttentionPredictor(backbone, depth=1)
-    return CIFAR10MJEPA(JEPAConfig(gram_start_epoch=None), backbone, predictor, autocast_dtype=torch.float32)
+    predictor = CrossAttentionPredictor(backbone, depth=1, cls_prediction_mode=cls_prediction_mode)
+    return CIFAR10MJEPA(
+        JEPAConfig(gram_start_epoch=None, cls_prediction_mode=cls_prediction_mode),
+        backbone,
+        predictor,
+        autocast_dtype=torch.float32,
+    )
 
 
 def make_features(*, num_cls_tokens: int) -> ViTFeatures:
@@ -612,6 +620,55 @@ def make_features(*, num_cls_tokens: int) -> ViTFeatures:
         BATCH_SIZE, total_tokens, HIDDEN_SIZE
     )
     return ViTFeatures(dense_features, NUM_REGISTER_TOKENS, cls_count, tokenized_size=(2, 2))
+
+
+@pytest.mark.parametrize(
+    ("cls_prediction_mode", "num_cls_tokens", "recompute_method"),
+    (
+        ("legacy_cross_attention", NUM_CLS_TOKENS, "forward_predictor"),
+        (ADALN_BLIND_CLS_PREDICTION_MODE, 1, "forward_blind_cls_predictor"),
+    ),
+)
+def test_cls_aux_shuffle_diagnostic_blinds_cross_sample_identity(
+    mocker,
+    cls_prediction_mode: CLSPredictionMode,
+    num_cls_tokens: int,
+    recompute_method: str,
+) -> None:
+    model = make_model(num_cls_tokens=num_cls_tokens, cls_prediction_mode=cls_prediction_mode)
+    student_output = make_features(num_cls_tokens=num_cls_tokens)
+    teacher_output = make_features(num_cls_tokens=num_cls_tokens)
+    target_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    true_prediction = torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    shuffled_prediction = torch.ones_like(true_prediction)
+    predictions = MJEPAPredictions(
+        pred=true_prediction,
+        pred_with_cls=true_prediction,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.zeros_like(target_mask),
+        target_mask=target_mask,
+    )
+    recompute = mocker.patch.object(model, recompute_method, side_effect=(true_prediction, shuffled_prediction))
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    target = teacher_output.visual_tokens
+    expected_true = compute_jepa_prediction_loss(true_prediction, target).item()
+    expected_shuffled = compute_jepa_prediction_loss(shuffled_prediction, target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_aux_loss": expected_true,
+            "pretrain/validation_cls_aux_loss_shuffled": expected_shuffled,
+            "pretrain/validation_cls_aux_shuffle_gap": expected_shuffled - expected_true,
+        }
+    )
+    shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
+    assert recompute.call_count == 2
+    if cls_prediction_mode == ADALN_BLIND_CLS_PREDICTION_MODE:
+        assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls[:, 0])
+    else:
+        assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls)
 
 
 def test_forward_probe_pools_cls_tokens_before_linear_head(mocker) -> None:

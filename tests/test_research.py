@@ -32,6 +32,7 @@ from mjepa_cifar10.research.models import (
     DEFAULT_MAX_PRETRAIN_TRIALS,
     WANDB_OPERATION_EMITTED_DATA_CLASSES,
     BaselineReference,
+    PromotionRules,
     ResourceLimits,
     RunSpec,
     RunState,
@@ -77,6 +78,8 @@ def make_summary(
     peak: float,
     time_to_95: float | None,
     time_auc: float,
+    active_seconds_at_horizon: float = 500.0,
+    cls_latency_ms: float | None = None,
 ) -> ConvergenceSummary:
     return ConvergenceSummary(
         peak_accuracy=peak,
@@ -89,6 +92,8 @@ def make_summary(
         active_time_auc=time_auc,
         step_horizon=100,
         active_time_horizon=500.0,
+        active_seconds_at_step_horizon=active_seconds_at_horizon,
+        cls_path_latency_median_ms=cls_latency_ms,
     )
 
 
@@ -144,6 +149,7 @@ def test_convergence_summary_reports_censoring_and_common_horizon_auc() -> None:
     assert summary.step_to_95 is None
     assert summary.step_auc == pytest.approx(accuracy_auc(points, "step", 25))
     assert summary.active_time_auc == pytest.approx(accuracy_auc(points, "active_seconds", 250))
+    assert summary.active_seconds_at_step_horizon == pytest.approx(250.0)
 
 
 @pytest.mark.parametrize(
@@ -163,6 +169,56 @@ def test_promotion_rules_accept_each_documented_path(candidate: ConvergenceSumma
     assert decision.criterion == criterion
 
 
+def test_opt_in_cost_promotion_requires_end_to_end_and_isolated_latency_gains() -> None:
+    rules = PromotionRules(cost_gain=0.05)
+    baseline = make_summary(
+        peak=0.80,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=500,
+        cls_latency_ms=4.0,
+    )
+    candidate = make_summary(
+        peak=0.795,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=470,
+        cls_latency_ms=2.0,
+    )
+
+    decision = promotion_decision(baseline, candidate, rules)
+
+    assert decision.promoted
+    assert decision.criterion == "cost"
+
+
+@pytest.mark.parametrize(
+    ("active_seconds_at_horizon", "cls_latency_ms"),
+    ((480.0, 2.0), (470.0, 4.0), (470.0, None)),
+)
+def test_cost_promotion_rejects_incomplete_cost_gate(
+    active_seconds_at_horizon: float,
+    cls_latency_ms: float | None,
+) -> None:
+    rules = PromotionRules(cost_gain=0.05)
+    baseline = make_summary(
+        peak=0.80,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=500,
+        cls_latency_ms=4.0,
+    )
+    candidate = make_summary(
+        peak=0.795,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=active_seconds_at_horizon,
+        cls_latency_ms=cls_latency_ms,
+    )
+
+    assert promotion_decision(baseline, candidate, rules).criterion is None
+
+
 def test_confirmation_requires_mean_threshold_and_two_paired_improvements() -> None:
     baseline = [make_summary(peak=0.80, time_to_95=100, time_auc=0.5) for _ in range(3)]
     candidate = [
@@ -176,6 +232,59 @@ def test_confirmation_requires_mean_threshold_and_two_paired_improvements() -> N
     assert decision.confirmed
     assert decision.paired_improvements == 2
     assert decision.mean_paired_difference == pytest.approx(0.0133333333)
+
+
+def test_cost_confirmation_requires_two_joint_paired_improvements() -> None:
+    rules = PromotionRules(cost_gain=0.05)
+    baseline = [
+        make_summary(
+            peak=0.80,
+            time_to_95=100,
+            time_auc=0.5,
+            active_seconds_at_horizon=500,
+            cls_latency_ms=4.0,
+        )
+        for _ in range(3)
+    ]
+    candidate = [
+        make_summary(
+            peak=0.80,
+            time_to_95=100,
+            time_auc=0.5,
+            active_seconds_at_horizon=active_seconds,
+            cls_latency_ms=latency,
+        )
+        for active_seconds, latency in ((460, 2.0), (470, 3.0), (480, 4.1))
+    ]
+
+    decision = confirmation_decision(baseline, candidate, "cost", rules)
+
+    assert decision.confirmed
+    assert decision.paired_improvements == 2
+
+
+def test_variant_specific_finetune_config_overrides_global_fallback(tmp_path: Path) -> None:
+    pretrain_config = tmp_path / "pretrain.yaml"
+    global_finetune = tmp_path / "global-finetune.yaml"
+    single_cls_finetune = tmp_path / "single-cls-finetune.yaml"
+    for config in (pretrain_config, global_finetune, single_cls_finetune):
+        config.write_text("trainer: test\n")
+    baseline = VariantSpec("baseline", pretrain_config, "reference")
+    winner = VariantSpec(
+        "winner",
+        pretrain_config,
+        "candidate",
+        finetune_config=single_cls_finetune,
+    )
+    spec = replace(
+        make_spec(tmp_path, variants=0),
+        baseline=baseline,
+        variants=(winner,),
+        evaluation=replace(make_spec(tmp_path).evaluation, finetune_config=global_finetune),
+    )
+
+    assert spec.finetune_config_for("baseline") == global_finetune
+    assert spec.finetune_config_for("winner") == single_cls_finetune
 
 
 def test_study_rejects_more_than_eight_pretraining_trials(tmp_path: Path) -> None:
