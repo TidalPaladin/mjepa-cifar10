@@ -413,8 +413,6 @@ def capture_launch_wake_context() -> WakeContext:
     permission_profile = os.environ.get(CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE)
     if not thread_id:
         raise RuntimeError(f"{CODEX_THREAD_ENVIRONMENT_VARIABLE} is required for a managed launch")
-    if not permission_profile:
-        raise RuntimeError(f"{CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE} is required for a managed launch")
     socket_path = resolve_event_controller_socket(None)
 
     async def capture() -> WakeContext:

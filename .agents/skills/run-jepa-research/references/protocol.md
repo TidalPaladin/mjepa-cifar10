@@ -155,8 +155,9 @@ The marker binds its canonical `root_path`, and the notification worker rejects
 missing, mismatched, symlinked, repository, home, and broad roots before any
 recursive scan. The worker connects directly to the discovered Codex app-server
 daemon Unix socket. Before each managed spawn, the launcher captures the live
-originating thread's effective named permission profile and approval policy and
-persists them in the run's immutable `wake-context.json`. The worker validates
+originating thread's effective permission-profile identity and approval policy
+and persists them in the run's immutable `wake-context.json`. It records JSON
+`null` when app-server explicitly reports no named profile. The worker validates
 the event, serializes delivery per task, resumes with that exact context, and
 verifies the returned effective context before it can reactivate a blocked
 goal. It starts an idle task with the same context or steers its newest

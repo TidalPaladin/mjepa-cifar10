@@ -12,6 +12,7 @@ from typing import Any, ParamSpec
 import pytest
 from websockets.asyncio.server import ServerConnection, unix_serve
 
+from mjepa_cifar10.research.cli import capture_launch_wake_context
 from mjepa_cifar10.research.codex_notifications import (
     APP_SERVER_MESSAGE_LIMIT_BYTES,
     MANAGED_ROOT_SCHEMA_VERSION,
@@ -138,7 +139,7 @@ def app_server_handler(
     turns: list[dict[str, Any]],
     *,
     goal_status: str = "active",
-    permission_profile: str = PERMISSION_PROFILE,
+    permission_profile: str | None = PERMISSION_PROFILE,
     approval_policy: str = APPROVAL_POLICY,
 ) -> Callable[[dict[str, Any]], list[dict[str, Any]]]:
     experimental_api = False
@@ -166,7 +167,7 @@ def app_server_handler(
         elif method == "thread/resume":
             result = {
                 "thread": thread,
-                "activePermissionProfile": {"id": permission_profile},
+                "activePermissionProfile": ({"id": permission_profile} if permission_profile is not None else None),
                 "approvalPolicy": approval_policy,
             }
         elif method == "thread/read":
@@ -205,6 +206,80 @@ async def test_capture_wake_context_records_effective_profile_and_approval_polic
         "threadId": THREAD_ID,
         "permissions": PERMISSION_PROFILE,
     }
+
+
+@run_async
+async def test_capture_wake_context_records_explicitly_unnamed_permission_profile() -> None:
+    transport = ScriptedTransport(app_server_handler("active", [], permission_profile=None))
+
+    context = await capture_wake_context(
+        thread_id=THREAD_ID,
+        expected_permission_profile=None,
+        transport=transport,
+        captured_at=NOW,
+    )
+
+    assert context.permission_profile is None
+    assert context.approval_policy == APPROVAL_POLICY
+    resume = next(message for message in transport.sent if message.get("method") == "thread/resume")
+    assert resume["params"] == {"threadId": THREAD_ID}
+
+
+@run_async
+async def test_capture_wake_context_rejects_missing_permission_profile_field() -> None:
+    base_handler = app_server_handler("active", [], permission_profile=None)
+
+    def handler(message: dict[str, Any]) -> list[dict[str, Any]]:
+        responses = base_handler(message)
+        if message.get("method") == "thread/resume":
+            del responses[0]["result"]["activePermissionProfile"]
+        return responses
+
+    with pytest.raises(AppServerProtocolError, match="missing the effective permission profile") as error:
+        await capture_wake_context(
+            thread_id=THREAD_ID,
+            expected_permission_profile=None,
+            transport=ScriptedTransport(handler),
+            captured_at=NOW,
+        )
+
+    assert error.value.permanent
+
+
+def test_launch_capture_uses_unnamed_profile_when_environment_has_no_profile_name(
+    mocker,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    context = WakeContext(
+        thread_id=THREAD_ID,
+        permission_profile=None,
+        approval_policy=APPROVAL_POLICY,
+        captured_at=NOW,
+    )
+    transport = object()
+    monkeypatch.setenv("CODEX_THREAD_ID", THREAD_ID)
+    monkeypatch.delenv("CODEX_PERMISSION_PROFILE", raising=False)
+    mocker.patch(
+        "mjepa_cifar10.research.cli.resolve_event_controller_socket",
+        return_value=tmp_path / "app-server.sock",
+    )
+    connect = mocker.patch(
+        "mjepa_cifar10.research.cli.UnixWebSocketTransport.connect",
+        new=mocker.AsyncMock(return_value=transport),
+    )
+    capture = mocker.patch(
+        "mjepa_cifar10.research.cli.capture_wake_context",
+        new=mocker.AsyncMock(return_value=context),
+    )
+
+    assert capture_launch_wake_context() == context
+    connect.assert_awaited_once_with(tmp_path / "app-server.sock")
+    capture.assert_awaited_once_with(
+        thread_id=THREAD_ID,
+        expected_permission_profile=None,
+        transport=transport,
+    )
 
 
 @run_async
