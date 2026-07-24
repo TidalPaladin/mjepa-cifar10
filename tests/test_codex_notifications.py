@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable, Coroutine
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -193,7 +194,7 @@ async def test_capture_wake_context_records_effective_profile_and_approval_polic
 
     context = await capture_wake_context(
         thread_id=THREAD_ID,
-        expected_permission_profile=PERMISSION_PROFILE,
+        requested_permission_profile=PERMISSION_PROFILE,
         transport=transport,
         captured_at=NOW,
     )
@@ -209,18 +210,34 @@ async def test_capture_wake_context_records_effective_profile_and_approval_polic
 
 
 @run_async
-async def test_capture_wake_context_records_explicitly_unnamed_permission_profile() -> None:
-    transport = ScriptedTransport(app_server_handler("active", [], permission_profile=None))
+async def test_capture_wake_context_discovers_implicit_permission_profile() -> None:
+    transport = ScriptedTransport(app_server_handler("active", []))
 
     context = await capture_wake_context(
         thread_id=THREAD_ID,
-        expected_permission_profile=None,
+        requested_permission_profile=None,
         transport=transport,
         captured_at=NOW,
     )
 
-    assert context.permission_profile is None
-    assert context.approval_policy == APPROVAL_POLICY
+    assert context == WAKE_CONTEXT
+    resume = next(message for message in transport.sent if message.get("method") == "thread/resume")
+    assert resume["params"] == {"threadId": THREAD_ID}
+
+
+@run_async
+async def test_capture_wake_context_rejects_unselectable_permission_profile() -> None:
+    transport = ScriptedTransport(app_server_handler("active", [], permission_profile=None))
+
+    with pytest.raises(AppServerProtocolError, match="selectable effective permission profile") as error:
+        await capture_wake_context(
+            thread_id=THREAD_ID,
+            requested_permission_profile=None,
+            transport=transport,
+            captured_at=NOW,
+        )
+
+    assert error.value.permanent
     resume = next(message for message in transport.sent if message.get("method") == "thread/resume")
     assert resume["params"] == {"threadId": THREAD_ID}
 
@@ -238,7 +255,7 @@ async def test_capture_wake_context_rejects_missing_permission_profile_field() -
     with pytest.raises(AppServerProtocolError, match="missing the effective permission profile") as error:
         await capture_wake_context(
             thread_id=THREAD_ID,
-            expected_permission_profile=None,
+            requested_permission_profile=None,
             transport=ScriptedTransport(handler),
             captured_at=NOW,
         )
@@ -246,17 +263,11 @@ async def test_capture_wake_context_rejects_missing_permission_profile_field() -
     assert error.value.permanent
 
 
-def test_launch_capture_uses_unnamed_profile_when_environment_has_no_profile_name(
+def test_launch_capture_discovers_profile_when_environment_has_no_profile_name(
     mocker,
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    context = WakeContext(
-        thread_id=THREAD_ID,
-        permission_profile=None,
-        approval_policy=APPROVAL_POLICY,
-        captured_at=NOW,
-    )
     transport = object()
     monkeypatch.setenv("CODEX_THREAD_ID", THREAD_ID)
     monkeypatch.delenv("CODEX_PERMISSION_PROFILE", raising=False)
@@ -270,16 +281,24 @@ def test_launch_capture_uses_unnamed_profile_when_environment_has_no_profile_nam
     )
     capture = mocker.patch(
         "mjepa_cifar10.research.cli.capture_wake_context",
-        new=mocker.AsyncMock(return_value=context),
+        new=mocker.AsyncMock(return_value=WAKE_CONTEXT),
     )
 
-    assert capture_launch_wake_context() == context
+    assert capture_launch_wake_context() == WAKE_CONTEXT
     connect.assert_awaited_once_with(tmp_path / "app-server.sock")
     capture.assert_awaited_once_with(
         thread_id=THREAD_ID,
-        expected_permission_profile=None,
+        requested_permission_profile=None,
         transport=transport,
     )
+
+
+def test_launch_capture_rejects_empty_requested_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("CODEX_THREAD_ID", THREAD_ID)
+    monkeypatch.setenv("CODEX_PERMISSION_PROFILE", "")
+
+    with pytest.raises(RuntimeError, match="CODEX_PERMISSION_PROFILE must be non-empty"):
+        capture_launch_wake_context()
 
 
 @run_async
@@ -357,6 +376,20 @@ def test_persisted_wake_context_cannot_be_replaced(tmp_path: Path) -> None:
                 captured_at=NOW,
             ),
         )
+
+
+def test_new_wake_context_requires_selectable_permission_profile(tmp_path: Path) -> None:
+    root = tmp_path / "logs" / "research"
+    initialize_notification_root(root)
+    legacy_context = WakeContext(
+        thread_id=THREAD_ID,
+        permission_profile=None,
+        approval_policy=APPROVAL_POLICY,
+        captured_at=NOW,
+    )
+
+    with pytest.raises(NotificationStateError, match="selectable permission profile"):
+        persist_wake_context(root / "study-a" / "runs" / "run-a", root, legacy_context)
 
 
 def test_lifecycle_wake_prompt_contains_only_validated_event_identifiers(tmp_path: Path) -> None:
@@ -469,6 +502,25 @@ async def test_profile_mismatch_fails_before_goal_reactivation(tmp_path: Path) -
         message.get("method") in {"thread/goal/set", "thread/read", "turn/start", "turn/steer"}
         for message in transport.sent
     )
+
+
+@run_async
+async def test_legacy_unnamed_profile_requires_explicit_recovery(tmp_path: Path) -> None:
+    _root, event = queued_notification(tmp_path)
+    legacy_context = WakeContext(
+        thread_id=THREAD_ID,
+        permission_profile=None,
+        approval_policy=APPROVAL_POLICY,
+        captured_at=NOW,
+    )
+    transport = ScriptedTransport(app_server_handler("idle", []))
+
+    with pytest.raises(AppServerProtocolError, match="legacy wake context") as error:
+        await deliver_notification(replace(event, wake_context=legacy_context), transport)
+
+    assert error.value.permanent
+    assert transport.closed
+    assert not transport.sent
 
 
 @run_async

@@ -410,16 +410,18 @@ def resolve_event_controller_socket(
 def capture_launch_wake_context() -> WakeContext:
     """Capture the effective originating-thread permissions for new runs."""
     thread_id = os.environ.get(CODEX_THREAD_ENVIRONMENT_VARIABLE)
-    permission_profile = os.environ.get(CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE)
+    requested_permission_profile = os.environ.get(CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE)
     if not thread_id:
         raise RuntimeError(f"{CODEX_THREAD_ENVIRONMENT_VARIABLE} is required for a managed launch")
+    if requested_permission_profile == "":
+        raise RuntimeError(f"{CODEX_PERMISSION_PROFILE_ENVIRONMENT_VARIABLE} must be non-empty when set")
     socket_path = resolve_event_controller_socket(None)
 
     async def capture() -> WakeContext:
         transport = await UnixWebSocketTransport.connect(socket_path)
         return await capture_wake_context(
             thread_id=thread_id,
-            expected_permission_profile=permission_profile,
+            requested_permission_profile=requested_permission_profile,
             transport=transport,
         )
 

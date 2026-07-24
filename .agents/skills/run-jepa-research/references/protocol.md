@@ -156,14 +156,17 @@ missing, mismatched, symlinked, repository, home, and broad roots before any
 recursive scan. The worker connects directly to the discovered Codex app-server
 daemon Unix socket. Before each managed spawn, the launcher captures the live
 originating thread's effective permission-profile identity and approval policy
-and persists them in the run's immutable `wake-context.json`. It records JSON
-`null` when app-server explicitly reports no named profile. The worker validates
-the event, serializes delivery per task, resumes with that exact context, and
-verifies the returned effective context before it can reactivate a blocked
-goal. It starts an idle task with the same context or steers its newest
-in-progress turn with an expected-turn guard, and records acceptance only after
-the RPC succeeds. Missing or mismatched wake context is a permanent validation
-failure; the worker never substitutes app-server defaults or a broader
+and persists them in the run's immutable `wake-context.json`. An unset
+`CODEX_PERMISSION_PROFILE` means discovery: the launcher omits the override and
+persists the non-null profile ID resolved by app-server, including implicit
+built-in IDs. A missing or null effective profile fails launch before dispatch.
+The worker validates the event, serializes delivery per task, resumes with that
+exact context, and verifies the returned effective context before it can
+reactivate a blocked goal. It starts an idle task with the same context or
+steers its newest in-progress turn with an expected-turn guard, and records
+acceptance only after the RPC succeeds. Missing or mismatched wake context is a
+permanent validation failure. A legacy null-profile context requires explicit
+recovery; the worker never maps it to app-server defaults or a broader
 hardcoded profile. Other delivery failures use bounded full-jitter exponential
 backoff and
 require explicit `notify --requeue` after the eighth failure or a permanent
