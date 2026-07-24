@@ -22,6 +22,10 @@ SRELU_WIDTH_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h2305.yaml": 2305,
 }
 SRELU_CHANGED_BACKBONE_FIELDS = frozenset(("activation", "ffn_hidden_size", "mlp_dropout"))
+SRELU_BIAS_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p1.yaml": 0.1,
+    REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p2.yaml": 0.2,
+}
 
 
 def load_pretrain_script_module() -> ModuleType:
@@ -59,6 +63,23 @@ def test_srelu_width_configs_change_only_mlp_fields(config_path: Path, expected_
     assert candidate_backbone.mlp_dropout == pytest.approx(baseline_backbone.hidden_dropout)
     for field in fields(ViTConfig):
         if field.name not in SRELU_CHANGED_BACKBONE_FIELDS:
+            assert getattr(candidate_backbone, field.name) == getattr(baseline_backbone, field.name)
+    for section in ("trainer", "jepa", "optimizer"):
+        assert candidate[section] == baseline[section]
+
+
+@pytest.mark.parametrize(("config_path", "expected_bias"), SRELU_BIAS_CONFIGS.items())
+def test_srelu_bias_configs_change_only_fc1_bias_initialization(config_path: Path, expected_bias: float) -> None:
+    baseline = yaml.full_load((REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536.yaml").read_text())
+    candidate = yaml.full_load(config_path.read_text())
+    baseline_backbone = baseline["backbone"]
+    candidate_backbone = candidate["backbone"]
+
+    assert isinstance(baseline_backbone, ViTConfig)
+    assert isinstance(candidate_backbone, ViTConfig)
+    assert candidate_backbone.mlp_fc1_bias_init == pytest.approx(expected_bias)
+    for field in fields(ViTConfig):
+        if field.name != "mlp_fc1_bias_init":
             assert getattr(candidate_backbone, field.name) == getattr(baseline_backbone, field.name)
     for section in ("trainer", "jepa", "optimizer"):
         assert candidate[section] == baseline[section]

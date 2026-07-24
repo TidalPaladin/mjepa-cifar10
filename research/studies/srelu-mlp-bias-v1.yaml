@@ -1,0 +1,122 @@
+id: srelu-mlp-bias-v1
+question: Can a positive trainable SReLU up-projection bias reduce early gate starvation and improve convergence without changing the Squared ReLU activation?
+hypothesis: Initializing the h1536 SReLU MLP up-projection bias to 0.1 or 0.2 will improve common-horizon active-time AUC or time to the fixed 95 percent target while preserving peak validation accuracy within 0.005 of the zero-bias h1536 result.
+rejection_condition: Reject this bias-initialization direction if neither candidate improves zero-bias h1536 convergence while preserving its peak accuracy within 0.005, and neither meets a promotion threshold against the immutable SwiGLU curve.
+checkpoint_plan: Retain candidate checkpoints through bias analysis and the next directional-wave preregistration; delete only terminal rejected managed weights after their result and disposition are committed and pushed.
+
+baseline:
+  id: swiglu-fixed-v1
+  config: config/pretrain/vit-small.yaml
+  hypothesis: The completed seed-0 SwiGLU curve remains the immutable promotion comparator for linked SReLU tuning screens.
+  mechanism: Reuse the exact validation curve from srelu-mlp-baseline-v1 without scheduling another baseline run.
+  changes: []
+
+baseline_reference:
+  study_id: srelu-mlp-baseline-v1
+  run_id: pretrain-swiglu-baseline-seed0
+  metrics: research/baselines/srelu-mlp-baseline-v1-swiglu-seed0.metrics.jsonl
+  metrics_sha256: acd548d3b7d2f400a089371b78fd30b7c11af0beef3e49b673c8b181682f8cfc
+
+variants:
+  - id: srelu-h1536-bias0p1
+    config: config/pretrain/vit-small-srelu-h1536-bias0p1.yaml
+    hypothesis: A 0.1 up-projection bias will reduce initially negative SReLU gates from about 50 percent to 39 percent without increasing activation scale enough to destabilize optimization.
+    mechanism: Initialize every trainable MLP fc1 bias to 0.1 while retaining exact relu(x)^2 activation, h1536 width, dropout, optimizer settings, attention shapes, and depth.
+    changes:
+      - Set mlp_fc1_bias_init to 0.1.
+      - Preserve exact Squared ReLU with no negative-side leakage.
+  - id: srelu-h1536-bias0p2
+    config: config/pretrain/vit-small-srelu-h1536-bias0p2.yaml
+    hypothesis: A 0.2 up-projection bias will reduce initially negative SReLU gates to about 28 percent and provide a stronger test of whether early gate availability limits convergence.
+    mechanism: Initialize every trainable MLP fc1 bias to 0.2 while retaining exact relu(x)^2 activation, h1536 width, dropout, optimizer settings, attention shapes, and depth.
+    changes:
+      - Set mlp_fc1_bias_init to 0.2.
+      - Preserve exact Squared ReLU with no negative-side leakage.
+
+methodology:
+  linked_program: srelu-mlp-v1
+  scientific_run_allocation:
+    total_authorized: 16
+    completed_fresh_baseline: 1
+    width_screen_completed_or_in_flight: 3
+    this_directional_wave: 2
+    remaining_directional_tuning: 4
+    reserved_paired_confirmation: 6
+    mechanical_smoke_excluded: true
+  intervention:
+    tuning_base: srelu-h1536
+    reason: h1536 has the best completed SReLU peak accuracy and active-time AUC and is faster than the wider alternatives.
+    invariant: Keep activation exactly relu(x)^2; change only the trainable MLP fc1 bias initialization.
+    initial_function: The MLP residual output projection remains zero-initialized, so matched-seed models have identical initial outputs despite different fc1 biases.
+  calibration:
+    protocol: Seed-0 initialized h1536 backbone on 32 fixed validation images without training.
+    bias_0p0: {negative_gate_fraction: 0.499925, activation_rms: 0.146069}
+    bias_0p1: {negative_gate_fraction: 0.385819, activation_rms: 0.196584}
+    bias_0p2: {negative_gate_fraction: 0.280549, activation_rms: 0.259178}
+    deferred: Bias 0.3 and 0.5 were not selected for the first wave because they raise activation RMS to 0.335205 and 0.532265.
+  comparison:
+    swiglu_baseline_peak_accuracy: 0.9057999849319458
+    swiglu_target_90_accuracy: 0.8152199864387513
+    swiglu_target_95_accuracy: 0.8605099856853484
+    swiglu_active_seconds_to_90: 3889.9740167483687
+    swiglu_active_seconds_to_95: 5278.717640997842
+    swiglu_active_time_auc: 0.7957377415845792
+    swiglu_supervisor_wall_seconds: 11115.263943
+    zero_bias_h1536_peak_accuracy: 0.8898000121116638
+    zero_bias_h1536_final_accuracy: 0.8880000114440918
+    zero_bias_h1536_active_seconds_to_90: 5218.637743834406
+    zero_bias_h1536_active_seconds_to_95: 7110.2037734650075
+    zero_bias_h1536_active_time_auc: 0.7425929212486989
+    zero_bias_h1536_supervisor_wall_seconds: 9554.522049
+    common_horizons: Recompute comparisons over the shortest completed optimizer-step and trainer-active-time horizons across the relevant curves.
+  selection:
+    promotion_thresholds: Use the promotion block without modification for comparison with the fixed SwiGLU baseline.
+    directional_support: Require peak accuracy within 0.005 of zero-bias h1536 plus either a 0.02 relative active-time AUC gain or a 0.10 relative reduction in active time to the fixed 95 percent target.
+    ranking: Common-horizon active-time AUC, peak validation accuracy, active seconds to the fixed 95 percent target, then supervisor wall time.
+    next_stage: Use completed results to decide whether to refine the bias range or spend the remaining directional budget on dropout and AdamW tuning.
+  metrics:
+    - optimizer step and cumulative trainer-active wall seconds to fixed 90 and 95 percent baseline targets
+    - peak and final online-probe validation accuracy
+    - validation-accuracy AUC over common optimizer-step and trainer-active-time horizons
+    - supervisor start-to-finish wall seconds
+    - final-checkpoint MLP activation and gradient diagnostics when they help interpret the result
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: srelu-mlp-bias-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 35934d979078a0f26a83921e2d80821338f41375
+  vit: 06d6cee3a1872e2b70bc236dd7e85a2435a71b67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
