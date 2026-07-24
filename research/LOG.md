@@ -208,8 +208,8 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Winner: none
 - External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=False; approved_data_classes=none
 - Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-v1-smoke/summary.json`; external_detail=False
-- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
-- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Conclusion: Mechanical validation passed. The one-epoch blinded AdaLN run completed with finite gradients, a positive shuffled-minus-true CLS auxiliary loss gap of 0.476268, a 0.788000 ms isolated-path median, accepted lifecycle notifications, and a checkpoint that restored successfully in an isolated local resume run.
+- Follow-up: Proceed to the preregistered four-run seed-0 screening without changing variants or promotion thresholds.
 - Checkpoint disposition: see each run below; deleted weights are not recoverable.
 
 - `pretrain-srelu-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-23T16:15:51.664519+00:00; finished=2026-07-23T16:18:40.794367+00:00; terminal_event=d2dcd34f-e07f-440a-ab3e-78a1473c9534; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-v1-smoke/runs/pretrain-srelu-smoke-seed0`; W&B=offline/unlinked (`6c883963`); checkpoint=retained; metrics=peak_accuracy=0.214000, final_accuracy=0.214000, step_to_90=2812, step_to_95=2812, active_seconds_to_90=157.743, active_seconds_to_95=157.743, step_auc=0.214000, active_time_auc=0.214000; error=none
@@ -383,3 +383,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Review dependency: The adopted branch now pins landed `vit` master commit `67eae23786b8e458334b695be8f8a879d6994a43`, which provides graph-connected MLP tracing.
 - Equivalence: The local independent MLP dropout setting equaled `hidden_dropout`, so the landed pin preserves that effective dropout configuration.
 - Limitation: The landed pin does not apply the local FC1 bias-initialization extension. A fresh biased run would therefore not exactly reproduce its initialization. Completed checkpoints, run-local configurations, execution SHAs, W&B records, and committed diagnostics remain the canonical evidence. The user accepted this approximation for review.
+<!-- autoresearch-operation:{"content_sha256":"6386a34dc0b4246e2669e0235d4112fc4d8ae5004d416910144c166501c8826f","operation_id":"20035a070b52725a4933205f9de426a1"} -->
+
+<!-- study:cls-token-adaln-v1-smoke:phase:no-promotion -->
+## cls-token-adaln-v1-smoke
+
+- Question: Can the single-CLS AdaLN path train, validate, benchmark, checkpoint, resume, summarize, and notify through one managed GPU epoch?
+- Hypothesis: The one-epoch adaln-blind smoke run will complete with the isolated path benchmark, true and shuffled CLS diagnostics, valid gradients, recoverable checkpoint metadata, and accepted lifecycle notifications.
+- Mechanisms and exact changes:
+  - `cls-adaln-smoke`: Mechanism: Exercise the same blinded shared-MLP path, diagnostics, checkpoint metadata, and startup benchmark used by the formal candidates at smoke scale. Changes: Use one CLS token and adaln_blind mode.; Use a one-block, one-epoch mechanical configuration.
+- Launch code provenance:
+  - `pretrain-cls-adaln-smoke-seed0`: parent=`4527116791c02a9431c2a12d1264dcd46e2753d4` (`codex/research/cls-token-adaln-v1`), mjepa=`c63b014aacc1860e18b0f45aca65fad88396b95e` (`codex/research/cls-token-adaln-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=False; approved_data_classes=none
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-token-adaln-v1-smoke/summary.json`; external_detail=False
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-adaln-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-24T20:17:00.639725+00:00; finished=2026-07-24T20:19:27.925032+00:00; terminal_event=4e0dbbd0-fe20-4bd3-91e9-753d5306da08; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-token-adaln-v1-smoke/runs/pretrain-cls-adaln-smoke-seed0`; W&B=offline/unlinked (`63fee026`); checkpoint=retained; metrics=peak_accuracy=0.221600, final_accuracy=0.221600, step_to_90=2812, step_to_95=2812, active_seconds_to_90=133.375, active_seconds_to_95=133.375, step_auc=0.221600, active_time_auc=0.221600, active_seconds_at_step_horizon=133.375, cls_path_latency_median_ms=0.788000, cls_path_latency_p90_ms=0.796672; error=none
