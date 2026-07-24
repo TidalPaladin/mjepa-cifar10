@@ -335,3 +335,41 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Interpretation: Positive initialization alone is rejected. The surrounding model adapted so final gate means became more negative even though learned biases remained less negative than the zero-bias reference. A future bias intervention would need to preserve its operating-point shift during training rather than only change initialization.
 - Notification recovery: Both terminal events were durable and the controller remained alive, but automatic delivery failed because launch captured a null permission-profile identity while the restarted app reported `:danger-full-access` on resume. Training status was unaffected. The user manually surfaced completion, and the coordinator recovered from the persisted terminal states without live polling.
 - Structured result: `research/diagnostics/srelu-mlp-bias-final-checkpoint-signals-v1.json`; full local layer records remain under `logs/research/srelu-mlp-bias-v1/diagnostics/final-checkpoints/`.
+<!-- autoresearch-operation:{"content_sha256":"b234b9192d650983dee1e03c5e92c203d2d0990d6509f3ce072d9dbc26054359","operation_id":"beb857959c0fae38e0c7e2869c0c0e8a"} -->
+
+<!-- study:srelu-mlp-width-v1:phase:no-promotion -->
+## srelu-mlp-width-v1
+
+- Question: Which Squared ReLU FFN width best matches or improves the SwiGLU seed-0 baseline under nominal-width, compute-equivalent, and parameter-equivalent workloads?
+- Hypothesis: The tensor-core-aligned SReLU width 2304 will preserve baseline peak accuracy within 0.005 while improving active-time AUC or time to the fixed 95 percent target enough to qualify for directional tuning.
+- Mechanisms and exact changes:
+  - `swiglu-fixed-v1`: Mechanism: Reuse the exact validation curve from srelu-mlp-baseline-v1 without scheduling another baseline run. Changes: not recorded.
+  - `srelu-h1536`: Mechanism: Replace gated SwiGLU with Squared ReLU while retaining FFN width 1536, all attention shapes, depth, optimizer settings, and dropout. Changes: Set activation to srelu at FFN width 1536.; Preserve attention, depth, AdamW learning rate 0.002, weight decay 0.2, and MLP dropout 0.1.
+  - `srelu-h2304`: Mechanism: Replace gated SwiGLU with Squared ReLU and expand the up-projection to the aligned compute-equivalent width 2304. Changes: Set activation to srelu and FFN width to 2304.; Preserve attention, depth, AdamW learning rate 0.002, weight decay 0.2, and MLP dropout 0.1.
+  - `srelu-h2305`: Mechanism: Replace gated SwiGLU with Squared ReLU and expand the up-projection to exact parameter-equivalent width 2305. Changes: Set activation to srelu and FFN width to 2305.; Preserve attention, depth, AdamW learning rate 0.002, weight decay 0.2, and MLP dropout 0.1.
+- Launch code provenance:
+  - `pretrain-srelu-h1536-seed0`: parent=`939dd4482d35e4b4a50a9decb00404d57af07caa` (`codex/research/srelu-mlp-v1`), mjepa=`35934d979078a0f26a83921e2d80821338f41375` (`codex/research/muon-optimizer-v2`), vit=`52a4a676575bde0e756376a59b001aa55d5d6eaa` (`codex/research/srelu-mlp-v1`)
+  - `pretrain-srelu-h2304-seed0`: parent=`939dd4482d35e4b4a50a9decb00404d57af07caa` (`codex/research/srelu-mlp-v1`), mjepa=`35934d979078a0f26a83921e2d80821338f41375` (`codex/research/muon-optimizer-v2`), vit=`52a4a676575bde0e756376a59b001aa55d5d6eaa` (`codex/research/srelu-mlp-v1`)
+  - `pretrain-srelu-h2305-seed0`: parent=`939dd4482d35e4b4a50a9decb00404d57af07caa` (`codex/research/srelu-mlp-v1`), mjepa=`35934d979078a0f26a83921e2d80821338f41375` (`codex/research/muon-optimizer-v2`), vit=`52a4a676575bde0e756376a59b001aa55d5d6eaa` (`codex/research/srelu-mlp-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-width-v1/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-srelu-h1536-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-23T21:29:10.330041+00:00; finished=2026-07-24T00:08:24.852090+00:00; terminal_event=db036c5d-483f-4604-8f9a-571d8c96a90d; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-width-v1/runs/pretrain-srelu-h1536-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/bb3b4dd7); checkpoint=retained; metrics=peak_accuracy=0.889800, final_accuracy=0.888000, step_to_90=9570, step_to_95=13050, active_seconds_to_90=5218.638, active_seconds_to_95=7110.204, step_auc=0.743127, active_time_auc=0.742593; error=none
+- `pretrain-srelu-h2304-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-23T21:29:10.391299+00:00; finished=2026-07-24T00:28:50.599391+00:00; terminal_event=d1116df4-4255-464e-a57b-5697c75a2840; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-width-v1/runs/pretrain-srelu-h2304-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0418f32e); checkpoint=retained; metrics=peak_accuracy=0.882200, final_accuracy=0.882200, step_to_90=9135, step_to_95=13485, active_seconds_to_90=5650.130, active_seconds_to_95=8332.038, step_auc=0.752030, active_time_auc=0.734660; error=none
+- `pretrain-srelu-h2305-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-24T00:09:44.049225+00:00; finished=2026-07-24T03:24:35.880637+00:00; terminal_event=411c5780-7b20-4216-8c48-21ec2ffae9a8; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-width-v1/runs/pretrain-srelu-h2305-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/5b8fd9d6); checkpoint=retained; metrics=peak_accuracy=0.873200, final_accuracy=0.873200, step_to_90=10440, step_to_95=14790, active_seconds_to_90=7012.789, active_seconds_to_95=9926.468, step_auc=0.736975, active_time_auc=0.706266; error=none
+<!-- autoresearch-operation:{"content_sha256":"1dd50f5c0fde6140aee5946e0df4175111d8cb784a408edf7e4ad4c21d7c6942","operation_id":"srelu-mlp-v1-program-closeout-v1"} -->
+## srelu-mlp-v1 program closeout
+
+- Decision: Close the linked SReLU program at no-promotion. Do not spend the remaining budget on dropout, AdamW, replication, or supervised evaluation.
+- Baseline comparison: SwiGLU reached 0.9058 peak validation accuracy and the fixed 95 percent target in 5,278.718 active seconds. The best SReLU result, h1536, reached 0.8898 and required 7,110.204 active seconds. Its 1,560.742-second wall-time saving did not offset the 34.7 percent slower target convergence or 0.0160 accuracy loss.
+- Same-workload comparison: Compute-equivalent h2304 peaked at 0.8822 and reached the target in 8,332.038 active seconds. Parameter-equivalent h2305 peaked at 0.8732 and required 9,926.468 active seconds; its 11,691.831-second wall time was also slower than the 11,115.264-second baseline.
+- Bias comparison: Positive FC1 initializations of 0.1 and 0.2 peaked at 0.8730 and 0.8684. Neither preserved the zero-bias SReLU result or improved convergence per unit time.
+- Signal evidence: Final-checkpoint analysis found mean negative-gate fractions of 0.8036 for SwiGLU, 0.9151 for SReLU h1536, and 0.9310 for SReLU h2304. SwiGLU retained nonzero preactivation gradients at 0.9917 of sampled negative-gate positions; every sampled SReLU negative-gate gradient was zero. Positive initial bias did not change that result.
+- Scope: Six scientific seed-0 runs completed, plus one excluded mechanical smoke run. Ten authorized scientific runs remain unused.
+- Timing: The scientific program spanned 81,961.605 wall seconds. Summed run wall time was 62,065.142 seconds.
+- Structured result: `research/diagnostics/srelu-mlp-program-closeout-v1.json`.

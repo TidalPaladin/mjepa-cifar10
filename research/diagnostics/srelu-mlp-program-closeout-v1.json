@@ -1,0 +1,137 @@
+{
+  "schema_version": 1,
+  "program_id": "srelu-mlp-v1",
+  "status": "closed-no-promotion",
+  "decision": "Stop the SReLU program without dropout, AdamW, replication, or supervised follow-up.",
+  "run_budget": {
+    "authorized_scientific_runs": 16,
+    "completed_scientific_runs": 6,
+    "mechanical_smoke_runs_excluded": 1,
+    "unused_scientific_runs": 10
+  },
+  "timing": {
+    "started_at": "2026-07-23T16:23:58.118059+00:00",
+    "finished_at": "2026-07-24T15:09:59.722875+00:00",
+    "total_study_span_seconds": 81961.604816,
+    "summed_run_wall_seconds": 62065.14225
+  },
+  "common_configuration": {
+    "seed": 0,
+    "optimizer": "adamw",
+    "learning_rate": 0.002,
+    "weight_decay": 0.2,
+    "mlp_dropout": 0.1,
+    "attention_shapes_changed": false,
+    "model_depth_changed": false
+  },
+  "metric_definition": {
+    "primary": "peak online-probe validation accuracy",
+    "convergence": "trainer-active seconds to 95 percent of the SwiGLU seed-0 peak",
+    "target_95_accuracy": 0.8605099856853484,
+    "wall_time": "supervisor start-to-finish seconds"
+  },
+  "runs": [
+    {
+      "run_id": "pretrain-swiglu-baseline-seed0",
+      "study_id": "srelu-mlp-baseline-v1",
+      "role": "baseline",
+      "activation": "swiglu",
+      "ffn_hidden_size": 1536,
+      "initial_fc1_bias": 0.0,
+      "peak_accuracy": 0.9057999849319458,
+      "final_accuracy": 0.8999999761581421,
+      "active_seconds_to_95": 5278.717640997842,
+      "wall_seconds": 11115.263943,
+      "decision": "baseline",
+      "wandb_url": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/d0d4e93f"
+    },
+    {
+      "run_id": "pretrain-srelu-h1536-seed0",
+      "study_id": "srelu-mlp-width-v1",
+      "role": "nominal-width candidate",
+      "activation": "srelu",
+      "ffn_hidden_size": 1536,
+      "initial_fc1_bias": 0.0,
+      "peak_accuracy": 0.8898000121116638,
+      "final_accuracy": 0.8880000114440918,
+      "active_seconds_to_95": 7110.2037734650075,
+      "wall_seconds": 9554.522049,
+      "decision": "rejected",
+      "wandb_url": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/bb3b4dd7"
+    },
+    {
+      "run_id": "pretrain-srelu-h2304-seed0",
+      "study_id": "srelu-mlp-width-v1",
+      "role": "compute-equivalent candidate",
+      "activation": "srelu",
+      "ffn_hidden_size": 2304,
+      "initial_fc1_bias": 0.0,
+      "peak_accuracy": 0.8822000026702881,
+      "final_accuracy": 0.8822000026702881,
+      "active_seconds_to_95": 8332.037654288113,
+      "wall_seconds": 10780.208092,
+      "decision": "rejected",
+      "wandb_url": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0418f32e"
+    },
+    {
+      "run_id": "pretrain-srelu-h2305-seed0",
+      "study_id": "srelu-mlp-width-v1",
+      "role": "parameter-equivalent candidate",
+      "activation": "srelu",
+      "ffn_hidden_size": 2305,
+      "initial_fc1_bias": 0.0,
+      "peak_accuracy": 0.873199999332428,
+      "final_accuracy": 0.873199999332428,
+      "active_seconds_to_95": 9926.467536022887,
+      "wall_seconds": 11691.831412,
+      "decision": "rejected",
+      "wandb_url": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/5b8fd9d6"
+    },
+    {
+      "run_id": "pretrain-srelu-h1536-bias0p1-seed0",
+      "study_id": "srelu-mlp-bias-v1",
+      "role": "bias candidate",
+      "activation": "srelu",
+      "ffn_hidden_size": 1536,
+      "initial_fc1_bias": 0.1,
+      "peak_accuracy": 0.8730000257492065,
+      "final_accuracy": 0.8730000257492065,
+      "active_seconds_to_95": 7814.483257429674,
+      "wall_seconds": 9488.90873,
+      "decision": "rejected",
+      "wandb_url": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/7dc1708e"
+    },
+    {
+      "run_id": "pretrain-srelu-h1536-bias0p2-seed0",
+      "study_id": "srelu-mlp-bias-v1",
+      "role": "bias candidate",
+      "activation": "srelu",
+      "ffn_hidden_size": 1536,
+      "initial_fc1_bias": 0.2,
+      "peak_accuracy": 0.868399977684021,
+      "final_accuracy": 0.868399977684021,
+      "active_seconds_to_95": 9419.53331322968,
+      "wall_seconds": 9434.408024,
+      "decision": "rejected",
+      "wandb_url": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/79ee8e38"
+    }
+  ],
+  "diagnostics": {
+    "protocol": "Final checkpoints on fixed validation images in CPU float32, with eval-mode primary analysis and train-mode dropout replication.",
+    "swiglu_mean_negative_gate_fraction": 0.8036103142632379,
+    "srelu_h1536_mean_negative_gate_fraction": 0.915130403306749,
+    "srelu_h2304_mean_negative_gate_fraction": 0.9310260631419994,
+    "swiglu_negative_gate_preactivation_gradient_nonzero_fraction": 0.9917008435378677,
+    "srelu_negative_gate_preactivation_gradient_nonzero_fraction": 0.0,
+    "bias_result": "Positive FC1 initialization changed learned bias values but did not materially reduce final negative-gate occupancy or restore negative-side gradients.",
+    "interpretation": "SReLU routed more activations and upstream gradient energy into an exactly clipped negative half-space. Wider projections and positive initial biases did not recover SwiGLU quality or convergence."
+  },
+  "conclusion": "Every SReLU configuration lost peak accuracy and reached the fixed 95 percent target more slowly than SwiGLU. Parameter-equivalent width was also slower in wall time, while the nominal-width wall-time saving did not offset its convergence and quality losses. The observed clipping pattern makes further dropout or AdamW tuning a low-priority use of the remaining budget.",
+  "structured_sources": [
+    "logs/research/srelu-mlp-baseline-v1/summary.json",
+    "logs/research/srelu-mlp-width-v1/summary.json",
+    "logs/research/srelu-mlp-bias-v1/summary.json",
+    "research/diagnostics/srelu-mlp-final-checkpoint-signals-v1.json",
+    "research/diagnostics/srelu-mlp-bias-final-checkpoint-signals-v1.json"
+  ]
+}
