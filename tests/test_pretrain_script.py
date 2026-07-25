@@ -31,6 +31,10 @@ CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-shared.yaml": "adaln_shared",
 }
+CLS_GLOBAL_TARGET_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p5.yaml": 0.5,
+}
 
 
 def load_pretrain_script_module() -> ModuleType:
@@ -108,6 +112,42 @@ def test_cls_configs_change_only_cls_count_and_prediction_mode(
             assert getattr(candidate["jepa"], field.name) == getattr(baseline["jepa"], field.name)
     for section in ("trainer", "optimizer"):
         assert candidate[section] == baseline[section]
+
+
+@pytest.mark.parametrize(("config_path", "expected_weight"), CLS_GLOBAL_TARGET_CONFIGS.items())
+def test_cls_global_target_configs_change_only_global_loss_weight(
+    config_path: Path,
+    expected_weight: float,
+) -> None:
+    blinded = yaml.full_load((REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml").read_text())
+    candidate = yaml.full_load(config_path.read_text())
+
+    assert candidate["cls_global_target_loss_weight"] == pytest.approx(expected_weight)
+    assert set(candidate) == {*blinded, "cls_global_target_loss_weight"}
+    for section in ("trainer", "backbone", "jepa", "optimizer"):
+        assert candidate[section] == blinded[section]
+
+
+def test_cls_global_target_configuration_requires_blinded_single_cls_model() -> None:
+    pretrain_script = load_pretrain_script_module()
+    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    blinded = yaml.full_load((REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml").read_text())
+
+    pretrain_script.validate_cls_global_target_configuration(blinded["backbone"], blinded["jepa"], 0.1)
+    pretrain_script.validate_cls_global_target_configuration(baseline["backbone"], baseline["jepa"], 0.0)
+    with pytest.raises(ValueError, match="exactly one student CLS token"):
+        pretrain_script.validate_cls_global_target_configuration(baseline["backbone"], blinded["jepa"], 0.1)
+    with pytest.raises(ValueError, match="adaln_blind"):
+        pretrain_script.validate_cls_global_target_configuration(blinded["backbone"], baseline["jepa"], 0.1)
+
+
+@pytest.mark.parametrize("loss_weight", (-0.1, float("inf"), float("nan")))
+def test_cls_global_target_configuration_rejects_invalid_weight(loss_weight: float) -> None:
+    pretrain_script = load_pretrain_script_module()
+    blinded = yaml.full_load((REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml").read_text())
+
+    with pytest.raises(ValueError, match="finite non-negative"):
+        pretrain_script.validate_cls_global_target_configuration(blinded["backbone"], blinded["jepa"], loss_weight)
 
 
 def test_single_cls_finetune_config_changes_only_cls_count() -> None:

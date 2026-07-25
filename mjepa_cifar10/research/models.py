@@ -108,6 +108,8 @@ class PromotionRules:
     auc_gain: float = 0.10
     maximum_accuracy_loss: float = 0.005
     cost_gain: float | None = None
+    screening_control_variant: str | None = None
+    screening_control_accuracy_gain: float | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None) -> Self:
@@ -118,6 +120,14 @@ class PromotionRules:
             auc_gain=float(value.get("auc_gain", 0.10)),
             maximum_accuracy_loss=float(value.get("maximum_accuracy_loss", 0.005)),
             cost_gain=float(value["cost_gain"]) if value.get("cost_gain") is not None else None,
+            screening_control_variant=(
+                str(value["screening_control_variant"]) if value.get("screening_control_variant") is not None else None
+            ),
+            screening_control_accuracy_gain=(
+                float(value["screening_control_accuracy_gain"])
+                if value.get("screening_control_accuracy_gain") is not None
+                else None
+            ),
         )
 
 
@@ -300,6 +310,17 @@ class StudySpec:
         variant_ids = [self.baseline.id, *(variant.id for variant in self.variants)]
         if len(variant_ids) != len(set(variant_ids)):
             raise ValueError("baseline and variant IDs must be unique")
+        screening_control_variant = self.promotion.screening_control_variant
+        screening_control_accuracy_gain = self.promotion.screening_control_accuracy_gain
+        if (screening_control_variant is None) != (screening_control_accuracy_gain is None):
+            raise ValueError("screening control variant and accuracy gain must be configured together")
+        if screening_control_variant is not None:
+            candidate_ids = {variant.id for variant in self.variants}
+            if screening_control_variant not in candidate_ids:
+                raise ValueError("screening control variant must name a configured non-baseline variant")
+            assert screening_control_accuracy_gain is not None
+            if screening_control_accuracy_gain <= 0:
+                raise ValueError("screening control accuracy gain must be positive")
         if self.baseline_reference is not None:
             if len(self.variants) > self.resources.max_pretraining_trials:
                 raise ValueError("reference-baseline candidate count exceeds the pretraining trial limit")

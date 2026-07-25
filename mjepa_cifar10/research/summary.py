@@ -315,6 +315,24 @@ def _add_sft_runs(state: StudyState, spec: StudySpec, winner: str) -> None:
                 state.runs.setdefault(run_spec.id, RunState(run_spec))
 
 
+def _passes_screening_control_gate(
+    candidate_variant: str,
+    candidate_summary: ConvergenceSummary,
+    spec: StudySpec,
+    summaries: Mapping[str, ConvergenceSummary],
+) -> bool:
+    control_variant = spec.promotion.screening_control_variant
+    required_gain = spec.promotion.screening_control_accuracy_gain
+    if control_variant is None or required_gain is None:
+        return True
+    if candidate_variant == control_variant:
+        return False
+    control_summary = summaries.get(f"pretrain-{control_variant}-seed0")
+    if control_summary is None:
+        return False
+    return candidate_summary.peak_accuracy >= control_summary.peak_accuracy + required_gain
+
+
 def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, ConvergenceSummary]) -> None:
     if state.phase in ("screening", "exploration"):
         phase_runs = [run for run in state.runs.values() if run.spec.kind == "pretrain" and run.spec.seed == 0]
@@ -333,8 +351,15 @@ def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, Co
             if candidate_summary is None:
                 continue
             decision = promotion_decision(baseline_summary, candidate_summary, spec.promotion)
-            run.decision = "promoted" if decision.promoted else "rejected"
-            if decision.promoted:
+            control_gate_passes = _passes_screening_control_gate(
+                run.spec.variant,
+                candidate_summary,
+                spec,
+                summaries,
+            )
+            promoted = decision.promoted and control_gate_passes
+            run.decision = "promoted" if promoted else "rejected"
+            if promoted:
                 qualifying.append((run.spec.variant, candidate_summary))
         if qualifying:
             winner = rank_promoted_candidates(qualifying)[0][0]
@@ -363,7 +388,12 @@ def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, Co
         baseline_summaries = [summaries[run.spec.id] for run in baseline_runs if run is not None]
         candidate_summaries = [summaries[run.spec.id] for run in candidate_runs if run is not None]
         seed_zero_decision = promotion_decision(baseline_summaries[0], candidate_summaries[0], spec.promotion)
-        if seed_zero_decision.criterion is None:
+        if seed_zero_decision.criterion is None or not _passes_screening_control_gate(
+            state.winner,
+            candidate_summaries[0],
+            spec,
+            summaries,
+        ):
             state.phase = "not-confirmed"
             return
         confirmation = confirmation_decision(

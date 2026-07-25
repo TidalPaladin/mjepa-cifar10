@@ -448,3 +448,25 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Rejected candidates: Deleted `checkpoint.pt` and `backbone.safetensors` for `pretrain-single-cls-legacy-seed0`, `pretrain-single-cls-adaln-blind-seed0`, and `pretrain-single-cls-adaln-shared-seed0`.
 - Storage: Freed 2,095,186,459 bytes. The deleted weights are not recoverable; metrics, configuration, provenance, and terminal records remain.
 - External record: Republished the study summary to W&B after retention with each rejected run marked `deleted-not-recoverable`.
+<!-- autoresearch-operation:{"content_sha256":"c8ac40381d001e121cf97c382bb20d88f85b8213b2b0e3607072baa4ab0528ad","operation_id":"cls-global-target-v1-preregistration-2026-07-25-v1"} -->
+
+## cls-global-target-v1 preregistration (2026-07-25)
+
+- Question: Does direct regression from one student CLS token to a pooled teacher-global target recover representation quality while the blinded AdaLN patch predictor preserves its cost advantage?
+- Mechanism: Compute float32 MSE directly between the only student CLS token and the arithmetic mean of all full-image EMA-teacher visual tokens. Keep the existing unit-weight blinded patch-target loss. Do not add a projector, predictor, normalization step, or access from the blinded predictor to student visual tokens.
+- Seed-0 screen: Run a fresh four-CLS legacy baseline, a fresh single-CLS blinded-AdaLN control, and direct-global-loss weights 0.1 and 0.5. Do not add fallback variants.
+- Promotion: Require at least 0.05 peak validation-accuracy gain over the fresh blinded control. Also require at least 5 percent lower active time at the common final optimizer step, lower isolated median CLS-path latency, and no more than 0.0266 peak-accuracy loss versus the fresh four-CLS baseline. Disable the accuracy-only, time-to-95-only, and AUC-only routes.
+- Confirmation: If one candidate qualifies, run fresh baseline and winner trials at seeds 1 and 2. Require the three-seed cost gate and at least two paired active-time and latency improvements. Do not fine-tune or inspect the official test set without confirmation.
+- Metrics: Record peak and final online-probe validation accuracy, fixed-target convergence, common-horizon step and active-time AUC, active seconds at the common step, isolated-path latency, CLS-patch alignment, true and shuffled patch-target loss, true and shuffled global-target loss, and student/teacher target norms.
+- Data and leakage control: Use the fixed 45,000/5,000 stratified CIFAR-10 training split. The teacher remains detached under inference mode. Reserve the official test set for a confirmed baseline and winner.
+- Resources: At most eight scientific pretraining trials, two concurrent jobs, physical GPUs 1 and 2, and 24 hours per job. Require the repository storage reserve before every launch.
+- Provenance and tracking: Use `codex/research/cls-global-target-v1`, parent SHA captured at launch, mjepa `c63b014aacc1860e18b0f45aca65fad88396b95e`, vit `67eae23786b8e458334b695be8f8a879d6994a43`, and online W&B destination `tidalpaladin/mjepa-cifar10`. Launch emits metrics, configs, and provenance; summary emits metrics and provenance.
+- Managed paths: Specification `research/studies/cls-global-target-v1.yaml`; state and run artifacts under `logs/research/cls-global-target-v1`.
+- Stopping and retention: Stop without replication if neither candidate passes both controls. Retain every managed checkpoint and backbone because destructive retention is not authorized.
+<!-- autoresearch-operation:{"content_sha256":"d1472600ae60a06601ef879f0e75803669494ed611a2de758a5c9b6271c5bb12","operation_id":"cls-global-target-v1-smoke-preregistration-2026-07-25-v1"} -->
+
+## cls-global-target-v1-smoke preregistration (2026-07-25)
+
+- Purpose: Exercise one online-W&B GPU epoch with global-loss weight 0.1 before the scientific screen. Require finite raw and weighted losses, global and patch shuffle diagnostics, student gradients, isolated-path benchmark output, progress and first-cycle events, checkpoint and backbone files, resume, summary, accepted notification, and retained weights.
+- Managed paths: Specification `research/studies/cls-global-target-v1-smoke.yaml`; state and run artifacts under `logs/research/cls-global-target-v1-smoke`.
+- Rejection: Do not launch the formal study if any required metric, recovery artifact, or lifecycle transition is missing.

@@ -7,7 +7,11 @@ from typing import Final, Literal, cast
 import torch
 import torch.nn.functional as F
 import torchmetrics as tm
-from mjepa.jepa import ADALN_CLS_PREDICTION_MODES, compute_jepa_prediction_loss
+from mjepa.jepa import (
+    ADALN_BLIND_CLS_PREDICTION_MODE,
+    ADALN_CLS_PREDICTION_MODES,
+    compute_jepa_prediction_loss,
+)
 from mjepa.metrics import CLSPatchAlignmentMetric
 from mjepa.model import MJEPA, MJEPAPredictions
 from mjepa.optimizer import OptimizerLike, SchedulerLike
@@ -49,6 +53,7 @@ NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
 VALIDATION_DIAGNOSTIC_SEED: Final[int] = 0
+DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT: Final[float] = 0.0
 GRAD_CLIP_TRIGGER_PCT_KEY: Final[str] = "pretrain/grad_clip_trigger_pct"
 CPA_RESULT_KEYS: Final[tuple[str, ...]] = ("cpa_mean", "cpa_std", "cpa_p90", "cpa_p99")
 ProgressPhase = Literal["training", "validation", "checkpointing", "checkpointed"]
@@ -57,6 +62,7 @@ FirstCycleCallback = Callable[[int, int, float], object]
 __all__ = [
     "CPA_RESULT_KEYS",
     "CIFAR10MJEPA",
+    "DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT",
     "GRAD_CLIP_TRIGGER_PCT_KEY",
     "NUM_CLASSES",
     "OptimizerStepResult",
@@ -65,6 +71,8 @@ __all__ = [
     "compute_cls_aux_shuffle_diagnostic",
     "compute_and_reset_mean_percentage",
     "did_gradient_clip",
+    "compute_cls_global_target_diagnostic",
+    "compute_cls_global_target_loss",
     "get_gradient_norm_stats",
     "get_gradient_sync_context",
     "get_scheduler_last_lr",
@@ -163,6 +171,39 @@ def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) ->
     }
 
 
+def _cls_global_target_embeddings(output: MJEPAPredictions) -> tuple[Tensor, Tensor]:
+    student_cls_tokens = output.student_output.cls_tokens
+    if student_cls_tokens.shape[1] != 1:
+        raise ValueError(
+            f"CLS global-target loss requires exactly one student CLS token, got {student_cls_tokens.shape[1]}"
+        )
+    teacher_visual_tokens = output.teacher_output.visual_tokens
+    if teacher_visual_tokens.shape[1] == 0:
+        raise ValueError("CLS global-target loss requires at least one teacher visual token")
+    return student_cls_tokens[:, 0].float(), teacher_visual_tokens.float().mean(dim=1)
+
+
+def compute_cls_global_target_loss(output: MJEPAPredictions) -> Tensor:
+    """Regress one student CLS token directly toward the full teacher visual-token mean."""
+    student_cls, teacher_global_target = _cls_global_target_embeddings(output)
+    return F.mse_loss(student_cls, teacher_global_target)
+
+
+def compute_cls_global_target_diagnostic(output: MJEPAPredictions) -> dict[str, float]:
+    """Measure global-target loss before and after cyclically shuffling CLS identity."""
+    student_cls, teacher_global_target = _cls_global_target_embeddings(output)
+    shuffled_student_cls = torch.roll(student_cls, shifts=1, dims=0)
+    true_loss = F.mse_loss(student_cls, teacher_global_target).item()
+    shuffled_loss = F.mse_loss(shuffled_student_cls, teacher_global_target).item()
+    return {
+        "pretrain/validation_cls_global_loss": true_loss,
+        "pretrain/validation_cls_global_loss_shuffled": shuffled_loss,
+        "pretrain/validation_cls_global_shuffle_gap": shuffled_loss - true_loss,
+        "pretrain/validation_cls_global_student_norm": student_cls.norm(dim=-1).mean().item(),
+        "pretrain/validation_cls_global_teacher_norm": teacher_global_target.norm(dim=-1).mean().item(),
+    }
+
+
 def run_optimizer_step(
     optimizer: OptimizerLike,
     scheduler: SchedulerLike,
@@ -198,6 +239,7 @@ def train(
     wandb_run_id: str | None = None,
     output_dir: Path | None = None,
     max_grad_norm: float | None = None,
+    cls_global_target_loss_weight: float = DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT,
     progress_callback: ProgressCallback | None = None,
     first_cycle_callback: FirstCycleCallback | None = None,
 ) -> None:
@@ -206,6 +248,13 @@ def train(
     log_dir = output_dir if output_dir is not None else (Path(wandb.run.dir) if wandb.run is not None else None)
     unwrapped_jepa = jepa.module if isinstance(jepa, DDP) else jepa
     assert isinstance(unwrapped_jepa, MJEPA)
+    if cls_global_target_loss_weight < 0:
+        raise ValueError("CLS global-target loss weight must be non-negative")
+    if cls_global_target_loss_weight > 0:
+        if unwrapped_jepa.student.config.num_cls_tokens != 1:
+            raise ValueError("CLS global-target loss requires exactly one student CLS token")
+        if unwrapped_jepa.config.cls_prediction_mode != ADALN_BLIND_CLS_PREDICTION_MODE:
+            raise ValueError("CLS global-target loss requires the visually blinded AdaLN predictor mode")
     optimizer.zero_grad()
 
     # DataLoader setup
@@ -234,6 +283,7 @@ def train(
     train_loss = tm.RunningMean(window=WINDOW).cuda()
     train_loss_jepa = tm.RunningMean(window=WINDOW).cuda()
     train_loss_jepa_cls = tm.RunningMean(window=WINDOW).cuda()
+    train_loss_cls_global = tm.RunningMean(window=WINDOW).cuda()
     train_loss_sigreg = tm.RunningMean(window=WINDOW).cuda()
     train_loss_gram = tm.RunningMean(window=WINDOW).cuda()
     has_jepa_loss_cls = False
@@ -299,6 +349,10 @@ def train(
                     has_gram_loss = True
 
                 ssl_loss = ssl_losses.reduce()
+                if cls_global_target_loss_weight > 0:
+                    cls_global_target_loss = compute_cls_global_target_loss(output)
+                    train_loss_cls_global.update(cls_global_target_loss)
+                    ssl_loss = ssl_loss + cls_global_target_loss * cls_global_target_loss_weight
 
                 # Compute linear probe loss
                 probe_pred = output.probes["cls"]
@@ -361,6 +415,12 @@ def train(
                     log_dict[GRAD_CLIP_TRIGGER_PCT_KEY] = compute_and_reset_mean_percentage(train_grad_clip_trigger_pct)
                 if has_jepa_loss_cls:
                     log_dict["pretrain/loss_jepa_cls"] = train_loss_jepa_cls.compute().item()
+                if cls_global_target_loss_weight > 0:
+                    cls_global_target_loss_value = train_loss_cls_global.compute().item()
+                    log_dict["pretrain/loss_cls_global"] = cls_global_target_loss_value
+                    log_dict["pretrain/loss_cls_global_weighted"] = (
+                        cls_global_target_loss_value * cls_global_target_loss_weight
+                    )
                 if has_sigreg_loss:
                     log_dict["pretrain/loss_sigreg"] = train_loss_sigreg.compute().item()
                 if has_gram_loss:
@@ -387,6 +447,7 @@ def train(
                 val_cpa.reset()
 
             cls_aux_diagnostics: dict[str, float] = {}
+            cls_global_target_diagnostics: dict[str, float] = {}
             for batch_index, (img, label) in enumerate(
                 tqdm(val_dataloader, desc="Validating: ", disable=not is_rank_zero(), leave=False)
             ):
@@ -404,6 +465,8 @@ def train(
                             unwrapped_jepa,
                             diagnostic_output,
                         )
+                        if diagnostic_output.student_output.num_cls_tokens == 1:
+                            cls_global_target_diagnostics = compute_cls_global_target_diagnostic(diagnostic_output)
                     else:
                         output = unwrapped_jepa.forward_teacher(img)
                         probe_pred = unwrapped_jepa.forward_probe(output)["cls"].view(B, -1)
@@ -423,6 +486,7 @@ def train(
             if val_cpa is not None:
                 log_dict.update(compute_and_reset_cpa_metrics(val_cpa, prefix="pretrain/validation"))
             log_dict.update(cls_aux_diagnostics)
+            log_dict.update(cls_global_target_diagnostics)
 
             # Add histogram logging
             if is_rank_zero():

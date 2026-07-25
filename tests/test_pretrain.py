@@ -27,6 +27,8 @@ from mjepa_cifar10.pretrain import (
     compute_and_reset_cpa_metrics,
     compute_and_reset_mean_percentage,
     compute_cls_aux_shuffle_diagnostic,
+    compute_cls_global_target_diagnostic,
+    compute_cls_global_target_loss,
     did_gradient_clip,
     get_gradient_norm_stats,
     get_gradient_sync_context,
@@ -669,6 +671,98 @@ def test_cls_aux_shuffle_diagnostic_blinds_cross_sample_identity(
         assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls[:, 0])
     else:
         assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls)
+
+
+def test_cls_global_target_loss_regresses_one_student_cls_to_pooled_teacher_visual_tokens() -> None:
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    loss = compute_cls_global_target_loss(predictions)
+
+    expected_target = teacher_output.visual_tokens.mean(dim=1)
+    assert loss == pytest.approx(torch.nn.functional.mse_loss(student_output.cls_tokens[:, 0], expected_target))
+
+
+def test_cls_global_target_loss_does_not_read_student_visual_or_register_tokens() -> None:
+    student_dense = torch.randn(
+        BATCH_SIZE,
+        1 + NUM_REGISTER_TOKENS + NUM_VISUAL_TOKENS,
+        HIDDEN_SIZE,
+        requires_grad=True,
+    )
+    student_output = ViTFeatures(
+        student_dense,
+        NUM_REGISTER_TOKENS,
+        num_cls_tokens=1,
+        tokenized_size=(2, 2),
+    )
+    teacher_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    compute_cls_global_target_loss(predictions).backward()
+
+    assert student_dense.grad is not None
+    assert torch.count_nonzero(student_dense.grad[:, 0]).item() > 0
+    assert torch.count_nonzero(student_dense.grad[:, 1:]).item() == 0
+
+
+def test_cls_global_target_diagnostic_compares_true_and_cross_sample_shuffled_cls() -> None:
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    metrics = compute_cls_global_target_diagnostic(predictions)
+
+    teacher_target = teacher_output.visual_tokens.mean(dim=1)
+    student_cls = student_output.cls_tokens[:, 0]
+    expected_true = torch.nn.functional.mse_loss(student_cls, teacher_target).item()
+    expected_shuffled = torch.nn.functional.mse_loss(torch.roll(student_cls, shifts=1, dims=0), teacher_target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_global_loss": expected_true,
+            "pretrain/validation_cls_global_loss_shuffled": expected_shuffled,
+            "pretrain/validation_cls_global_shuffle_gap": expected_shuffled - expected_true,
+            "pretrain/validation_cls_global_student_norm": student_cls.norm(dim=-1).mean().item(),
+            "pretrain/validation_cls_global_teacher_norm": teacher_target.norm(dim=-1).mean().item(),
+        }
+    )
+
+
+def test_cls_global_target_loss_requires_exactly_one_student_cls_token() -> None:
+    student_output = make_features(num_cls_tokens=NUM_CLS_TOKENS)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=make_features(num_cls_tokens=NUM_CLS_TOKENS),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    with pytest.raises(ValueError, match="exactly one student CLS token"):
+        compute_cls_global_target_loss(predictions)
 
 
 def test_forward_probe_pools_cls_tokens_before_linear_head(mocker) -> None:

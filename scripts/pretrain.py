@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 import os
 import shutil
 import socket
@@ -14,7 +15,7 @@ from typing import Final, NamedTuple
 import torch
 import torch.distributed as dist
 import yaml
-from mjepa.jepa import CrossAttentionPredictor, JEPAConfig
+from mjepa.jepa import ADALN_BLIND_CLS_PREDICTION_MODE, CrossAttentionPredictor, JEPAConfig
 from mjepa.optimizer import OptimizerConfig, OptimizerLike, SchedulerLike
 from mjepa.trainer import (
     CheckpointMetadata,
@@ -34,7 +35,12 @@ from vit import ViTConfig
 import wandb
 from mjepa_cifar10.data import cifar10_split_fingerprint, get_test_dataloader, get_train_dataloader, get_val_dataloader
 from mjepa_cifar10.experiment import append_metric_record, write_run_metadata
-from mjepa_cifar10.pretrain import CIFAR10MJEPA, FirstCycleCallback, train
+from mjepa_cifar10.pretrain import (
+    CIFAR10MJEPA,
+    DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT,
+    FirstCycleCallback,
+    train,
+)
 from mjepa_cifar10.research.cls_path_benchmark import benchmark_cls_prediction_path, write_cls_path_benchmark
 from mjepa_cifar10.research.lifecycle_events import RunLifecycleReporter
 from mjepa_cifar10.research.runtime import (
@@ -111,6 +117,21 @@ def instantiate_jepa(backbone_config: ViTConfig, jepa_config: JEPAConfig, device
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     return CIFAR10MJEPA(jepa_config, backbone, predictor)
+
+
+def validate_cls_global_target_configuration(
+    backbone_config: ViTConfig,
+    jepa_config: JEPAConfig,
+    loss_weight: float,
+) -> None:
+    if not math.isfinite(loss_weight) or loss_weight < 0:
+        raise ValueError("cls_global_target_loss_weight must be a finite non-negative float")
+    if loss_weight == 0:
+        return
+    if backbone_config.num_cls_tokens != 1:
+        raise ValueError("CLS global-target loss requires exactly one student CLS token")
+    if jepa_config.cls_prediction_mode != ADALN_BLIND_CLS_PREDICTION_MODE:
+        raise ValueError("CLS global-target loss requires cls_prediction_mode='adaln_blind'")
 
 
 def restore_pretraining_checkpoint(
@@ -196,6 +217,10 @@ def main(args: Namespace) -> None:
     assert isinstance(jepa_config, JEPAConfig)
     assert isinstance(optimizer_config, OptimizerConfig)
     assert isinstance(trainer_config, TrainerConfig)
+    cls_global_target_loss_weight = float(
+        config.get("cls_global_target_loss_weight", DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT)
+    )
+    validate_cls_global_target_configuration(backbone_config, jepa_config, cls_global_target_loss_weight)
     if args.log_dir and not args.log_dir.is_dir():
         raise NotADirectoryError(args.log_dir)
     if args.exact_log_dir and not args.exact_log_dir.is_dir():
@@ -320,6 +345,7 @@ def main(args: Namespace) -> None:
                 "jepa": jepa_config.__dict__,
                 "optimizer": optimizer_config.__dict__,
                 "trainer": trainer_config.__dict__,
+                "cls_global_target_loss_weight": cls_global_target_loss_weight,
                 **provenance_config,
             },
             tags=("pretrain", config_path.stem),
@@ -335,6 +361,7 @@ def main(args: Namespace) -> None:
                 "provenance": provenance_config,
                 "local_weight_disposition": "retained",
                 "model_class": args.model_class,
+                "cls_global_target_loss_weight": cls_global_target_loss_weight,
             },
         )
         cls_path_benchmark = benchmark_cls_prediction_path(unwrapped_jepa)
@@ -381,6 +408,7 @@ def main(args: Namespace) -> None:
             wandb_run_id=wandb_run_id or (wandb.run.id if wandb.run is not None else None),
             output_dir=run_log_dir,
             max_grad_norm=optimizer_config.max_grad_norm,
+            cls_global_target_loss_weight=cls_global_target_loss_weight,
             progress_callback=lifecycle_reporter.progress if lifecycle_reporter is not None else None,
             first_cycle_callback=first_cycle_callback,
         )

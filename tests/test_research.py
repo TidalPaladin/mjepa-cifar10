@@ -326,6 +326,84 @@ def test_screening_promotion_adds_only_four_replication_trials(tmp_path: Path) -
     assert sum(run.spec.kind == "pretrain" for run in state.runs.values()) == 8
 
 
+def test_screening_control_gate_requires_peak_gain_before_cost_promotion(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        promotion=PromotionRules(
+            accuracy_gain=1.0,
+            convergence_gain=0.99,
+            auc_gain=1.0,
+            maximum_accuracy_loss=0.04,
+            cost_gain=0.05,
+            screening_control_variant="variant-0",
+            screening_control_accuracy_gain=0.05,
+        ),
+    )
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.id: RunState(run, status="completed") for run in spec.initial_runs()},
+    )
+    summaries = {
+        "pretrain-baseline-seed0": make_summary(
+            peak=0.91,
+            time_to_95=100,
+            time_auc=0.50,
+            active_seconds_at_horizon=500,
+            cls_latency_ms=4.0,
+        ),
+        "pretrain-variant-0-seed0": make_summary(
+            peak=0.83,
+            time_to_95=None,
+            time_auc=0.45,
+            active_seconds_at_horizon=450,
+            cls_latency_ms=2.0,
+        ),
+        "pretrain-variant-1-seed0": make_summary(
+            peak=0.879,
+            time_to_95=None,
+            time_auc=0.46,
+            active_seconds_at_horizon=450,
+            cls_latency_ms=2.0,
+        ),
+        "pretrain-variant-2-seed0": make_summary(
+            peak=0.885,
+            time_to_95=None,
+            time_auc=0.47,
+            active_seconds_at_horizon=450,
+            cls_latency_ms=2.0,
+        ),
+    }
+
+    advance_study(state, spec, summaries)
+
+    assert state.phase == "confirmation"
+    assert state.winner == "variant-2"
+    assert state.runs["pretrain-variant-0-seed0"].decision == "rejected"
+    assert state.runs["pretrain-variant-1-seed0"].decision == "rejected"
+    assert state.runs["pretrain-variant-2-seed0"].decision == "promoted"
+
+
+@pytest.mark.parametrize(
+    "rules",
+    (
+        PromotionRules(screening_control_variant="variant-0"),
+        PromotionRules(screening_control_accuracy_gain=0.05),
+        PromotionRules(screening_control_variant="missing", screening_control_accuracy_gain=0.05),
+        PromotionRules(screening_control_variant="baseline", screening_control_accuracy_gain=0.05),
+        PromotionRules(screening_control_variant="variant-0", screening_control_accuracy_gain=0.0),
+    ),
+)
+def test_study_rejects_invalid_screening_control_gate(tmp_path: Path, rules: PromotionRules) -> None:
+    spec = replace(make_spec(tmp_path), promotion=rules)
+
+    with pytest.raises(ValueError, match="screening control"):
+        spec.validate(require_files=False)
+
+
 def test_reference_baseline_schedules_only_muon_candidates(tmp_path: Path) -> None:
     spec = replace(
         make_spec(tmp_path, variants=5),
