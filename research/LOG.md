@@ -584,3 +584,24 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Checkpoint disposition: see each run below; deleted weights are not recoverable.
 
 - `pretrain-cls-projected-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-25T18:57:47.488922+00:00; finished=2026-07-25T19:00:36.869067+00:00; terminal_event=34411b30-5fc8-42a1-a80b-4427eb8d3b8a; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-up-project-v1-smoke/runs/pretrain-cls-projected-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/774fcc78); checkpoint=retained; metrics=peak_accuracy=0.226200, final_accuracy=0.226200, step_to_90=2812, step_to_95=2812, active_seconds_to_90=152.945, active_seconds_to_95=152.945, step_auc=0.226200, active_time_auc=0.226200, active_seconds_at_step_horizon=152.945, cls_path_latency_median_ms=1.784352, cls_path_latency_p90_ms=1.804288; error=none
+<!-- autoresearch-operation:{"content_sha256":"cd59bd9fd9a48d2412b09f7723bc639ae01b47cd261b52c4c474f6bdc04eef19","operation_id":"513ce505f641e947d531ec0f3f2e8a07"} -->
+
+<!-- study:cls-up-project-v1:phase:no-promotion -->
+## cls-up-project-v1
+
+- Question: Can one backbone CLS token preserve the strong four-CLS baseline quality when a learned affine map expands it to four context tokens for the unchanged legacy predictor replay?
+- Hypothesis: The projected single-CLS candidate will reach at least 0.9050 peak online-probe validation accuracy, no more than 0.005 below the fixed seed-0 four-CLS baseline peak of 0.9100.
+- Mechanisms and exact changes:
+  - `four-cls-legacy`: Mechanism: Run the predictor twice, using student visual tokens for the main pass and four student CLS tokens for the auxiliary legacy cross-attention pass. Changes: not recorded.
+  - `single-cls-projected`: Mechanism: Encode one student CLS token, apply one trainable affine map from D to 4D, reshape it to four D-dimensional context tokens, and use those tokens only in the auxiliary legacy cross-attention predictor pass. Changes: Set backbone num_cls_tokens from 4 to 1.; Set cls_prediction_mode to projected_cross_attention.; Add one affine D-to-4D projection with truncated-normal weight initialization at standard deviation 0.02 and zero bias.
+- Launch code provenance:
+  - `pretrain-single-cls-projected-seed0`: parent=`9e598eee12b1200258a5e77b3bc72b362a2b3a81` (`codex/research/cls-up-project-v1`), mjepa=`2b2ed73bdc53c13790c49b3e8bd1c6462b691120` (`codex/research/cls-up-project-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-up-project-v1/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-cls-projected-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-25T19:05:47.036135+00:00; finished=2026-07-25T22:05:15.121547+00:00; terminal_event=b59d9ae3-443a-44bb-95ad-a8f0ecc24578; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-up-project-v1/runs/pretrain-single-cls-projected-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/bad73acf); checkpoint=retained; metrics=peak_accuracy=0.872400, final_accuracy=0.872400, step_to_90=7395, step_to_95=14355, active_seconds_to_90=4576.421, active_seconds_to_95=8872.851, step_auc=0.775052, active_time_auc=0.774680, active_seconds_at_step_horizon=10751.296, cls_path_latency_median_ms=14.311936, cls_path_latency_p90_ms=14.539776; error=none
