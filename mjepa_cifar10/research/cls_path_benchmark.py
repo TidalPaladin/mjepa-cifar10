@@ -10,7 +10,11 @@ from statistics import median
 from typing import Any, Final, cast
 
 import torch
-from mjepa.jepa import ADALN_CLS_PREDICTION_MODES, CrossAttentionPredictor
+from mjepa.jepa import (
+    ADALN_CLS_PREDICTION_MODES,
+    PROJECTED_CLS_PREDICTION_MODE,
+    CrossAttentionPredictor,
+)
 from mjepa.model import MJEPA
 
 
@@ -61,6 +65,20 @@ def count_cls_prediction_path_parameters(predictor: CrossAttentionPredictor) -> 
     return _unique_parameter_count(tuple(modules))
 
 
+def _run_cls_prediction_path(
+    jepa: MJEPA,
+    tokenized_size: tuple[int, int],
+    cls_tokens: torch.Tensor,
+    target_mask: torch.Tensor,
+) -> torch.Tensor:
+    if jepa.config.cls_prediction_mode == PROJECTED_CLS_PREDICTION_MODE:
+        projected_context = jepa.predictor.project_cls_context(cls_tokens)
+        return jepa.forward_predictor(tokenized_size, projected_context, None, target_mask, rope_seed=0)
+    if jepa.config.cls_prediction_mode in ADALN_CLS_PREDICTION_MODES:
+        return jepa.forward_blind_cls_predictor(tokenized_size, cls_tokens[:, 0], target_mask)
+    return jepa.forward_predictor(tokenized_size, cls_tokens, None, target_mask, rope_seed=0)
+
+
 def benchmark_cls_prediction_path(
     jepa: MJEPA,
     *,
@@ -69,7 +87,7 @@ def benchmark_cls_prediction_path(
     warmup_iterations: int = DEFAULT_WARMUP_ITERATIONS,
     measured_iterations: int = DEFAULT_MEASURED_ITERATIONS,
 ) -> CLSPathBenchmarkResult:
-    """Measure the isolated legacy or blinded CLS auxiliary path with CUDA events."""
+    """Measure the isolated configured CLS auxiliary path with CUDA events."""
     device = next(jepa.predictor.parameters()).device
     if device.type != "cuda":
         raise ValueError("CLS path benchmark requires a CUDA model")
@@ -96,9 +114,7 @@ def benchmark_cls_prediction_path(
     )
 
     def run_path() -> torch.Tensor:
-        if jepa.config.cls_prediction_mode in ADALN_CLS_PREDICTION_MODES:
-            return jepa.forward_blind_cls_predictor(tokenized_size, cls_tokens[:, 0], target_mask)
-        return jepa.forward_predictor(tokenized_size, cls_tokens, None, target_mask, rope_seed=0)
+        return _run_cls_prediction_path(jepa, tokenized_size, cls_tokens, target_mask)
 
     was_training = jepa.predictor.training
     jepa.predictor.eval()

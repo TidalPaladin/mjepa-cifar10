@@ -1,0 +1,96 @@
+id: cls-up-project-v1
+question: Can one backbone CLS token preserve the strong four-CLS baseline quality when a learned affine map expands it to four context tokens for the unchanged legacy predictor replay?
+hypothesis: The projected single-CLS candidate will reach at least 0.9050 peak online-probe validation accuracy, no more than 0.005 below the fixed seed-0 four-CLS baseline peak of 0.9100.
+rejection_condition: Reject the mechanism if the candidate peak online-probe validation accuracy is below 0.9050, the auxiliary prediction path sees student visual tokens, or the learned projection does not receive gradients. Do not add fallback variants or launch paired confirmation in this candidate-only follow-up.
+checkpoint_plan: Retain the candidate checkpoint and backbone because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: four-cls-legacy
+  config: config/pretrain/vit-small.yaml
+  finetune_config: config/finetune/vit-small.yaml
+  hypothesis: Four independently learned backbone CLS tokens provide the strong fixed quality reference.
+  mechanism: Run the predictor twice, using student visual tokens for the main pass and four student CLS tokens for the auxiliary legacy cross-attention pass.
+  changes: []
+
+baseline_reference:
+  study_id: cls-global-target-v1
+  run_id: pretrain-four-cls-legacy-seed0
+  metrics: research/baselines/cls-global-target-v1-four-cls-legacy-seed0.metrics.jsonl
+  metrics_sha256: 81a387a429495ed52cd03f97b646e32f288cccac23bcb063611f975f2b1d35a9
+
+variants:
+  - id: single-cls-projected
+    config: config/pretrain/vit-small-single-cls-projected.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Four learned affine views of one compressed global embedding will supply enough context diversity for the unchanged legacy predictor to recover the four-CLS quality floor.
+    mechanism: Encode one student CLS token, apply one trainable affine map from D to 4D, reshape it to four D-dimensional context tokens, and use those tokens only in the auxiliary legacy cross-attention predictor pass.
+    changes:
+      - Set backbone num_cls_tokens from 4 to 1.
+      - Set cls_prediction_mode to projected_cross_attention.
+      - Add one affine D-to-4D projection with truncated-normal weight initialization at standard deviation 0.02 and zero bias.
+
+methodology:
+  projection:
+    input: The only student CLS token after masked-context encoding, with shape [B, 1, D].
+    transform: One learned affine map from D to 4D followed only by reshape to [B, 4, D].
+    output_slots: 4
+    exclusions: Nonlinearity, normalization, slot embeddings, student visual tokens, and teacher features.
+    initialization: Truncated normal with standard deviation 0.02 for weights and zero bias, matching the existing predictor projection convention.
+    ownership: The predictor owns the projection so its parameters participate in optimization, gradient validation, checkpointing, resume, and isolated-path parameter accounting.
+  predictor:
+    main_pass: Unchanged legacy cross-attention prediction from masked student visual tokens.
+    auxiliary_pass: Unchanged legacy cross-attention prediction from the four projected CLS context tokens.
+    target: Existing masked full-image teacher visual tokens.
+    loss: Existing auxiliary JEPA prediction loss at unit weight.
+  evaluation:
+    primary_gate: Candidate peak online-probe validation accuracy must be at least 0.9050.
+    fixed_reference_peak: 0.9100000262260437
+    maximum_peak_loss: 0.005
+    secondary_metrics:
+      - Final online-probe validation accuracy.
+      - Common-step and common-active-time convergence metrics.
+      - True, shuffled, and shuffled-minus-true auxiliary CLS losses.
+      - CLS-patch alignment.
+      - Isolated CLS-path latency and executed parameter count.
+    formal_promotion: Preserve the repository standard promotion routes. Passing only the 0.005 equivalence gate supports the mechanism hypothesis but is not a reference promotion or confirmation.
+    no_fallback_variants: true
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-up-project-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 2b2ed73bdc53c13790c49b3e8bd1c6462b691120
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 86400
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

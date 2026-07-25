@@ -1,0 +1,55 @@
+id: cls-up-project-v1-smoke
+question: Can the projected single-CLS path train, validate, benchmark, checkpoint, summarize, and notify through one managed GPU epoch?
+hypothesis: The one-epoch smoke run will complete with a four-token projected auxiliary context, projection gradients, online W&B telemetry, isolated-path benchmark, first-cycle checkpoint, and accepted lifecycle notifications.
+rejection_condition: Reject the mechanical validation if the run fails, times out, lacks the projection path benchmark or first-cycle artifacts, cannot summarize, or its notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint through formal launch validation. Do not delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-projected-smoke
+  config: config/pretrain/smoke-cls-projected.yaml
+  hypothesis: The projected single-CLS path completes one managed epoch without visual-token leakage into its auxiliary context.
+  mechanism: Exercise the learned one-to-four CLS projection and unchanged legacy predictor replay at smoke scale.
+  changes:
+    - Use one CLS token and projected_cross_attention mode.
+    - Use a one-block, one-epoch mechanical configuration.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-up-project-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 2b2ed73bdc53c13790c49b3e8bd1c6462b691120
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

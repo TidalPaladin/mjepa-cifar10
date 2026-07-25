@@ -540,3 +540,27 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Tracking and timing: All four W&B runs finished, every lifecycle notification was accepted, and summary publication reported no errors. The study spanned 21,647.232 wall seconds; summed run wall time was 42,382.450 seconds.
 - Retention: Retain every checkpoint and backbone as preregistered. No destructive retention action is authorized or applied.
 - Next falsifiable hypothesis: In a separate preregistered study, replace raw-space regression with a disposable projected global objective that centers and unit-normalizes the pooled teacher target and enforces a batch variance floor on the student projection. Test whether removing scale as an optimization shortcut recovers at least 0.05 peak accuracy over the blinded control while preserving the same active-time and latency gates. Do not treat this as a fallback variant of the closed study.
+<!-- autoresearch-operation:{"content_sha256":"02325521a8849efd17eab73e029f56e48c37c11d3c12982024abc06ec6920847","operation_id":"cls-up-project-v1-preregistration-2026-07-25-v1"} -->
+
+## cls-up-project-v1 preregistration (2026-07-25)
+
+- Question: Can one backbone CLS token preserve the strong four-CLS baseline quality when a learned affine map expands it to four context tokens for the unchanged legacy predictor replay?
+- Mechanism: Encode one student CLS token, apply a trainable affine map from D to 4D, reshape it to four D-dimensional slots, and use those slots only as context for the auxiliary legacy cross-attention predictor pass. Keep the main visual-token predictor pass unchanged.
+- Information bottleneck: The auxiliary path receives no student visual tokens, teacher features, nonlinearity, normalization, or slot embeddings. All four context slots are learned views of the same D-dimensional student CLS state.
+- Fixed reference: Reuse `cls-global-target-v1/pretrain-four-cls-legacy-seed0`. Its exact 40-point validation curve is committed at `research/baselines/cls-global-target-v1-four-cls-legacy-seed0.metrics.jsonl` with SHA-256 `81a387a429495ed52cd03f97b646e32f288cccac23bcb063611f975f2b1d35a9`.
+- Run plan: Launch only `pretrain-single-cls-projected-seed0`. This candidate-only follow-up uses one scientific pretraining trial, physical GPU 1 or 2, one concurrent job, and a 24-hour timeout. Do not add fallback variants or launch paired confirmation.
+- Primary hypothesis gate: Peak online-probe validation accuracy must be at least 0.9050, no more than 0.005 below the fixed baseline peak of 0.9100. The repository’s stricter standard promotion routes remain unchanged; passing only this equivalence gate supports the mechanism hypothesis but is not a reference promotion or confirmation.
+- Secondary metrics: Record final accuracy, fixed-target convergence, common-horizon AUC and active time, true and shuffled auxiliary CLS losses, CLS-patch alignment, isolated path latency, and executed parameter count.
+- Data and leakage control: Use the fixed 45,000/5,000 stratified CIFAR-10 training split. The teacher remains detached under inference mode. Do not inspect the official test set or launch supervised evaluation.
+- Tracking and provenance: Use online W&B at `tidalpaladin/mjepa-cifar10`, group `cls-up-project-v1`. Launch emits metrics, configs, and provenance; summary emits metrics and provenance. The parent and local tandem SHAs are fixed before launch.
+- Retention: Retain the candidate checkpoint and backbone because destructive retention is not authorized.
+<!-- autoresearch-operation:{"content_sha256":"ef380213c42b5dd3bcff7bb4b3bad7c5068889b22ab4047a0a78f07fbdf30cb0","operation_id":"cls-up-project-v1-smoke-preregistration-2026-07-25-v1"} -->
+
+## cls-up-project-v1-smoke preregistration (2026-07-25)
+
+- Purpose: Exercise one online-W&B GPU epoch with the projected single-CLS path before the scientific candidate.
+- Required evidence: Four-token projected auxiliary context, projection gradients, isolated-path latency and parameter count that include the projection, finite training and validation metrics, progress and first-cycle events, checkpoint and backbone files, summary recovery, and accepted lifecycle notifications.
+- Managed paths: Specification `research/studies/cls-up-project-v1-smoke.yaml`; state and run artifacts under `logs/research/cls-up-project-v1-smoke`.
+- Resources: One mechanical pretraining run, one concurrent job on physical GPU 1 or 2, and a one-hour timeout.
+- Rejection: Do not launch the scientific candidate if any required gradient, metric, benchmark, recovery artifact, or lifecycle transition is missing.
+- Retention: Retain the smoke checkpoint through formal launch validation.

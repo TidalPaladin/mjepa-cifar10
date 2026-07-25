@@ -30,6 +30,7 @@ CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-shared.yaml": "adaln_shared",
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-projected.yaml": "projected_cross_attention",
 }
 CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
