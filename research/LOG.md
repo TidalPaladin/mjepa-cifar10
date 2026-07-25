@@ -440,3 +440,11 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Mechanism evidence: Reducing the legacy model from four CLS tokens to one lost 0.0814 peak accuracy. Blinded AdaLN recovered only 0.0048 over that single-CLS control, while sharing CLS conditioning with the main predictor lost 0.0662 relative to blinded AdaLN. Positive final shuffled-minus-true auxiliary loss gaps for both AdaLN variants show that predictions remained sensitive to CLS identity, but this dependence did not preserve online-probe quality.
 - Decision: Reject all three candidates. Do not run paired confirmation, supervised fine-tuning, or the official test set.
 - Next falsifiable hypothesis: In a separate preregistered study, add a direct loss from one student CLS token to a pooled teacher-global target alongside the blinded patch-target loss. Require at least 0.05 absolute peak-accuracy recovery over blinded AdaLN while retaining at least a 5% common-step active-time gain and keeping student visual tokens unavailable to the auxiliary predictor.
+<!-- autoresearch-operation:{"content_sha256":"854694eea42ba52ec80b767a22ff28343c0e4fe3d3621bf221c038ec933f87e4","operation_id":"cls-token-adaln-v1-retention-2026-07-25-v1"} -->
+
+## cls-token-adaln-v1 retention (2026-07-25)
+
+- Baseline protection: Retained `checkpoint.pt` and `backbone.safetensors` for `pretrain-four-cls-legacy-seed0`.
+- Rejected candidates: Deleted `checkpoint.pt` and `backbone.safetensors` for `pretrain-single-cls-legacy-seed0`, `pretrain-single-cls-adaln-blind-seed0`, and `pretrain-single-cls-adaln-shared-seed0`.
+- Storage: Freed 2,095,186,459 bytes. The deleted weights are not recoverable; metrics, configuration, provenance, and terminal records remain.
+- External record: Republished the study summary to W&B after retention with each rejected run marked `deleted-not-recoverable`.
