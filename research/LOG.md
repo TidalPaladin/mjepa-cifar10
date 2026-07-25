@@ -564,3 +564,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Resources: One mechanical pretraining run, one concurrent job on physical GPU 1 or 2, and a one-hour timeout.
 - Rejection: Do not launch the scientific candidate if any required gradient, metric, benchmark, recovery artifact, or lifecycle transition is missing.
 - Retention: Retain the smoke checkpoint through formal launch validation.
+<!-- autoresearch-operation:{"content_sha256":"dbf48a9f29c7c63aca0e3739516c9ef86ff4f6926a76fbfd81db8929cfc70e25","operation_id":"86725410dea38c713e9ea6b75e280ee7"} -->
+
+<!-- study:cls-up-project-v1-smoke:phase:no-promotion -->
+## cls-up-project-v1-smoke
+
+- Question: Can the projected single-CLS path train, validate, benchmark, checkpoint, summarize, and notify through one managed GPU epoch?
+- Hypothesis: The one-epoch smoke run will complete with a four-token projected auxiliary context, projection gradients, online W&B telemetry, isolated-path benchmark, first-cycle checkpoint, and accepted lifecycle notifications.
+- Mechanisms and exact changes:
+  - `cls-projected-smoke`: Mechanism: Exercise the learned one-to-four CLS projection and unchanged legacy predictor replay at smoke scale. Changes: Use one CLS token and projected_cross_attention mode.; Use a one-block, one-epoch mechanical configuration.
+- Launch code provenance:
+  - `pretrain-cls-projected-smoke-seed0`: parent=`b28eaf683f44f58c313f342cc94bcc4c0143317d` (`codex/research/cls-up-project-v1`), mjepa=`2b2ed73bdc53c13790c49b3e8bd1c6462b691120` (`codex/research/cls-up-project-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-up-project-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-projected-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-25T18:57:47.488922+00:00; finished=2026-07-25T19:00:36.869067+00:00; terminal_event=34411b30-5fc8-42a1-a80b-4427eb8d3b8a; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-up-project-v1-smoke/runs/pretrain-cls-projected-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/774fcc78); checkpoint=retained; metrics=peak_accuracy=0.226200, final_accuracy=0.226200, step_to_90=2812, step_to_95=2812, active_seconds_to_90=152.945, active_seconds_to_95=152.945, step_auc=0.226200, active_time_auc=0.226200, active_seconds_at_step_horizon=152.945, cls_path_latency_median_ms=1.784352, cls_path_latency_p90_ms=1.804288; error=none
