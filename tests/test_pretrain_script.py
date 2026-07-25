@@ -228,6 +228,13 @@ def test_pretrain_checkpoint_argument_is_forwarded_to_full_state_restore(mocker,
     assert resume == (17, 4, 91.25, "wandb-123")
 
 
+def test_pretrain_resume_preserves_launch_cls_path_benchmark(tmp_path: Path) -> None:
+    pretrain_script = load_pretrain_script_module()
+
+    assert pretrain_script.should_benchmark_cls_prediction_path(None) is True
+    assert pretrain_script.should_benchmark_cls_prediction_path(tmp_path / "checkpoint.pt") is False
+
+
 def test_pretrain_resume_rejects_different_wandb_run_id(mocker, tmp_path: Path) -> None:
     pretrain_script = load_pretrain_script_module()
     metadata = CheckpointMetadata(17, 4, (32, 32), 91.25, "original")

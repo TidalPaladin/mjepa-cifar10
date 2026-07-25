@@ -169,6 +169,11 @@ def apply_checkpoint_image_size(backbone_config: ViTConfig, metadata: Checkpoint
     return replace(backbone_config, img_size=list(metadata.img_size))
 
 
+def should_benchmark_cls_prediction_path(checkpoint: Path | None) -> bool:
+    """Preserve the immutable launch benchmark when restoring a checkpoint."""
+    return checkpoint is None
+
+
 def build_managed_lifecycle_reporter(
     args: Namespace,
     run_log_dir: Path | None,
@@ -364,13 +369,14 @@ def main(args: Namespace) -> None:
                 "cls_global_target_loss_weight": cls_global_target_loss_weight,
             },
         )
-        cls_path_benchmark = benchmark_cls_prediction_path(unwrapped_jepa)
-        cls_path_metrics = cls_path_benchmark.to_metrics()
-        wandb.config.update({"cls_path_benchmark": cls_path_benchmark.to_dict()})
-        wandb.log(cls_path_metrics, step=initial_step)
-        append_metric_record(run_log_dir, initial_step, cls_path_metrics)
-        if run_log_dir is not None:
-            write_cls_path_benchmark(run_log_dir / "cls-path-benchmark.json", cls_path_benchmark)
+        if should_benchmark_cls_prediction_path(args.checkpoint):
+            cls_path_benchmark = benchmark_cls_prediction_path(unwrapped_jepa)
+            cls_path_metrics = cls_path_benchmark.to_metrics()
+            wandb.config.update({"cls_path_benchmark": cls_path_benchmark.to_dict()})
+            wandb.log(cls_path_metrics, step=initial_step)
+            append_metric_record(run_log_dir, initial_step, cls_path_metrics)
+            if run_log_dir is not None:
+                write_cls_path_benchmark(run_log_dir / "cls-path-benchmark.json", cls_path_benchmark)
     if dist.is_initialized():
         dist.barrier()
 

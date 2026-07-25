@@ -470,3 +470,32 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Purpose: Exercise one online-W&B GPU epoch with global-loss weight 0.1 before the scientific screen. Require finite raw and weighted losses, global and patch shuffle diagnostics, student gradients, isolated-path benchmark output, progress and first-cycle events, checkpoint and backbone files, resume, summary, accepted notification, and retained weights.
 - Managed paths: Specification `research/studies/cls-global-target-v1-smoke.yaml`; state and run artifacts under `logs/research/cls-global-target-v1-smoke`.
 - Rejection: Do not launch the formal study if any required metric, recovery artifact, or lifecycle transition is missing.
+<!-- autoresearch-operation:{"content_sha256":"364c0d164e5b1602709b2c9cca49c55563051debdd68cc1efdb2047f321378fc","operation_id":"40182e799fde5e51e1a19014232d2dc3"} -->
+
+<!-- study:cls-global-target-v1-smoke:phase:no-promotion -->
+## cls-global-target-v1-smoke
+
+- Question: Can direct CLS-to-teacher-global regression train, validate, checkpoint, resume, summarize, and notify through one managed GPU epoch?
+- Hypothesis: The one-epoch smoke run will produce finite raw and weighted global losses, identity-sensitive global and patch diagnostics, valid student gradients, a recoverable checkpoint, an isolated-path benchmark, and accepted lifecycle notifications.
+- Mechanisms and exact changes:
+  - `cls-global-target-smoke`: Mechanism: Exercise the direct student-CLS to pooled-teacher MSE alongside the blinded AdaLN patch-target path. Changes: Use one CLS token and adaln_blind mode.; Add cls_global_target_loss_weight 0.1.; Use a one-block, one-epoch mechanical configuration.
+- Launch code provenance:
+  - `pretrain-cls-global-target-smoke-seed0`: parent=`12c0abd72ae78f0002bfe6e16afe8bd5197afbf6` (`codex/research/cls-global-target-v1`), mjepa=`c63b014aacc1860e18b0f45aca65fad88396b95e` (`codex/research/cls-token-adaln-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-global-target-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-global-target-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-25T11:19:38.393621+00:00; finished=2026-07-25T11:21:53.149084+00:00; terminal_event=67663664-0250-4f6c-8de5-b8787444e410; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-global-target-v1-smoke/runs/pretrain-cls-global-target-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/fce11404); checkpoint=retained; metrics=peak_accuracy=0.217200, final_accuracy=0.217200, step_to_90=2812, step_to_95=2812, active_seconds_to_90=121.405, active_seconds_to_95=121.405, step_auc=0.217200, active_time_auc=0.217200, active_seconds_at_step_horizon=121.405, cls_path_latency_median_ms=0.775168, cls_path_latency_p90_ms=0.790528; error=none
+<!-- autoresearch-operation:{"content_sha256":"2bc884140a2406d2e198d62f564fb2233ff7fa9fa455032b16b234aa2d655dbc","operation_id":"cls-global-target-v1-smoke-interpretation-2026-07-25-v1"} -->
+
+## cls-global-target-v1-smoke interpretation (2026-07-25)
+
+- Outcome: Mechanical validation passed. The one-epoch online run completed at optimizer step 2,812 in 121.405 active seconds with peak validation-probe accuracy 0.2172 and isolated-path median latency 0.775168 ms.
+- Loss evidence: W&B contains 56 paired raw and weighted global-loss records. Every value is finite, the weighted value equals 0.1 times the raw value exactly, and raw loss declined from 0.591156 to 0.027604 across the recorded history.
+- Identity evidence: On the deterministic validation batch, global shuffled-minus-true loss was 0.203268 and blinded patch shuffled-minus-true loss was 0.130524. Both positive gaps show sensitivity to the paired CLS representation.
+- Recovery evidence: The first-cycle and terminal notifications were accepted; terminal status is completed with exit code 0; checkpoint.pt and backbone.safetensors are retained. The exact checkpoint restored and exited without another epoch. The first resume attempt exposed a recomputed-benchmark W&B config collision; a regression-tested fix now preserves the launch benchmark on resume.
+- Decision: Proceed to the preregistered four-run seed-0 screen after committing and pushing the resume fix, then passing formal preflight and dry-run checks.
