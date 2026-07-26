@@ -18,7 +18,7 @@ from mjepa_cifar10.research.codex_notifications import (
     queue_notification_from_terminal,
     write_notification_event,
 )
-from mjepa_cifar10.research.inventory import index_local_runs, inventory_counts, open_inventory
+from mjepa_cifar10.research.inventory import index_local_runs, index_wandb_runs, inventory_counts, open_inventory
 from mjepa_cifar10.research.metrics import (
     ConvergenceSummary,
     MetricPoint,
@@ -1195,6 +1195,27 @@ def test_inventory_combines_config_metrics_packages_and_weight_availability(tmp_
     assert "val/acc" in row[1]
     assert "torch==2.13.0" in row[2]
     assert row[3] == 1
+
+
+def test_wandb_inventory_passes_history_keys_as_a_list(mocker, tmp_path: Path) -> None:
+    run = SimpleNamespace(
+        id="wandb-run",
+        url="https://wandb.example/run",
+        config={},
+        summary={},
+        metadata={},
+        scan_history=mocker.Mock(return_value=[]),
+    )
+    api = mocker.Mock()
+    api.runs.return_value = [run]
+    mocker.patch("wandb.Api", return_value=api)
+
+    with closing(open_inventory(tmp_path / "inventory.sqlite3")) as connection:
+        assert index_wandb_runs("entity", "project", connection) == 1
+
+    history_keys = run.scan_history.call_args.kwargs["keys"]
+    assert isinstance(history_keys, list)
+    assert history_keys[0] == "_step"
 
 
 def test_summary_publishes_standardized_fields_to_wandb(mocker, monkeypatch, tmp_path: Path) -> None:

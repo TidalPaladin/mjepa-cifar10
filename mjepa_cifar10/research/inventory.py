@@ -4,7 +4,7 @@ import hashlib
 import json
 import sqlite3
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Final, Iterable
 
 
 SCHEMA = """
@@ -25,6 +25,14 @@ CREATE TABLE IF NOT EXISTS runs (
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
 """
+WANDB_HISTORY_KEYS: Final = (
+    "_step",
+    "probe/validation_accuracy",
+    "val/acc",
+    "convergence/active_seconds",
+    "sft/validation_accuracy",
+    "sft/test_accuracy",
+)
 
 
 def _read_json_candidates(paths: Iterable[Path]) -> dict[str, Any]:
@@ -148,18 +156,7 @@ def index_wandb_runs(entity: str, project: str, connection: sqlite3.Connection) 
                 json.dumps(dict(run.config), default=str, sort_keys=True),
                 json.dumps(dict(run.summary), default=str, sort_keys=True),
                 json.dumps(
-                    list(
-                        run.scan_history(
-                            keys=(
-                                "_step",
-                                "probe/validation_accuracy",
-                                "val/acc",
-                                "convergence/active_seconds",
-                                "sft/validation_accuracy",
-                                "sft/test_accuracy",
-                            )
-                        )
-                    ),
+                    list(run.scan_history(keys=list(WANDB_HISTORY_KEYS))),
                     default=str,
                 ),
                 json.dumps(dict(getattr(run, "metadata", {}) or {}), default=str, sort_keys=True),
