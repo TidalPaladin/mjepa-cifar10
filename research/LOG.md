@@ -627,3 +627,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Resources: One mechanical pretraining run, one concurrent job on physical GPU 1 or 2, and a one-hour timeout.
 - Rejection: Do not launch the scientific screen if any required gradient, metric, benchmark, recovery artifact, or lifecycle transition is missing.
 - Retention: Retain the smoke checkpoint through scientific launch validation.
+<!-- autoresearch-operation:{"content_sha256":"64d1d66127a190440b847945dd4bf2511dbc536a36ee87dcaaf51be310a11205","operation_id":"f5d177a06408d8e0e79b916feaf673e6"} -->
+
+<!-- study:cls-register-slots-v1-smoke:phase:no-promotion -->
+## cls-register-slots-v1-smoke
+
+- Question: Can the one-CLS register and additive-slot path train, validate, benchmark, checkpoint, recover, summarize, and notify through one managed GPU epoch?
+- Hypothesis: The smoke run will complete with exactly one backbone CLS token, learned additive slot gradients, online W&B telemetry, an exact-path auxiliary diagnostic, an isolated-path benchmark, a first-cycle checkpoint, and accepted lifecycle notifications.
+- Mechanisms and exact changes:
+  - `cls-register-slot-bias-smoke`: Mechanism: Run one CLS token plus four registers and expand only the CLS as four additive predictor contexts. Changes: Use one CLS token and four register tokens.; Use slot_bias_cross_attention for the auxiliary predictor.
+- Launch code provenance:
+  - `pretrain-cls-register-slot-bias-smoke-seed0`: parent=`5dfe4689d26df650a457b2639cb2e19f19eaaffd` (`codex/research/cls-register-slots-v1`), mjepa=`836e740f43d7d21fc93a39ae351a2157125eebcf` (`codex/research/cls-register-slots-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-slots-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-register-slot-bias-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-26T16:19:52.545753+00:00; finished=2026-07-26T16:22:25.632496+00:00; terminal_event=bfeaac10-5322-4112-8ab2-0f58f9b92246; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-slots-v1-smoke/runs/pretrain-cls-register-slot-bias-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/25a8121e); checkpoint=retained; metrics=peak_accuracy=0.209600, final_accuracy=0.209600, step_to_90=2812, step_to_95=2812, active_seconds_to_90=139.046, active_seconds_to_95=139.046, step_auc=0.209600, active_time_auc=0.209600, active_seconds_at_step_horizon=139.046, cls_path_latency_median_ms=1.754112, cls_path_latency_p90_ms=1.766400; error=none
