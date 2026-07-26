@@ -10,11 +10,7 @@ from statistics import median
 from typing import Any, Final, cast
 
 import torch
-from mjepa.jepa import (
-    ADALN_CLS_PREDICTION_MODES,
-    PROJECTED_CLS_PREDICTION_MODE,
-    CrossAttentionPredictor,
-)
+from mjepa.jepa import ADALN_CLS_PREDICTION_MODES, CrossAttentionPredictor
 from mjepa.model import MJEPA
 
 
@@ -71,12 +67,7 @@ def _run_cls_prediction_path(
     cls_tokens: torch.Tensor,
     target_mask: torch.Tensor,
 ) -> torch.Tensor:
-    if jepa.config.cls_prediction_mode == PROJECTED_CLS_PREDICTION_MODE:
-        projected_context = jepa.predictor.project_cls_context(cls_tokens)
-        return jepa.forward_predictor(tokenized_size, projected_context, None, target_mask, rope_seed=0)
-    if jepa.config.cls_prediction_mode in ADALN_CLS_PREDICTION_MODES:
-        return jepa.forward_blind_cls_predictor(tokenized_size, cls_tokens[:, 0], target_mask)
-    return jepa.forward_predictor(tokenized_size, cls_tokens, None, target_mask, rope_seed=0)
+    return jepa.forward_cls_predictor(tokenized_size, cls_tokens, target_mask, rope_seed=0)
 
 
 def benchmark_cls_prediction_path(

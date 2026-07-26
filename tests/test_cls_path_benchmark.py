@@ -1,4 +1,3 @@
-from types import SimpleNamespace
 from typing import cast
 
 import torch
@@ -6,6 +5,7 @@ from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
+    SLOT_BIAS_CLS_PREDICTION_MODE,
     CrossAttentionPredictor,
 )
 from mjepa.model import MJEPA
@@ -50,29 +50,25 @@ def test_blind_cls_path_parameter_count_excludes_attention_parameters() -> None:
 
 def test_projected_cls_path_parameter_count_includes_projection_and_legacy_predictor() -> None:
     legacy = _predictor("legacy_cross_attention", num_cls_tokens=4)
+    slot_bias = _predictor(SLOT_BIAS_CLS_PREDICTION_MODE, num_cls_tokens=1)
     projected = _predictor(PROJECTED_CLS_PREDICTION_MODE, num_cls_tokens=1)
 
+    slot_bias_count = count_cls_prediction_path_parameters(slot_bias)
     projected_count = count_cls_prediction_path_parameters(projected)
 
+    assert slot_bias_count == sum(parameter.numel() for parameter in slot_bias.parameters())
     assert projected_count == sum(parameter.numel() for parameter in projected.parameters())
-    assert projected_count > sum(parameter.numel() for parameter in legacy.parameters())
+    assert sum(parameter.numel() for parameter in legacy.parameters()) < slot_bias_count < projected_count
 
 
-def test_projected_cls_benchmark_executes_projection_before_legacy_predictor(mocker: MockerFixture) -> None:
+def test_cls_benchmark_executes_the_configured_auxiliary_path(mocker: MockerFixture) -> None:
     cls_tokens = torch.randn(2, 1, 16)
-    projected_context = torch.randn(2, 4, 16)
     target_mask = torch.zeros(2, 4, dtype=torch.bool)
     output = torch.randn(2, 1, 16)
-    predictor = SimpleNamespace(project_cls_context=mocker.Mock(return_value=projected_context))
-    jepa = SimpleNamespace(
-        config=SimpleNamespace(cls_prediction_mode=PROJECTED_CLS_PREDICTION_MODE),
-        predictor=predictor,
-        forward_predictor=mocker.Mock(return_value=output),
-        forward_blind_cls_predictor=mocker.Mock(),
-    )
+    jepa = mocker.Mock(spec=MJEPA)
+    jepa.forward_cls_predictor.return_value = output
 
     result = _run_cls_prediction_path(cast(MJEPA, jepa), (2, 2), cls_tokens, target_mask)
 
-    predictor.project_cls_context.assert_called_once_with(cls_tokens)
-    jepa.forward_predictor.assert_called_once_with((2, 2), projected_context, None, target_mask, rope_seed=0)
+    jepa.forward_cls_predictor.assert_called_once_with((2, 2), cls_tokens, target_mask, rope_seed=0)
     assert result is output

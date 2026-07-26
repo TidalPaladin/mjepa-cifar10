@@ -9,7 +9,6 @@ import torch.nn.functional as F
 import torchmetrics as tm
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
-    ADALN_CLS_PREDICTION_MODES,
     compute_jepa_prediction_loss,
 )
 from mjepa.metrics import CLSPatchAlignmentMetric
@@ -131,28 +130,18 @@ def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) ->
     if raw_tokenized_size is None or len(raw_tokenized_size) != 2:
         raise ValueError("teacher output must record tokenized_size for CLS diagnostics")
     tokenized_size = cast(tuple[int, int], raw_tokenized_size)
-    if jepa.config.cls_prediction_mode in ADALN_CLS_PREDICTION_MODES:
-        true_prediction = jepa.forward_blind_cls_predictor(tokenized_size, cls_tokens[:, 0], output.target_mask)
-        shuffled_prediction = jepa.forward_blind_cls_predictor(
-            tokenized_size,
-            shuffled_cls_tokens[:, 0],
-            output.target_mask,
-        )
-    else:
-        true_prediction = jepa.forward_predictor(
-            tokenized_size,
-            cls_tokens,
-            None,
-            output.target_mask,
-            rope_seed=VALIDATION_DIAGNOSTIC_SEED,
-        )
-        shuffled_prediction = jepa.forward_predictor(
-            tokenized_size,
-            shuffled_cls_tokens,
-            None,
-            output.target_mask,
-            rope_seed=VALIDATION_DIAGNOSTIC_SEED,
-        )
+    true_prediction = jepa.forward_cls_predictor(
+        tokenized_size,
+        cls_tokens,
+        output.target_mask,
+        rope_seed=VALIDATION_DIAGNOSTIC_SEED,
+    )
+    shuffled_prediction = jepa.forward_cls_predictor(
+        tokenized_size,
+        shuffled_cls_tokens,
+        output.target_mask,
+        rope_seed=VALIDATION_DIAGNOSTIC_SEED,
+    )
     target = jepa._masked_target(output.target_mask, output.teacher_output.visual_tokens)
     true_loss = compute_jepa_prediction_loss(
         true_prediction,

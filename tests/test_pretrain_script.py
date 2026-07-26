@@ -32,6 +32,11 @@ CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-shared.yaml": "adaln_shared",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-projected.yaml": "projected_cross_attention",
 }
+CLS_REGISTER_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-legacy.yaml": "legacy_cross_attention",
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-slot-bias.yaml": "slot_bias_cross_attention",
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-projected.yaml": "projected_cross_attention",
+}
 CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p5.yaml": 0.5,
@@ -107,6 +112,30 @@ def test_cls_configs_change_only_cls_count_and_prediction_mode(
     assert candidate["jepa"].cls_prediction_mode == cls_prediction_mode
     for field in fields(ViTConfig):
         if field.name != "num_cls_tokens":
+            assert getattr(candidate["backbone"], field.name) == getattr(baseline["backbone"], field.name)
+    for field in fields(JEPAConfig):
+        if field.name != "cls_prediction_mode":
+            assert getattr(candidate["jepa"], field.name) == getattr(baseline["jepa"], field.name)
+    for section in ("trainer", "optimizer"):
+        assert candidate[section] == baseline[section]
+
+
+@pytest.mark.parametrize(("config_path", "cls_prediction_mode"), CLS_REGISTER_CONFIGS.items())
+def test_cls_register_configs_reclassify_three_cls_tokens_and_change_only_prediction_mode(
+    config_path: Path,
+    cls_prediction_mode: str,
+) -> None:
+    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    candidate = yaml.full_load(config_path.read_text())
+
+    assert candidate["backbone"].num_cls_tokens == 1
+    assert candidate["backbone"].num_register_tokens == 7
+    assert candidate["backbone"].num_cls_tokens + candidate["backbone"].num_register_tokens == (
+        baseline["backbone"].num_cls_tokens + baseline["backbone"].num_register_tokens
+    )
+    assert candidate["jepa"].cls_prediction_mode == cls_prediction_mode
+    for field in fields(ViTConfig):
+        if field.name not in ("num_cls_tokens", "num_register_tokens"):
             assert getattr(candidate["backbone"], field.name) == getattr(baseline["backbone"], field.name)
     for field in fields(JEPAConfig):
         if field.name != "cls_prediction_mode":

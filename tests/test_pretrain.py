@@ -10,7 +10,13 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 import torchmetrics as tm
 from mjepa import CLSPredictionMode, JEPAConfig
-from mjepa.jepa import ADALN_BLIND_CLS_PREDICTION_MODE, CrossAttentionPredictor, compute_jepa_prediction_loss
+from mjepa.jepa import (
+    ADALN_BLIND_CLS_PREDICTION_MODE,
+    PROJECTED_CLS_PREDICTION_MODE,
+    SLOT_BIAS_CLS_PREDICTION_MODE,
+    CrossAttentionPredictor,
+    compute_jepa_prediction_loss,
+)
 from mjepa.metrics import CLSPatchAlignmentMetric
 from mjepa.model import MJEPAPredictions
 from mjepa.optimizer import OptimizerConfig
@@ -625,17 +631,18 @@ def make_features(*, num_cls_tokens: int) -> ViTFeatures:
 
 
 @pytest.mark.parametrize(
-    ("cls_prediction_mode", "num_cls_tokens", "recompute_method"),
+    ("cls_prediction_mode", "num_cls_tokens"),
     (
-        ("legacy_cross_attention", NUM_CLS_TOKENS, "forward_predictor"),
-        (ADALN_BLIND_CLS_PREDICTION_MODE, 1, "forward_blind_cls_predictor"),
+        ("legacy_cross_attention", NUM_CLS_TOKENS),
+        (ADALN_BLIND_CLS_PREDICTION_MODE, 1),
+        (PROJECTED_CLS_PREDICTION_MODE, 1),
+        (SLOT_BIAS_CLS_PREDICTION_MODE, 1),
     ),
 )
 def test_cls_aux_shuffle_diagnostic_blinds_cross_sample_identity(
     mocker,
     cls_prediction_mode: CLSPredictionMode,
     num_cls_tokens: int,
-    recompute_method: str,
 ) -> None:
     model = make_model(num_cls_tokens=num_cls_tokens, cls_prediction_mode=cls_prediction_mode)
     student_output = make_features(num_cls_tokens=num_cls_tokens)
@@ -651,7 +658,11 @@ def test_cls_aux_shuffle_diagnostic_blinds_cross_sample_identity(
         context_mask=torch.zeros_like(target_mask),
         target_mask=target_mask,
     )
-    recompute = mocker.patch.object(model, recompute_method, side_effect=(true_prediction, shuffled_prediction))
+    recompute = mocker.patch.object(
+        model,
+        "forward_cls_predictor",
+        side_effect=(true_prediction, shuffled_prediction),
+    )
 
     metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
 
@@ -667,10 +678,7 @@ def test_cls_aux_shuffle_diagnostic_blinds_cross_sample_identity(
     )
     shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
     assert recompute.call_count == 2
-    if cls_prediction_mode == ADALN_BLIND_CLS_PREDICTION_MODE:
-        assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls[:, 0])
-    else:
-        assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls)
+    assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls)
 
 
 def test_cls_global_target_loss_regresses_one_student_cls_to_pooled_teacher_visual_tokens() -> None:
