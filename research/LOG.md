@@ -828,3 +828,21 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Decision: reject both candidates. Do not replicate, fine-tune, or evaluate either candidate on the official test set. Retain every checkpoint and backbone as specified.
 - Budget: these runs consumed the final two authorized scientific pretraining trials. The program now has zero remaining trials; any further scientific pretraining requires a new user-approved budget.
 - Next falsifiable hypothesis, pending authorization: replace the fixed contiguous channel split with one learned orthogonal 384-to-384 analysis rotation, then apply four independent 96-to-384 lifts to the rotated disjoint groups. This preserves one final 384-dimensional CLS token and four complementary rank-96 views while allowing the subspace boundaries to align with the learned representation. A candidate must satisfy the same five fixed equivalence gates.
+<!-- autoresearch-operation:{"content_sha256":"aeedf7dc06ddb0c75aa5b62d879a1bea64ec821d966fe7a530d0e7c7264659aa","operation_id":"cls-partition-count-v1-preregistration"} -->
+## 2026-07-27 preregistration: independent CLS partition-count ablation
+
+- Operation: `cls-partition-count-v1-preregistration`
+- Authorization: the user explicitly authorized a bounded follow-up comparing two and eight independent partition contexts. Allocate two scientific seed-0 pretraining trials; one mechanical smoke run is excluded from this budget.
+- Updated interpretation: treat the completed four-partition independent design as a practically successful backbone simplification while continuing to report the original strict four-CLS equivalence gate.
+- Controlled mechanism: retain one 384-dimensional backbone CLS token, seven registers, the visually blinded auxiliary path, and the existing cross-attention predictor. Change only the number of fixed disjoint CLS channel groups and matching independent lifts.
+- Capacity control: for hidden size D and S partitions, the independent lift weights contain S times D times (D / S), or D squared, parameters. Two, four, and eight partitions therefore each use 147,456 projection weights. Including slot biases, the adapters contain 148,224, 148,992, and 150,528 parameters, respectively. Predictor context length is the intended remaining difference.
+- Candidates:
+  - `single-cls-register-partitioned-independent-2`: split the CLS into two 192-dimensional groups and independently lift them into two predictor contexts. Hypothesis: four groups over-fragment the compressed embedding; two broader groups will preserve practical parity with less context complexity.
+  - `single-cls-register-partitioned-independent-8`: split the CLS into eight 48-dimensional groups and independently lift them into eight predictor contexts. Hypothesis: finer specialization will close the residual four-CLS quality and convergence gap despite the longer context sequence.
+- Fixed four-CLS reference: peak=0.910000, step-to-95=7,830, active-seconds-to-95=5,038.554, step AUC=0.801230, active-time AUC=0.796583.
+- Strict equivalence gate: peak at least 0.905000, step-to-95 at most 8,613, active-seconds-to-95 at most 5,542.409, step AUC at least 0.796230, and active-time AUC at least 0.791583. A candidate must satisfy every threshold.
+- Fixed four-partition single-CLS control: peak=0.898000, step-to-95=10,005, active-seconds-to-95=6,369.559, step AUC=0.787907, active-time AUC=0.787593.
+- Practical-parity gate: peak at least 0.893000, step-to-95 at most 11,006, active-seconds-to-95 at most 7,006.515, step AUC at least 0.782907, and active-time AUC at least 0.782593. A candidate must satisfy every threshold.
+- Selection: prefer two partitions if it satisfies practical parity. Retain four partitions over eight unless the eight-partition candidate satisfies the strict equivalence gate. Report all metric and isolated-path latency deltas regardless of selection.
+- Stopping rule: do not replicate, fine-tune, or evaluate an unqualified result on the official test set. Any confirmation round requires separate authorization.
+- Retention: retain all checkpoints and backbones; destructive retention is not authorized.
