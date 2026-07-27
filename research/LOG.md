@@ -846,3 +846,17 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Selection: prefer two partitions if it satisfies practical parity. Retain four partitions over eight unless the eight-partition candidate satisfies the strict equivalence gate. Report all metric and isolated-path latency deltas regardless of selection.
 - Stopping rule: do not replicate, fine-tune, or evaluate an unqualified result on the official test set. Any confirmation round requires separate authorization.
 - Retention: retain all checkpoints and backbones; destructive retention is not authorized.
+<!-- autoresearch-operation:{"content_sha256":"5b217f1ff6d19d55690a014a11c7b64dc8005ae63b49186e3090318974a25e62","operation_id":"cls-partition-count-v1-smoke-result"} -->
+## 2026-07-27 mechanical validation: eight independent CLS partitions
+
+- Operation: `cls-partition-count-v1-smoke-result`
+- Scope: excluded one-epoch mechanical run `pretrain-cls-register-partitioned-independent-8-smoke-seed0`; this run does not consume either authorized scientific trial.
+- Outcome: completed attempt 1 with exit code 0 at optimizer step 2,812 after 141.474 active seconds. Online W&B run `a0230c54` synchronized successfully.
+- Architecture: the persisted config and checkpoint contain one backbone CLS token, seven registers, `partitioned_independent_cross_attention`, and `cls_context_tokens=8`. The saved independent projection has shape 8 by 32 by 4 with eight 32-dimensional biases, and all values are finite.
+- Gradient and bottleneck validation: training completed with the model's all-trainable-parameter gradient assertion active on every step. The auxiliary path received only eight learned lifts of disjoint groups from the final student CLS; it did not receive visual or register tokens.
+- Validation signal: peak and final online-probe validation accuracy were 0.221400. The CLS auxiliary loss was 0.928148 versus 1.430648 after cross-sample CLS shuffling, for a positive 0.502500 shuffle gap.
+- Exact-path benchmark: median latency was 1.884160 ms, p90 latency was 1.899520 ms, and the isolated path contained 13,472 parameters on the miniature model.
+- Recovery: CPU restoration recovered backbone, predictor, teacher, optimizer, scheduler, step 2,812, epoch 0, and `cls_context_tokens=8`; the restored partition weight shape was 8 by 32 by 4.
+- Lifecycle: first-cycle event `c72ba9c8-f5f7-50cb-af58-4216821d9c03` and terminal event `13048145-c64f-408c-945e-ef228b4a7fc1` were each accepted once by the study-scoped controller under the captured permission and approval context.
+- Retention: retained `checkpoint.pt` and `backbone.safetensors`; no weights were deleted.
+- Decision: pass the mechanical gate and proceed with the preregistered two- and eight-partition scientific seed-0 trials.
