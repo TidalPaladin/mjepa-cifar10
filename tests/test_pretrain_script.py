@@ -44,6 +44,14 @@ CLS_REGISTER_CONFIGS = {
     / "config"
     / "pretrain"
     / "vit-small-single-cls-register-residual-mlp.yaml": "residual_mlp_cross_attention",
+    REPO_ROOT
+    / "config"
+    / "pretrain"
+    / "vit-small-single-cls-register-partitioned-shared.yaml": "partitioned_shared_cross_attention",
+    REPO_ROOT
+    / "config"
+    / "pretrain"
+    / "vit-small-single-cls-register-partitioned-independent.yaml": "partitioned_independent_cross_attention",
 }
 CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,

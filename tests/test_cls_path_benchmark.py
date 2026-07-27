@@ -4,6 +4,8 @@ import torch
 from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
+    PARTITIONED_INDEPENDENT_CLS_PREDICTION_MODE,
+    PARTITIONED_SHARED_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
     RESIDUAL_MLP_CLS_PREDICTION_MODE,
     RESIDUAL_PROJECTED_CLS_PREDICTION_MODE,
@@ -56,18 +58,31 @@ def test_projected_cls_path_parameter_count_includes_projection_and_legacy_predi
     projected = _predictor(PROJECTED_CLS_PREDICTION_MODE, num_cls_tokens=1)
     residual_projected = _predictor(RESIDUAL_PROJECTED_CLS_PREDICTION_MODE, num_cls_tokens=1)
     residual_mlp = _predictor(RESIDUAL_MLP_CLS_PREDICTION_MODE, num_cls_tokens=1)
+    partitioned_shared = _predictor(PARTITIONED_SHARED_CLS_PREDICTION_MODE, num_cls_tokens=1)
+    partitioned_independent = _predictor(PARTITIONED_INDEPENDENT_CLS_PREDICTION_MODE, num_cls_tokens=1)
 
     slot_bias_count = count_cls_prediction_path_parameters(slot_bias)
     projected_count = count_cls_prediction_path_parameters(projected)
     residual_projected_count = count_cls_prediction_path_parameters(residual_projected)
     residual_mlp_count = count_cls_prediction_path_parameters(residual_mlp)
+    partitioned_shared_count = count_cls_prediction_path_parameters(partitioned_shared)
+    partitioned_independent_count = count_cls_prediction_path_parameters(partitioned_independent)
 
     assert slot_bias_count == sum(parameter.numel() for parameter in slot_bias.parameters())
     assert projected_count == sum(parameter.numel() for parameter in projected.parameters())
     assert residual_projected_count == sum(parameter.numel() for parameter in residual_projected.parameters())
     assert residual_mlp_count == sum(parameter.numel() for parameter in residual_mlp.parameters())
+    assert partitioned_shared_count == sum(parameter.numel() for parameter in partitioned_shared.parameters())
+    assert partitioned_independent_count == sum(parameter.numel() for parameter in partitioned_independent.parameters())
     assert sum(parameter.numel() for parameter in legacy.parameters()) < slot_bias_count
-    assert slot_bias_count < projected_count == residual_projected_count < residual_mlp_count
+    assert (
+        slot_bias_count
+        < partitioned_shared_count
+        < partitioned_independent_count
+        < projected_count
+        == residual_projected_count
+        < residual_mlp_count
+    )
 
 
 def test_cls_benchmark_executes_the_configured_auxiliary_path(mocker: MockerFixture) -> None:

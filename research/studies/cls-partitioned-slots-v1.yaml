@@ -1,0 +1,111 @@
+id: cls-partitioned-slots-v1
+question: Can channel-partitioning one final CLS embedding recover four-CLS quality and convergence while preserving a one-CLS backbone and excluding all visual and register tokens from the auxiliary path?
+hypothesis: At least one partitioned expansion will satisfy every existing seed-0 equivalence threshold because disjoint channel groups force slot-specialized predictive information into the one-CLS bottleneck instead of allowing every decoder slot to reuse the full embedding.
+rejection_condition: Reject channel-partitioned expansion if both candidates have peak online-probe validation accuracy below 0.9050, exceed either fixed 95-percent convergence ceiling, fall more than 0.005 below either common-horizon AUC, expose register or visual tokens to the auxiliary predictor, or fail gradient and recovery validation.
+checkpoint_plan: Retain all candidate checkpoints and backbones because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: four-cls-legacy
+  config: config/pretrain/vit-small.yaml
+  finetune_config: config/finetune/vit-small.yaml
+  hypothesis: Four backbone CLS tokens and four registers provide the fixed quality and convergence reference.
+  mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe.
+  changes: []
+
+baseline_reference:
+  study_id: cls-global-target-v1
+  run_id: pretrain-four-cls-legacy-seed0
+  metrics: research/baselines/cls-global-target-v1-four-cls-legacy-seed0.metrics.jsonl
+  metrics_sha256: 81a387a429495ed52cd03f97b646e32f288cccac23bcb063611f975f2b1d35a9
+
+variants:
+  - id: single-cls-register-partitioned-shared
+    config: config/pretrain/vit-small-single-cls-register-partitioned-shared.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: A shared channel lift plus slot identities will be sufficient because the backbone can learn a common coding scheme across four disjoint CLS subspaces.
+    mechanism: Preserve one CLS plus seven registers, split the only CLS into four 96-dimensional channel groups, apply one shared learned 96-to-384 lift, add learned slot identities, and pass the resulting four contexts to the legacy auxiliary predictor.
+    changes:
+      - Reuse the one-CLS plus seven-register backbone.
+      - Expand four disjoint CLS channel groups with one shared lift and four learned biases.
+  - id: single-cls-register-partitioned-independent
+    config: config/pretrain/vit-small-single-cls-register-partitioned-independent.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Independent channel lifts will recover any quality lost to weight sharing while preserving the disjoint information boundary between predictor slots.
+    mechanism: Preserve one CLS plus seven registers, split the only CLS into four 96-dimensional channel groups, and apply one independent learned 96-to-384 lift per group before the legacy auxiliary predictor.
+    changes:
+      - Reuse the one-CLS plus seven-register backbone.
+      - Expand four disjoint CLS channel groups with four independent learned lifts.
+
+methodology:
+  source_study: cls-register-slots-v1
+  source_amendment: cls-register-slots-v1-partitioned-expansion-fallback-v1
+  factor_order:
+    - single-cls-register-partitioned-shared tests the smallest channel-partitioned decoder.
+    - single-cls-register-partitioned-independent adds slot-specific lift weights only if sharing is insufficient.
+  information_bottleneck:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    auxiliary_visible_tokens: Four deterministic learned lifts of disjoint 96-dimensional channel groups from the only final student CLS token.
+    auxiliary_exclusions: Student visual tokens, register tokens, teacher features, intermediate backbone features, and other samples.
+    probe_input: The only final teacher CLS token.
+  fixed_reference:
+    peak_accuracy: 0.9100000262260437
+    step_to_95: 7830
+    active_seconds_to_95: 5038.553869029507
+    step_auc: 0.8012299999594689
+    active_time_auc: 0.7965834199456636
+  equivalence_gate:
+    minimum_peak_accuracy: 0.9050
+    maximum_step_to_95: 8613
+    maximum_active_seconds_to_95: 5542.409255932458
+    minimum_step_auc: 0.7962299999594689
+    minimum_active_time_auc: 0.7915834199456636
+    rule: A candidate must satisfy every threshold. This supports seed-0 reference promotion only and is not confirmation.
+  selection:
+    rule: Prefer the shared-lift candidate if it qualifies. Otherwise select the independent-lift candidate only if it satisfies every threshold.
+  goal_budget:
+    source_reserved_trials: 4
+    previously_allocated_trials: 2
+    allocated_trials: 2
+    remaining_trials: 0
+    rule: No additional scientific pretraining trial is authorized without a new user-approved budget.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-partitioned-slots-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 29b359e9b28289a60eb00271d4f9a8d3d8db2a6f
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
