@@ -936,3 +936,37 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Rejection and stopping: reject a candidate that fails every promotion route, violates the information boundary or mask invariants, performs more than one predictor forward, has a nonpositive CLS-only shuffle gap, or fails gradient, latency, checkpoint, recovery, or notification validation. If no candidate qualifies, stop without replication. Do not add routing probabilities or architectural variants after seeing results without a dated amendment and new authorization.
 - Resources: physical GPUs 1 and 2, at most two concurrent jobs, 24 hours per job, eight scientific pretraining trials maximum, and the repository free-space reserve. The current launch estimate is approximately two three-hour rounds for screening.
 - Tracking and retention: use online W&B project `tidalpaladin/mjepa-cifar10`, group `cls-context-routing-v1`, emitting declared metrics, configs, and provenance. Retain every checkpoint and backbone because destructive retention is not authorized.
+<!-- autoresearch-operation:{"content_sha256":"516d4c9dffe51455d85d0d12db878e07353cf8352d81f9e55de9319315010a44","operation_id":"bed4e65eed883a5af148710b13328fac"} -->
+
+<!-- study:cls-context-routing-v1-smoke:phase:no-promotion -->
+## cls-context-routing-v1-smoke
+
+- Question: Can per-query CLS and visual source routing train, validate, benchmark, checkpoint, recover, summarize, and notify through one managed GPU epoch with one predictor forward?
+- Hypothesis: The maximum-granularity routed design will complete with one backbone CLS token, seven registers, one predictor forward, valid per-query masks in every predictor layer, complete predictor-workload telemetry, deterministic source diagnostics, and accepted lifecycle notifications.
+- Mechanisms and exact changes:
+  - `cls-joint-context-token-routed-smoke`: Mechanism: Concatenate visible visual tokens and the raw CLS token, then balance target queries across joint, CLS-only, and visual-only visibility in one predictor forward. Changes: Use one CLS token and seven register tokens.; Use joint_context_token_routed with a JEPA loss coefficient of 2.0.
+- Launch code provenance:
+  - `pretrain-cls-joint-context-token-routed-smoke-seed0`: parent=`cf2fbc86cb0a901fa20eea177957837969cc9094` (`codex/research/cls-context-routing-v1`), mjepa=`4d95ebac24a18b17a13406cafc404602c5d9e260` (`codex/research/cls-context-routing-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-context-routing-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-joint-context-token-routed-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-27T19:24:12.437192+00:00; finished=2026-07-27T19:26:32.852056+00:00; terminal_event=3464b074-e902-4c49-ad0a-fe4ab62f6754; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-context-routing-v1-smoke/runs/pretrain-cls-joint-context-token-routed-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/f4f4312d); checkpoint=retained; metrics=peak_accuracy=0.201800, final_accuracy=0.201800, step_to_90=2812, step_to_95=2812, active_seconds_to_90=123.899, active_seconds_to_95=123.899, step_auc=0.201800, active_time_auc=0.201800, active_seconds_at_step_horizon=123.899, cls_path_latency_median_ms=2.567680, cls_path_latency_p90_ms=2.591744; error=none
+<!-- autoresearch-operation:{"content_sha256":"a1108e59f801b4ac84e173c12fa97ba01ac68e2a9e6aad5eb4b122fee85a88f8","operation_id":"cls-context-routing-v1-smoke-result"} -->
+## 2026-07-27 mechanical validation: single-pass per-query CLS routing
+
+- Operation: `cls-context-routing-v1-smoke-result`
+- Scope: excluded one-epoch mechanical run `pretrain-cls-joint-context-token-routed-smoke-seed0`; it does not consume the eight-trial scientific budget.
+- Outcome: completed attempt 1 with exit code 0 at optimizer step 2,812 after 123.927 active seconds. Online W&B run `f4f4312d` synchronized successfully.
+- Architecture: the persisted config and restored checkpoint contain one backbone CLS token, seven registers, `joint_context_token_routed`, and `jepa_loss_weight=2.0`. The restored predictor contains one `CrossAttentionTransformer` block with cross-attention and an MLP, no query self-attention, and returns one prediction tensor with `pred_with_cls=None`.
+- Mask and gradient validation: regression tests prove that every image's four smoke queries receive an exact 2/1/1 joint, CLS-only, and visual-only split; all routed queries are invariant to perturbations of their hidden source; the same boolean mask reaches every cross-attention layer. Training completed with the all-trainable-parameter gradient assertions active for both the backbone and predictor.
+- Source diagnostics: deterministic CLS-only loss was 0.782043 versus 1.314513 after cross-sample CLS shuffling, a positive 0.532470 gap. Joint-context loss was 0.651362 versus 0.653949 after CLS shuffling, a positive 0.002587 gap; visual-only loss was 0.648854.
+- Complete predictor-workload benchmark: one predictor forward at batch 512, eight visible visual contexts, and 16 target queries took 2.567680 ms median and 2.591744 ms p90 on the RTX 3090; the miniature predictor contained 12,192 parameters.
+- Recovery: CPU restoration recovered finite backbone, teacher, and predictor states plus saved optimizer and scheduler states, step 2,812, epoch 0, and W&B ID `f4f4312d`. A restored synthetic forward produced shape 2 by 4 by 32 with no auxiliary CLS prediction.
+- Lifecycle: first-cycle event `6d1014ff-3020-50a9-8084-40f85a564fb2` and terminal event `3464b074-e902-4c49-ad0a-fe4ab62f6754` were each accepted once by the study-scoped controller under the captured permission and approval context.
+- Retention: retained `checkpoint.pt` and `backbone.safetensors`; no weights were deleted.
+- Decision: pass the mechanical gate and proceed with the preregistered fresh baseline and three seed-0 scientific candidates.
