@@ -228,8 +228,8 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Winner: none
 - External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
 - Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-baseline-v1/summary.json`; external_detail=True
-- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
-- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Conclusion: The residual MLP path completed one full train-validation-checkpoint cycle at step 2,812 with a readable checkpoint, online W&B telemetry, a 1.843 ms isolated-path median, and first-cycle plus terminal notifications accepted on their first delivery attempts. Its positive CLS auxiliary shuffle gap (0.487) confirms that the predictor output depends on the learned one-CLS representation. This smoke establishes mechanical validity only; its one-epoch accuracy is not a scientific comparison.
+- Follow-up: launch the preregistered residual affine and residual MLP seed-0 candidates in `cls-register-residual-v1` and compare both against the immutable four-CLS reference using the fixed conjunctive equivalence gate.
 - Checkpoint disposition: see each run below; deleted weights are not recoverable.
 
 - `pretrain-swiglu-baseline-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-23T16:23:58.118059+00:00; finished=2026-07-23T19:29:13.382002+00:00; terminal_event=d89931c4-6f0f-4eac-b6da-c693108d263c; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/srelu-mlp-baseline-v1/runs/pretrain-swiglu-baseline-seed0`; W&B=offline/unlinked (`d0d4e93f`); checkpoint=retained; metrics=peak_accuracy=0.905800, final_accuracy=0.900000, step_to_90=6090, step_to_95=8265, active_seconds_to_90=3889.974, active_seconds_to_95=5278.718, step_auc=0.795948, active_time_auc=0.795738; error=none
@@ -694,3 +694,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Resolution: restore `cls-register-slots-v1` to its three-run cap and execute the unchanged two residual candidates in linked study `cls-register-residual-v1` against the same hash-verified four-CLS reference, metrics, thresholds, data split, seed, and retention policy.
 - Budget: the linked study consumes the same two reserved trials. Two reserved trials remain unavailable without another dated amendment.
 - Scientific effect: none. No run launched before this correction, and the hypotheses, candidate configs, equivalence gate, and stopping rule are unchanged.
+<!-- autoresearch-operation:{"content_sha256":"b9b1bf73012755a06f7473c2ffcad36bca792a92c2b588cd4ac2d4766164f007","operation_id":"089236daf9c8ae5f48cba47d48b7d023"} -->
+
+<!-- study:cls-register-residual-v1-smoke:phase:no-promotion -->
+## cls-register-residual-v1-smoke
+
+- Question: Can the one-CLS register and residual nonlinear expansion path train, validate, benchmark, checkpoint, recover, summarize, and notify through one managed GPU epoch?
+- Hypothesis: The smoke run will complete with exactly one backbone CLS token, seven registers, residual MLP gradients, online W&B telemetry, exact-path diagnostics, an isolated-path benchmark, a first-cycle checkpoint, and accepted lifecycle notifications.
+- Mechanisms and exact changes:
+  - `cls-register-residual-mlp-smoke`: Mechanism: Run one CLS token plus seven registers and expand only the CLS as four broadcast residual MLP contexts. Changes: Use one CLS token and seven register tokens.; Use residual_mlp_cross_attention for the auxiliary predictor.
+- Launch code provenance:
+  - `pretrain-cls-register-residual-mlp-smoke-seed0`: parent=`8ab3058a9d3b23d4e8cf2659d1e2279725297d50` (`codex/research/cls-register-slots-v1`), mjepa=`4d1c577fb57e0883544c908de9bf60d6bcfd909e` (`codex/research/cls-register-slots-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-residual-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-register-residual-mlp-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-27T02:13:08.871921+00:00; finished=2026-07-27T02:15:48.913636+00:00; terminal_event=47afc129-ad41-483c-b834-4d9adfb01cf4; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-residual-v1-smoke/runs/pretrain-cls-register-residual-mlp-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/8554eda1); checkpoint=retained; metrics=peak_accuracy=0.201600, final_accuracy=0.201600, step_to_90=2812, step_to_95=2812, active_seconds_to_90=145.795, active_seconds_to_95=145.795, step_auc=0.201600, active_time_auc=0.201600, active_seconds_at_step_horizon=145.795, cls_path_latency_median_ms=1.843168, cls_path_latency_p90_ms=1.857536; error=none
