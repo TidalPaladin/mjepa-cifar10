@@ -788,3 +788,43 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Checkpoint disposition: see each run below; deleted weights are not recoverable.
 
 - `pretrain-cls-register-partitioned-independent-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-27T05:46:04.336281+00:00; finished=2026-07-27T05:48:40.579632+00:00; terminal_event=64925bb5-3974-46b2-aa9b-7b4591423c3d; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partitioned-slots-v1-smoke/runs/pretrain-cls-register-partitioned-independent-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/4195c0aa); checkpoint=retained; metrics=peak_accuracy=0.224400, final_accuracy=0.224400, step_to_90=2812, step_to_95=2812, active_seconds_to_90=140.412, active_seconds_to_95=140.412, step_auc=0.224400, active_time_auc=0.224400, active_seconds_at_step_horizon=140.412, cls_path_latency_median_ms=1.896960, cls_path_latency_p90_ms=1.910784; error=none
+<!-- autoresearch-operation:{"content_sha256":"9d00f40dfc51c159ab4ab16255569e18c7bbb46d5a54546b78c0e7e071eaa35b","operation_id":"bdd761af92b1207161add2d6ee00ad78"} -->
+
+<!-- study:cls-partitioned-slots-v1:phase:no-promotion -->
+## cls-partitioned-slots-v1
+
+- Question: Can channel-partitioning one final CLS embedding recover four-CLS quality and convergence while preserving a one-CLS backbone and excluding all visual and register tokens from the auxiliary path?
+- Hypothesis: At least one partitioned expansion will satisfy every existing seed-0 equivalence threshold because disjoint channel groups force slot-specialized predictive information into the one-CLS bottleneck instead of allowing every decoder slot to reuse the full embedding.
+- Mechanisms and exact changes:
+  - `four-cls-legacy`: Mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe. Changes: not recorded.
+  - `single-cls-register-partitioned-shared`: Mechanism: Preserve one CLS plus seven registers, split the only CLS into four 96-dimensional channel groups, apply one shared learned 96-to-384 lift, add learned slot identities, and pass the resulting four contexts to the legacy auxiliary predictor. Changes: Reuse the one-CLS plus seven-register backbone.; Expand four disjoint CLS channel groups with one shared lift and four learned biases.
+  - `single-cls-register-partitioned-independent`: Mechanism: Preserve one CLS plus seven registers, split the only CLS into four 96-dimensional channel groups, and apply one independent learned 96-to-384 lift per group before the legacy auxiliary predictor. Changes: Reuse the one-CLS plus seven-register backbone.; Expand four disjoint CLS channel groups with four independent learned lifts.
+- Launch code provenance:
+  - `pretrain-single-cls-register-partitioned-independent-seed0`: parent=`2148ee5d823a06b6d1760f7df874d2adc3049bd6` (`codex/research/cls-register-slots-v1`), mjepa=`29b359e9b28289a60eb00271d4f9a8d3d8db2a6f` (`codex/research/cls-register-slots-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+  - `pretrain-single-cls-register-partitioned-shared-seed0`: parent=`2148ee5d823a06b6d1760f7df874d2adc3049bd6` (`codex/research/cls-register-slots-v1`), mjepa=`29b359e9b28289a60eb00271d4f9a8d3d8db2a6f` (`codex/research/cls-register-slots-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partitioned-slots-v1/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-cls-register-partitioned-independent-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-27T05:51:51.550172+00:00; finished=2026-07-27T08:56:44.472049+00:00; terminal_event=5cd41b0c-fca5-4998-99ce-b59b23ec5289; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partitioned-slots-v1/runs/pretrain-single-cls-register-partitioned-independent-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/62c51cd8); checkpoint=retained; metrics=peak_accuracy=0.898000, final_accuracy=0.893200, step_to_90=6960, step_to_95=10005, active_seconds_to_90=4435.171, active_seconds_to_95=6369.559, step_auc=0.787907, active_time_auc=0.787593, active_seconds_at_step_horizon=11073.317, cls_path_latency_median_ms=14.086144, cls_path_latency_p90_ms=14.476288; error=none
+- `pretrain-single-cls-register-partitioned-shared-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-27T05:51:51.481739+00:00; finished=2026-07-27T08:58:16.530314+00:00; terminal_event=b5409bc5-0bfb-411e-a2dc-17a36dbc5a59; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partitioned-slots-v1/runs/pretrain-single-cls-register-partitioned-shared-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/3df535e6); checkpoint=retained; metrics=peak_accuracy=0.889600, final_accuracy=0.886400, step_to_90=7830, step_to_95=11310, active_seconds_to_90=5027.586, active_seconds_to_95=7261.677, step_auc=0.777645, active_time_auc=0.776469, active_seconds_at_step_horizon=11167.929, cls_path_latency_median_ms=14.247936, cls_path_latency_p90_ms=14.576640; error=none
+<!-- autoresearch-operation:{"content_sha256":"0381434c69b41e4526b52b9ca23efb65284bf39bd869d25b0a877eb10cbd532b","operation_id":"cls-partitioned-slots-v1-final-interpretation-v1"} -->
+## 2026-07-27 interpretation: partitioned CLS expansion result
+
+- Operation: `cls-partitioned-slots-v1-final-interpretation-v1`
+- Gate authority: apply the fixed thresholds preregistered in `research/studies/cls-partitioned-slots-v1.yaml`. A candidate must satisfy all five thresholds: peak accuracy at least 0.905000, step-to-95 at most 8,613, active-seconds-to-95 at most 5,542.409, step AUC at least 0.796230, and active-time AUC at least 0.791583. The active-time AUC floor is the fixed preregistered value, not the summary harness's baseline value recomputed at the candidate common horizon.
+- Gate results:
+
+  | Candidate | Peak vs floor | Step-to-95 vs ceiling | Active seconds vs ceiling | Step AUC vs floor | Active AUC vs floor |
+  |---|---:|---:|---:|---:|---:|
+  | Independent partitioned lift | 0.898000 (-0.007000) | 10,005 (+1,392) | 6,369.559 (+827.150) | 0.787907 (-0.008323) | 0.787593 (-0.003990) |
+  | Shared partitioned lift | 0.889600 (-0.015400) | 11,310 (+2,697) | 7,261.677 (+1,719.267) | 0.777645 (-0.018585) | 0.776469 (-0.015115) |
+
+- Cross-design evidence: independent partitioning improved the strongest prior one-CLS direct dense expansion from 0.8862 to 0.8980 peak accuracy and from 0.784188 to 0.787907 step AUC. The independent lift exceeded the shared lift by 0.0084 peak accuracy and 0.010262 step AUC. At seed 0, this ordering is consistent with complementary channel subspaces and slot-specific readouts helping, but neither mechanism recovered four-CLS quality or convergence.
+- Decision: reject both candidates. Do not replicate, fine-tune, or evaluate either candidate on the official test set. Retain every checkpoint and backbone as specified.
+- Budget: these runs consumed the final two authorized scientific pretraining trials. The program now has zero remaining trials; any further scientific pretraining requires a new user-approved budget.
+- Next falsifiable hypothesis, pending authorization: replace the fixed contiguous channel split with one learned orthogonal 384-to-384 analysis rotation, then apply four independent 96-to-384 lifts to the rotated disjoint groups. This preserves one final 384-dimensional CLS token and four complementary rank-96 views while allowing the subspace boundaries to align with the learned representation. A candidate must satisfy the same five fixed equivalence gates.
