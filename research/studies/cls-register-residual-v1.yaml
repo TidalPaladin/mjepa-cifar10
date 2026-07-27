@@ -1,0 +1,110 @@
+id: cls-register-residual-v1
+question: Can a residual decoder of one final CLS embedding recover four-CLS quality and convergence while preserving a one-CLS backbone and excluding all visual and register tokens from the auxiliary path?
+hypothesis: At least one residual expansion will satisfy every existing seed-0 equivalence threshold because broadcasting the raw CLS preserves its global signal while learned content-dependent residuals provide the four slot-specific views used by the strong legacy predictor.
+rejection_condition: Reject the residual-decoding mechanism if both candidates have peak online-probe validation accuracy below 0.9050, exceed either fixed 95-percent convergence ceiling, fall more than 0.005 below either common-horizon AUC, expose register or visual tokens to the auxiliary predictor, or fail gradient and recovery validation.
+checkpoint_plan: Retain all candidate checkpoints and backbones because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: four-cls-legacy
+  config: config/pretrain/vit-small.yaml
+  finetune_config: config/finetune/vit-small.yaml
+  hypothesis: Four backbone CLS tokens and four registers provide the fixed quality and convergence reference.
+  mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe.
+  changes: []
+
+baseline_reference:
+  study_id: cls-global-target-v1
+  run_id: pretrain-four-cls-legacy-seed0
+  metrics: research/baselines/cls-global-target-v1-four-cls-legacy-seed0.metrics.jsonl
+  metrics_sha256: 81a387a429495ed52cd03f97b646e32f288cccac23bcb063611f975f2b1d35a9
+
+variants:
+  - id: single-cls-register-residual-projected
+    config: config/pretrain/vit-small-single-cls-register-residual-projected.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Preserving the raw CLS embedding in every predictor slot while learning a slot-specific affine residual will recover information discarded by the direct affine expansion.
+    mechanism: Preserve one CLS plus seven registers, broadcast the only CLS token to four predictor slots, and add one learned D-to-4D affine residual before the legacy auxiliary predictor.
+    changes:
+      - Reuse the one-CLS plus seven-register backbone.
+      - Replace the direct affine expansion with broadcast CLS plus a learned affine residual.
+  - id: single-cls-register-residual-mlp
+    config: config/pretrain/vit-small-single-cls-register-residual-mlp.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: A two-layer nonlinear decoder will expose richer slot-specific views of the compressed CLS embedding while its broadcast residual preserves the original global signal.
+    mechanism: Preserve one CLS plus seven registers, broadcast the only CLS token to four predictor slots, and add a learned D-to-D-to-4D GELU residual before the legacy auxiliary predictor.
+    changes:
+      - Reuse the one-CLS plus seven-register backbone.
+      - Expand the only CLS token with a residual two-layer GELU MLP.
+
+methodology:
+  source_study: cls-register-slots-v1
+  source_amendment: cls-register-slots-v1-residual-expansion-fallback-v1
+  factor_order:
+    - single-cls-register-residual-projected preserves the raw CLS signal while learning affine slot specialization.
+    - single-cls-register-residual-mlp adds nonlinear decoding only if the residual affine mechanism is insufficient.
+  information_bottleneck:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    auxiliary_visible_tokens: Four deterministic learned residual views of the only final student CLS token.
+    auxiliary_exclusions: Student visual tokens, register tokens, teacher features, intermediate backbone features, and other samples.
+    probe_input: The only final teacher CLS token.
+  fixed_reference:
+    peak_accuracy: 0.9100000262260437
+    step_to_95: 7830
+    active_seconds_to_95: 5038.553869029507
+    step_auc: 0.8012299999594689
+    active_time_auc: 0.7965834199456636
+  equivalence_gate:
+    minimum_peak_accuracy: 0.9050
+    maximum_step_to_95: 8613
+    maximum_active_seconds_to_95: 5542.409255932458
+    minimum_step_auc: 0.7962299999594689
+    minimum_active_time_auc: 0.7915834199456636
+    rule: A candidate must satisfy every threshold. This supports seed-0 reference promotion only and is not confirmation.
+  selection:
+    rule: Prefer the residual affine candidate if it qualifies. Otherwise select the residual MLP only if it satisfies every threshold.
+  goal_budget:
+    source_reserved_trials: 4
+    allocated_trials: 2
+    remaining_trials: 2
+    rule: Do not add another candidate without a dated amendment in the source study.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-register-residual-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 4d1c577fb57e0883544c908de9bf60d6bcfd909e
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

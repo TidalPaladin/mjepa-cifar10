@@ -43,30 +43,11 @@ variants:
     changes:
       - Reclassify three CLS tokens as registers.
       - Expand the only CLS token with one learned D-to-4D affine map for the auxiliary predictor.
-  - id: single-cls-register-residual-projected
-    config: config/pretrain/vit-small-single-cls-register-residual-projected.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
-    hypothesis: Preserving the raw CLS embedding in every predictor slot while learning a slot-specific affine residual will recover information discarded by the direct affine expansion.
-    mechanism: Preserve one CLS plus seven registers, broadcast the only CLS token to four predictor slots, and add one learned D-to-4D affine residual before the legacy auxiliary predictor.
-    changes:
-      - Reuse the one-CLS plus seven-register backbone.
-      - Replace the direct affine expansion with broadcast CLS plus a learned affine residual.
-  - id: single-cls-register-residual-mlp
-    config: config/pretrain/vit-small-single-cls-register-residual-mlp.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
-    hypothesis: A two-layer nonlinear decoder will expose richer slot-specific views of the compressed CLS embedding while its broadcast residual preserves the original global signal.
-    mechanism: Preserve one CLS plus seven registers, broadcast the only CLS token to four predictor slots, and add a learned D-to-D-to-4D GELU residual before the legacy auxiliary predictor.
-    changes:
-      - Reuse the one-CLS plus seven-register backbone.
-      - Expand the only CLS token with a residual two-layer GELU MLP.
-
 methodology:
   factor_order:
     - single-cls-register-legacy isolates backbone prefix capacity.
     - single-cls-register-slot-bias adds the simplest useful four-slot predictor compatibility layer.
     - single-cls-register-projected combines the prefix-capacity change with the best prior predictor expansion.
-    - single-cls-register-residual-projected preserves the raw CLS signal while learning affine slot specialization.
-    - single-cls-register-residual-mlp adds nonlinear decoding only if the residual affine mechanism is insufficient.
   information_bottleneck:
     backbone_cls_tokens: 1
     backbone_register_tokens: 7
@@ -93,7 +74,8 @@ methodology:
     reserved_trials: 4
     committed_trials: 2
     remaining_trials: 2
-    rule: The 2026-07-27 amendment commits two reserved trials after every initial candidate failed the equivalence gate. Retain the final two trials for another dated amendment only if neither residual expansion qualifies.
+    linked_study: cls-register-residual-v1
+    rule: The 2026-07-27 amendment commits two reserved trials in a linked study after every initial candidate failed the equivalence gate. Retain the final two trials for another dated amendment only if neither residual expansion qualifies.
 
 data: ${CIFAR10_DATA}
 log_root: logs/research
@@ -119,7 +101,7 @@ resources:
   physical_gpus: [1, 2]
   max_concurrent_jobs: 2
   timeout_seconds: 86400
-  max_pretraining_trials: 5
+  max_pretraining_trials: 3
   minimum_free_gib: 50
   fallback_checkpoint_gib: 3
 
@@ -144,4 +126,5 @@ amendments:
     trials:
       - single-cls-register-residual-projected
       - single-cls-register-residual-mlp
+    linked_study: cls-register-residual-v1
     stopping_rule: Stop and select the simplest qualifying residual expansion if either candidate satisfies every existing equivalence threshold. Do not use the final two reserved trials without another dated amendment.

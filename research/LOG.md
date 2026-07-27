@@ -685,3 +685,12 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Budget: commit two of four reserved fallback trials, increasing the study cap from three to five. The final two trials remain unavailable without another dated amendment.
 - Stopping rule: select the simpler residual affine expansion if it qualifies; otherwise select the residual MLP only if it satisfies every existing threshold. Do not replicate an unqualified result.
 - Retention: retain all checkpoints and backbones; destructive retention remains unauthorized.
+<!-- autoresearch-operation:{"content_sha256":"fc6c1cd980523456ef36fa5c2f63ac4d1a0dc40a5866c37f29c220a968dfc3da","operation_id":"cls-register-slots-v1-residual-expansion-linked-study-v1"} -->
+## 2026-07-27 correction: linked residual expansion study
+
+- Operation: `cls-register-slots-v1-residual-expansion-linked-study-v1`
+- Corrects: `cls-register-slots-v1-residual-expansion-fallback-v1` execution packaging only.
+- Reason: `launch --dry-run` confirmed that the terminal source study's atomic run registry remains fixed to its original three trials and does not schedule variants added after state creation.
+- Resolution: restore `cls-register-slots-v1` to its three-run cap and execute the unchanged two residual candidates in linked study `cls-register-residual-v1` against the same hash-verified four-CLS reference, metrics, thresholds, data split, seed, and retention policy.
+- Budget: the linked study consumes the same two reserved trials. Two reserved trials remain unavailable without another dated amendment.
+- Scientific effect: none. No run launched before this correction, and the hypotheses, candidate configs, equivalence gate, and stopping rule are unchanged.
