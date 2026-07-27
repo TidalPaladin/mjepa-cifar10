@@ -5,6 +5,8 @@ from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
+    RESIDUAL_MLP_CLS_PREDICTION_MODE,
+    RESIDUAL_PROJECTED_CLS_PREDICTION_MODE,
     SLOT_BIAS_CLS_PREDICTION_MODE,
     CrossAttentionPredictor,
 )
@@ -52,13 +54,20 @@ def test_projected_cls_path_parameter_count_includes_projection_and_legacy_predi
     legacy = _predictor("legacy_cross_attention", num_cls_tokens=4)
     slot_bias = _predictor(SLOT_BIAS_CLS_PREDICTION_MODE, num_cls_tokens=1)
     projected = _predictor(PROJECTED_CLS_PREDICTION_MODE, num_cls_tokens=1)
+    residual_projected = _predictor(RESIDUAL_PROJECTED_CLS_PREDICTION_MODE, num_cls_tokens=1)
+    residual_mlp = _predictor(RESIDUAL_MLP_CLS_PREDICTION_MODE, num_cls_tokens=1)
 
     slot_bias_count = count_cls_prediction_path_parameters(slot_bias)
     projected_count = count_cls_prediction_path_parameters(projected)
+    residual_projected_count = count_cls_prediction_path_parameters(residual_projected)
+    residual_mlp_count = count_cls_prediction_path_parameters(residual_mlp)
 
     assert slot_bias_count == sum(parameter.numel() for parameter in slot_bias.parameters())
     assert projected_count == sum(parameter.numel() for parameter in projected.parameters())
-    assert sum(parameter.numel() for parameter in legacy.parameters()) < slot_bias_count < projected_count
+    assert residual_projected_count == sum(parameter.numel() for parameter in residual_projected.parameters())
+    assert residual_mlp_count == sum(parameter.numel() for parameter in residual_mlp.parameters())
+    assert sum(parameter.numel() for parameter in legacy.parameters()) < slot_bias_count
+    assert slot_bias_count < projected_count == residual_projected_count < residual_mlp_count
 
 
 def test_cls_benchmark_executes_the_configured_auxiliary_path(mocker: MockerFixture) -> None:

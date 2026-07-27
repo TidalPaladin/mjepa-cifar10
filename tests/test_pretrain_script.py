@@ -36,6 +36,14 @@ CLS_REGISTER_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-slot-bias.yaml": "slot_bias_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-projected.yaml": "projected_cross_attention",
+    REPO_ROOT
+    / "config"
+    / "pretrain"
+    / "vit-small-single-cls-register-residual-projected.yaml": "residual_projected_cross_attention",
+    REPO_ROOT
+    / "config"
+    / "pretrain"
+    / "vit-small-single-cls-register-residual-mlp.yaml": "residual_mlp_cross_attention",
 }
 CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
