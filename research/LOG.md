@@ -714,3 +714,57 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Checkpoint disposition: see each run below; deleted weights are not recoverable.
 
 - `pretrain-cls-register-residual-mlp-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-27T02:13:08.871921+00:00; finished=2026-07-27T02:15:48.913636+00:00; terminal_event=47afc129-ad41-483c-b834-4d9adfb01cf4; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-residual-v1-smoke/runs/pretrain-cls-register-residual-mlp-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/8554eda1); checkpoint=retained; metrics=peak_accuracy=0.201600, final_accuracy=0.201600, step_to_90=2812, step_to_95=2812, active_seconds_to_90=145.795, active_seconds_to_95=145.795, step_auc=0.201600, active_time_auc=0.201600, active_seconds_at_step_horizon=145.795, cls_path_latency_median_ms=1.843168, cls_path_latency_p90_ms=1.857536; error=none
+<!-- autoresearch-operation:{"content_sha256":"a02ed8f90dd4590c25be9a9fb97555da6cef0ccd2342c47d0d7036272eb32f22","operation_id":"06a41123ebc895195c0d2ef598a9f87e"} -->
+
+<!-- study:cls-register-residual-v1:phase:no-promotion -->
+## cls-register-residual-v1
+
+- Question: Can a residual decoder of one final CLS embedding recover four-CLS quality and convergence while preserving a one-CLS backbone and excluding all visual and register tokens from the auxiliary path?
+- Hypothesis: At least one residual expansion will satisfy every existing seed-0 equivalence threshold because broadcasting the raw CLS preserves its global signal while learned content-dependent residuals provide the four slot-specific views used by the strong legacy predictor.
+- Mechanisms and exact changes:
+  - `four-cls-legacy`: Mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe. Changes: not recorded.
+  - `single-cls-register-residual-projected`: Mechanism: Preserve one CLS plus seven registers, broadcast the only CLS token to four predictor slots, and add one learned D-to-4D affine residual before the legacy auxiliary predictor. Changes: Reuse the one-CLS plus seven-register backbone.; Replace the direct affine expansion with broadcast CLS plus a learned affine residual.
+  - `single-cls-register-residual-mlp`: Mechanism: Preserve one CLS plus seven registers, broadcast the only CLS token to four predictor slots, and add a learned D-to-D-to-4D GELU residual before the legacy auxiliary predictor. Changes: Reuse the one-CLS plus seven-register backbone.; Expand the only CLS token with a residual two-layer GELU MLP.
+- Launch code provenance:
+  - `pretrain-single-cls-register-residual-mlp-seed0`: parent=`e793e5fe76e69622708226d7b5c50f0ebeda180d` (`codex/research/cls-register-slots-v1`), mjepa=`4d1c577fb57e0883544c908de9bf60d6bcfd909e` (`codex/research/cls-register-slots-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+  - `pretrain-single-cls-register-residual-projected-seed0`: parent=`e793e5fe76e69622708226d7b5c50f0ebeda180d` (`codex/research/cls-register-slots-v1`), mjepa=`4d1c577fb57e0883544c908de9bf60d6bcfd909e` (`codex/research/cls-register-slots-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-residual-v1/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-cls-register-residual-mlp-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-27T02:20:53.948092+00:00; finished=2026-07-27T05:25:28.315405+00:00; terminal_event=87742c8a-fec6-4c5a-9c33-befbc3321f1d; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-residual-v1/runs/pretrain-single-cls-register-residual-mlp-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/b6b12721); checkpoint=retained; metrics=peak_accuracy=0.832200, final_accuracy=0.823200, step_to_90=13920, step_to_95=censored, active_seconds_to_90=8847.064, active_seconds_to_95=censored, step_auc=0.737163, active_time_auc=0.736982, active_seconds_at_step_horizon=11057.602, cls_path_latency_median_ms=14.049280, cls_path_latency_p90_ms=14.243808; error=none
+- `pretrain-single-cls-register-residual-projected-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-27T02:20:53.876883+00:00; finished=2026-07-27T05:27:01.550128+00:00; terminal_event=bc4fc416-d250-4b58-9a7a-0b00930d4381; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-register-residual-v1/runs/pretrain-single-cls-register-residual-projected-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/75196036); checkpoint=retained; metrics=peak_accuracy=0.859600, final_accuracy=0.859600, step_to_90=10875, step_to_95=censored, active_seconds_to_90=6973.450, active_seconds_to_95=censored, step_auc=0.752210, active_time_auc=0.751053, active_seconds_at_step_horizon=11150.760, cls_path_latency_median_ms=14.268928, cls_path_latency_p90_ms=14.453728; error=none
+
+<!-- autoresearch-operation:{"content_sha256":"1cfe85030b45d822fc42859a0b0b7d3020db7e118a5d0c9d6016fcc8caa76ebb","operation_id":"research-log-residual-smoke-interpretation-correction-v1"} -->
+## 2026-07-27 correction: misplaced residual smoke interpretation
+
+- Operation: `research-log-residual-smoke-interpretation-correction-v1`
+- Corrects: the `Conclusion` and `Follow-up` bullets under `srelu-mlp-baseline-v1` that were accidentally replaced in commit `e793e5fe76e69622708226d7b5c50f0ebeda180d`.
+- Cause: the patch used generic conclusion text without anchoring the target study header.
+- Authoritative `srelu-mlp-baseline-v1` conclusion: the baseline smoke run completed; no candidates were configured for promotion.
+- Authoritative `srelu-mlp-baseline-v1` follow-up: record interpretation and the next falsifiable hypothesis.
+- Authoritative `cls-register-residual-v1-smoke` conclusion: the residual MLP path completed one full train-validation-checkpoint cycle at step 2,812 with a readable checkpoint, online W&B telemetry, a 1.843 ms isolated-path median, and first-cycle plus terminal notifications accepted on their first delivery attempts. Its positive CLS auxiliary shuffle gap (0.487) confirms that the predictor output depends on the learned one-CLS representation. This smoke establishes mechanical validity only; its one-epoch accuracy is not a scientific comparison.
+- Authoritative `cls-register-residual-v1-smoke` follow-up: launch the preregistered residual affine and residual MLP seed-0 candidates in `cls-register-residual-v1` and compare both against the immutable four-CLS reference using the fixed conjunctive equivalence gate.
+- Scientific effect: none. This correction changes only the placement of prose interpretation and does not alter any specification, run, metric, decision, artifact, or retention disposition.
+
+<!-- autoresearch-operation:{"content_sha256":"c7dde5bdcec93378eef783344138ecba9a5dbb2d621070d931b56aca446ef5a9","operation_id":"cls-register-slots-v1-partitioned-expansion-fallback-v1"} -->
+## 2026-07-27 amendment: channel-partitioned CLS expansion fallback
+
+- Operation: `cls-register-slots-v1-partitioned-expansion-fallback-v1`
+- Trigger: both residual candidates failed every fixed seed-0 equivalence threshold. Residual affine peaked at 0.8596 with 0.752210 step AUC; residual MLP peaked at 0.8322 with 0.737163 step AUC. Neither reached the fixed 95-percent convergence target.
+- Cross-study evidence: the unrestricted direct D-to-4D affine expansion remains the strongest one-CLS candidate at 0.8862 peak and 0.784188 step AUC. Adding a broadcast raw-CLS residual reduced peak accuracy by 0.0266 and step AUC by 0.031978; adding a nonlinear residual reduced them by 0.0540 and 0.047025.
+- Diagnostic evidence: on the same 256-example masked validation batch with seed 0, post-normalization predictor-context pairwise cosine was 0.407 for four backbone CLS tokens, 0.327 for direct dense expansion, 0.423 for residual affine expansion, and 0.580 for residual MLP expansion. This diagnostic informs mechanism selection but is not a promotion metric.
+- Interpretation: raw broadcast does not preserve a useful advantage. It makes the four auxiliary contexts more alike and weakens the gradient pressure for the backbone to organize one CLS embedding into distinct predictive components. An unrestricted dense decoder creates diverse contexts but allows every output slot to reuse the full CLS vector.
+- New hypothesis: partitioning the only 384-dimensional CLS embedding into four disjoint 96-dimensional channel groups and lifting each group into one predictor token will force slot-specialized information to reside inside the compressed CLS representation. At least one partitioned expansion will improve over unrestricted direct affine expansion and satisfy every unchanged equivalence threshold.
+- Added trials:
+  - `single-cls-register-partitioned-shared`: split the only CLS into four channel groups, apply one shared learned 96-to-384 lift to every group, and add a learned slot identity. This is the preferred simpler candidate.
+  - `single-cls-register-partitioned-independent`: split the only CLS into four channel groups and apply one independent learned 96-to-384 lift per group. This tests whether slot-specific decoding capacity is required.
+- Information boundary: the auxiliary path may see only four deterministic channel-partitioned views of the final student CLS. Student visual tokens, register tokens, teacher features, intermediate features, and other samples remain excluded.
+- Budget: allocate the final two reserved seed-0 trials. No additional scientific pretraining trial is authorized by this program without a new user-approved budget.
+- Gate: reuse the same hash-verified four-CLS reference, fixed data split, seed, metrics, and conjunctive thresholds: peak at least 0.9050, step-to-95 at most 8,613, active-seconds-to-95 at most 5,542.409, step AUC at least 0.796230, and active-time AUC at least 0.791583.
+- Stopping rule: select the shared lift if it satisfies every threshold. Otherwise select the independent lift only if it satisfies every threshold. Do not replicate or fine-tune an unqualified result.
+- Retention: retain all checkpoints and backbones; destructive retention remains unauthorized.
