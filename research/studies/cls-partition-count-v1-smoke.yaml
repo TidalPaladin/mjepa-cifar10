@@ -1,0 +1,55 @@
+id: cls-partition-count-v1-smoke
+question: Can the generalized eight-partition single-CLS path train, validate, benchmark, checkpoint, recover, summarize, and notify through one managed GPU epoch?
+hypothesis: The maximum requested partition count will complete with one backbone CLS token, seven registers, isolated channel-group gradients, exact-path diagnostics, an isolated-path benchmark, a first-cycle checkpoint, and accepted lifecycle notifications.
+rejection_condition: Reject the mechanical validation if the run fails, times out, lacks gradients for any channel group or required recovery artifacts, creates a context with other than eight tokens, recomputes a different auxiliary path for diagnostics, cannot summarize, or its lifecycle notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint through scientific launch validation. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-register-partitioned-independent-8-smoke
+  config: config/pretrain/smoke-cls-register-partitioned-independent-8.yaml
+  hypothesis: A one-epoch miniature model exercises all eight independent channel lifts and the unchanged legacy predictor without register or visual-token leakage.
+  mechanism: Run one CLS token plus seven registers, split only the CLS into eight disjoint channel groups, and independently lift the groups into eight auxiliary predictor contexts.
+  changes:
+    - Use one CLS token and seven register tokens.
+    - Use eight partitioned_independent_cross_attention contexts for the auxiliary predictor.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-partition-count-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 4c6f6f43ab0734c65f2a78aca9a21682bd7bff66
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

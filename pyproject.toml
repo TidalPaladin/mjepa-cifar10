@@ -33,7 +33,7 @@ dynamic = [
 
 [tool.uv.sources]
 vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "67eae23786b8e458334b695be8f8a879d6994a43" }
-mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "29b359e9b28289a60eb00271d4f9a8d3d8db2a6f" }
+mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "4c6f6f43ab0734c65f2a78aca9a21682bd7bff66" }
 
 # For local sibling-repo testing, comment the git sources above and uncomment these:
 # vit = { path = "../vit", editable = true }

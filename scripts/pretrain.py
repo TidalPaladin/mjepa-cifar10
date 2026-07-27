@@ -114,6 +114,7 @@ def instantiate_jepa(backbone_config: ViTConfig, jepa_config: JEPAConfig, device
         device=device,
         attention_mode=jepa_config.predictor_attention_mode,
         cls_prediction_mode=jepa_config.cls_prediction_mode,
+        cls_context_tokens=jepa_config.cls_context_tokens,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     return CIFAR10MJEPA(jepa_config, backbone, predictor)

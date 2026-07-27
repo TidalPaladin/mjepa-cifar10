@@ -53,6 +53,10 @@ CLS_REGISTER_CONFIGS = {
     / "pretrain"
     / "vit-small-single-cls-register-partitioned-independent.yaml": "partitioned_independent_cross_attention",
 }
+CLS_PARTITION_COUNT_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent-2.yaml": 2,
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent-8.yaml": 8,
+}
 CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p5.yaml": 0.5,
@@ -160,6 +164,24 @@ def test_cls_register_configs_reclassify_three_cls_tokens_and_change_only_predic
         assert candidate[section] == baseline[section]
 
 
+@pytest.mark.parametrize(("config_path", "cls_context_tokens"), CLS_PARTITION_COUNT_CONFIGS.items())
+def test_cls_partition_count_configs_change_only_partition_count(
+    config_path: Path,
+    cls_context_tokens: int,
+) -> None:
+    control = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent.yaml").read_text()
+    )
+    candidate = yaml.full_load(config_path.read_text())
+
+    assert candidate["jepa"].cls_context_tokens == cls_context_tokens
+    for field in fields(JEPAConfig):
+        if field.name != "cls_context_tokens":
+            assert getattr(candidate["jepa"], field.name) == getattr(control["jepa"], field.name)
+    for section in ("trainer", "backbone", "optimizer"):
+        assert candidate[section] == control[section]
+
+
 @pytest.mark.parametrize(("config_path", "expected_weight"), CLS_GLOBAL_TARGET_CONFIGS.items())
 def test_cls_global_target_configs_change_only_global_loss_weight(
     config_path: Path,
@@ -216,6 +238,7 @@ def test_instantiate_jepa_forwards_predictor_configuration(mocker) -> None:
         predictor_depth=3,
         predictor_attention_mode="decoder",
         cls_prediction_mode="legacy_cross_attention",
+        cls_context_tokens=4,
         disable_predictor_regularizers=True,
     )
     device = object()
@@ -234,6 +257,7 @@ def test_instantiate_jepa_forwards_predictor_configuration(mocker) -> None:
         device=device,
         attention_mode=jepa_config.predictor_attention_mode,
         cls_prediction_mode=jepa_config.cls_prediction_mode,
+        cls_context_tokens=jepa_config.cls_context_tokens,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     model_constructor.assert_called_once_with(jepa_config, backbone, predictor)

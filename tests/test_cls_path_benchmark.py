@@ -1,5 +1,6 @@
 from typing import cast
 
+import pytest
 import torch
 from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
@@ -19,7 +20,11 @@ from vit import ViTConfig
 from mjepa_cifar10.research.cls_path_benchmark import _run_cls_prediction_path, count_cls_prediction_path_parameters
 
 
-def _predictor(cls_prediction_mode: CLSPredictionMode, num_cls_tokens: int) -> CrossAttentionPredictor:
+def _predictor(
+    cls_prediction_mode: CLSPredictionMode,
+    num_cls_tokens: int,
+    cls_context_tokens: int = 4,
+) -> CrossAttentionPredictor:
     backbone = ViTConfig(
         in_channels=3,
         patch_size=[4, 4],
@@ -31,12 +36,16 @@ def _predictor(cls_prediction_mode: CLSPredictionMode, num_cls_tokens: int) -> C
         num_cls_tokens=num_cls_tokens,
         dtype=torch.float32,
     ).instantiate()
-    config = JEPAConfig(cls_prediction_mode=cls_prediction_mode)
+    config = JEPAConfig(
+        cls_prediction_mode=cls_prediction_mode,
+        cls_context_tokens=cls_context_tokens,
+    )
     return CrossAttentionPredictor(
         backbone,
         depth=config.predictor_depth,
         attention_mode=config.predictor_attention_mode,
         cls_prediction_mode=config.cls_prediction_mode,
+        cls_context_tokens=config.cls_context_tokens,
     )
 
 
@@ -83,6 +92,19 @@ def test_projected_cls_path_parameter_count_includes_projection_and_legacy_predi
         == residual_projected_count
         < residual_mlp_count
     )
+
+
+@pytest.mark.parametrize("cls_context_tokens", [2, 8])
+def test_partitioned_cls_benchmark_supports_configurable_context_count(cls_context_tokens: int) -> None:
+    predictor = _predictor(
+        PARTITIONED_INDEPENDENT_CLS_PREDICTION_MODE,
+        num_cls_tokens=1,
+        cls_context_tokens=cls_context_tokens,
+    )
+
+    expanded = predictor.expand_cls_context(torch.randn(2, 1, 16))
+
+    assert expanded.shape == (2, cls_context_tokens, 16)
 
 
 def test_cls_benchmark_executes_the_configured_auxiliary_path(mocker: MockerFixture) -> None:
