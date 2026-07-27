@@ -860,3 +860,54 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Lifecycle: first-cycle event `c72ba9c8-f5f7-50cb-af58-4216821d9c03` and terminal event `13048145-c64f-408c-945e-ef228b4a7fc1` were each accepted once by the study-scoped controller under the captured permission and approval context.
 - Retention: retained `checkpoint.pt` and `backbone.safetensors`; no weights were deleted.
 - Decision: pass the mechanical gate and proceed with the preregistered two- and eight-partition scientific seed-0 trials.
+<!-- autoresearch-operation:{"content_sha256":"d93e3b75868790381bf2c4ac451de0341680eaa90418a2ca298d0e17b7844b3d","operation_id":"ed09ae2d929e58471276a743d13a7e62"} -->
+
+<!-- study:cls-partition-count-v1:phase:no-promotion -->
+## cls-partition-count-v1
+
+- Question: Does splitting one final CLS embedding into two or eight independently lifted channel partitions improve the practical quality and convergence of the successful four-partition single-CLS design?
+- Hypothesis: Two broader partitions will preserve practical parity with less predictor context complexity, while eight finer partitions will reveal whether the residual gap to four backbone CLS tokens comes from insufficient slot specialization.
+- Mechanisms and exact changes:
+  - `four-cls-legacy`: Mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe. Changes: not recorded.
+  - `single-cls-register-partitioned-independent-2`: Mechanism: Preserve one CLS plus seven registers, split the only CLS into two 192-dimensional channel groups, and independently lift them into two auxiliary predictor contexts. Changes: Reuse the one-CLS plus seven-register backbone.; Change only the independent partition count from four to two.
+  - `single-cls-register-partitioned-independent-8`: Mechanism: Preserve one CLS plus seven registers, split the only CLS into eight 48-dimensional channel groups, and independently lift them into eight auxiliary predictor contexts. Changes: Reuse the one-CLS plus seven-register backbone.; Change only the independent partition count from four to eight.
+- Launch code provenance:
+  - `pretrain-single-cls-register-partitioned-independent-2-seed0`: parent=`9d1d7749cc843bc70e31ef7cc68c9d359fc0d574` (`codex/research/cls-partition-count-v1`), mjepa=`4c6f6f43ab0734c65f2a78aca9a21682bd7bff66` (`codex/research/cls-partition-count-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+  - `pretrain-single-cls-register-partitioned-independent-8-seed0`: parent=`9d1d7749cc843bc70e31ef7cc68c9d359fc0d574` (`codex/research/cls-partition-count-v1`), mjepa=`4c6f6f43ab0734c65f2a78aca9a21682bd7bff66` (`codex/research/cls-partition-count-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partition-count-v1/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-cls-register-partitioned-independent-2-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-27T15:01:18.838270+00:00; finished=2026-07-27T18:07:04.706143+00:00; terminal_event=ff09b89b-ca7a-4c60-8bdf-fa1e8763e399; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partition-count-v1/runs/pretrain-single-cls-register-partitioned-independent-2-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/59b70484); checkpoint=retained; metrics=peak_accuracy=0.896200, final_accuracy=0.896200, step_to_90=6960, step_to_95=11745, active_seconds_to_90=4454.896, active_seconds_to_95=7511.390, step_auc=0.781475, active_time_auc=0.780721, active_seconds_at_step_horizon=11127.080, cls_path_latency_median_ms=14.138880, cls_path_latency_p90_ms=14.414848; error=none
+- `pretrain-single-cls-register-partitioned-independent-8-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-27T15:01:18.903156+00:00; finished=2026-07-27T18:06:27.822171+00:00; terminal_event=0b58f6ee-8fd0-4eb5-a9b4-40548f68f1bf; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partition-count-v1/runs/pretrain-single-cls-register-partitioned-independent-8-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/5263f07e); checkpoint=retained; metrics=peak_accuracy=0.842600, final_accuracy=0.842600, step_to_90=13485, step_to_95=censored, active_seconds_to_90=8596.788, active_seconds_to_95=censored, step_auc=0.734497, active_time_auc=0.734240, active_seconds_at_step_horizon=11089.894, cls_path_latency_median_ms=14.358528, cls_path_latency_p90_ms=14.642176; error=none
+<!-- autoresearch-operation:{"content_sha256":"d9e2ed31bd51e8c6c8a4c8a9993c2779cb700445911de4bfd7737fb404883b3f","operation_id":"cls-partition-count-v1-final-interpretation-v1"} -->
+## 2026-07-27 interpretation: independent CLS partition-count result
+
+- Operation: `cls-partition-count-v1-final-interpretation-v1`
+- Gate authority: apply both conjunctive gates preregistered in `research/studies/cls-partition-count-v1.yaml`. Strict equivalence compares with four backbone CLS tokens. Practical parity compares with the accepted four-partition single-CLS control. A candidate must satisfy all five thresholds in the applicable gate.
+- Strict four-CLS equivalence:
+
+  | Candidate | Peak vs 0.905 floor | Step-to-95 vs 8,613 ceiling | Active seconds vs 5,542.409 ceiling | Step AUC vs 0.796230 floor | Active AUC vs 0.791583 floor |
+  |---|---:|---:|---:|---:|---:|
+  | Two partitions | 0.896200 (-0.008800) | 11,745 (+3,132) | 7,511.390 (+1,968.981) | 0.781475 (-0.014755) | 0.780721 (-0.010872) |
+  | Eight partitions | 0.842600 (-0.062400) | censored | censored | 0.734497 (-0.061732) | 0.734240 (-0.057344) |
+
+- Practical parity with four partitions:
+
+  | Candidate | Peak vs 0.893 floor | Step-to-95 vs 11,006 ceiling | Active seconds vs 7,006.515 ceiling | Step AUC vs 0.782907 floor | Active AUC vs 0.782593 floor |
+  |---|---:|---:|---:|---:|---:|
+  | Two partitions | 0.896200 (+0.003200, pass) | 11,745 (+739, fail) | 7,511.390 (+504.875, fail) | 0.781475 (-0.001432, fail) | 0.780721 (-0.001872, fail) |
+  | Eight partitions | 0.842600 (-0.050400, fail) | censored | censored | 0.734497 (-0.048410, fail) | 0.734240 (-0.048353, fail) |
+
+- Controlled comparison with four partitions: two partitions changed peak accuracy by -0.001800, step-to-95 by +1,740, active-seconds-to-95 by +1,141.831, step AUC by -0.006432, and active-time AUC by -0.006872. Eight partitions changed peak accuracy by -0.055400 and AUC by -0.053410 step / -0.053353 active time; it never reached the 95-percent target.
+- Isolated predictor path: the two-, four-, and eight-partition medians were 14.138880, 14.086144, and 14.358528 ms. Relative to four partitions, two was 0.052736 ms (0.374 percent) slower at the median but 0.061440 ms (0.424 percent) faster at p90; eight was 0.272384 ms (1.934 percent) slower at the median and 0.165888 ms (1.146 percent) slower at p90. Parameter counts were 9,781,376, 9,782,144, and 9,783,680, respectively.
+- Interpretation: seed 0 shows a strong intermediate optimum at four partitions, not a monotonic benefit from fewer contexts or finer specialization. Two partitions preserve final quality but provide too few specialized predictor views to match four-partition convergence. Eight 48-dimensional groups over-fragment the single embedding and sharply degrade both quality and convergence.
+- Recovery and lifecycle: both final checkpoints restored the backbone, teacher, predictor, optimizer, scheduler, step 17,400, and epoch 399 on CPU. Restored projection shapes were 2 by 384 by 192 and 8 by 384 by 48. Both first-cycle and terminal notifications were accepted once, and the study-scoped event controller was stopped after reconciliation.
+- Decision: reject both candidates and retain the four-partition independent single-CLS design. Do not replicate, fine-tune, or use the official test set for either candidate. Retain all checkpoints and backbones; no weights were deleted.
+- Cost: the two runs overlapped for a total study span of 3 hours 5 minutes 45.868 seconds. Summed run wall time was 6 hours 10 minutes 54.787 seconds, and summed active training time at the final step was 6 hours 10 minutes 16.974 seconds.
+- Budget: the two candidates consumed both authorized scientific trials; zero trials remain.
+- Next falsifiable hypothesis, pending authorization: keep four contexts and improve the channel assignment rather than changing the count. A learned orthogonal 384-to-384 analysis rotation before the four independent 96-to-384 lifts would preserve one backbone CLS token and complementary rank-96 views while allowing the partitions to align with learned features. It must satisfy the same strict five-metric gate to replace the current design.
