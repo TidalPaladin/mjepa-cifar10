@@ -768,3 +768,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Gate: reuse the same hash-verified four-CLS reference, fixed data split, seed, metrics, and conjunctive thresholds: peak at least 0.9050, step-to-95 at most 8,613, active-seconds-to-95 at most 5,542.409, step AUC at least 0.796230, and active-time AUC at least 0.791583.
 - Stopping rule: select the shared lift if it satisfies every threshold. Otherwise select the independent lift only if it satisfies every threshold. Do not replicate or fine-tune an unqualified result.
 - Retention: retain all checkpoints and backbones; destructive retention remains unauthorized.
+<!-- autoresearch-operation:{"content_sha256":"985a612a5d8efa35c2d75f781e11b99f261ddf2a3e73a7bb6bed40ce94a1be2b","operation_id":"c330664811986aabe25d55dc2f9eaa2d"} -->
+
+<!-- study:cls-partitioned-slots-v1-smoke:phase:no-promotion -->
+## cls-partitioned-slots-v1-smoke
+
+- Question: Can the one-CLS independent channel-partitioned expansion path train, validate, benchmark, checkpoint, recover, summarize, and notify through one managed GPU epoch?
+- Hypothesis: The smoke run will complete with exactly one backbone CLS token, seven registers, isolated channel-group gradients, online W&B telemetry, exact-path diagnostics, an isolated-path benchmark, a first-cycle checkpoint, and accepted lifecycle notifications.
+- Mechanisms and exact changes:
+  - `cls-register-partitioned-independent-smoke`: Mechanism: Run one CLS token plus seven registers, split only the CLS into four disjoint channel groups, and independently lift the four groups into auxiliary predictor contexts. Changes: Use one CLS token and seven register tokens.; Use partitioned_independent_cross_attention for the auxiliary predictor.
+- Launch code provenance:
+  - `pretrain-cls-register-partitioned-independent-smoke-seed0`: parent=`d4ed5a724dc38b1a2cbf77b17db15de5ec5fe9ea` (`codex/research/cls-register-slots-v1`), mjepa=`29b359e9b28289a60eb00271d4f9a8d3d8db2a6f` (`codex/research/cls-register-slots-v1`), vit=`67eae23786b8e458334b695be8f8a879d6994a43` (`codex/research/cls-token-adaln-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partitioned-slots-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-register-partitioned-independent-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-27T05:46:04.336281+00:00; finished=2026-07-27T05:48:40.579632+00:00; terminal_event=64925bb5-3974-46b2-aa9b-7b4591423c3d; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-partitioned-slots-v1-smoke/runs/pretrain-cls-register-partitioned-independent-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/4195c0aa); checkpoint=retained; metrics=peak_accuracy=0.224400, final_accuracy=0.224400, step_to_90=2812, step_to_95=2812, active_seconds_to_90=140.412, active_seconds_to_95=140.412, step_auc=0.224400, active_time_auc=0.224400, active_seconds_at_step_horizon=140.412, cls_path_latency_median_ms=1.896960, cls_path_latency_p90_ms=1.910784; error=none
