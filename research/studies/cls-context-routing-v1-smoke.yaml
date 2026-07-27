@@ -1,0 +1,55 @@
+id: cls-context-routing-v1-smoke
+question: Can per-query CLS and visual source routing train, validate, benchmark, checkpoint, recover, summarize, and notify through one managed GPU epoch with one predictor forward?
+hypothesis: The maximum-granularity routed design will complete with one backbone CLS token, seven registers, one predictor forward, valid per-query masks in every predictor layer, complete predictor-workload telemetry, deterministic source diagnostics, and accepted lifecycle notifications.
+rejection_condition: Reject the mechanical validation if the run fails, times out, performs more than one training predictor forward, leaks a hidden source, lacks predictor or backbone gradients, lacks required recovery artifacts, cannot summarize, or its lifecycle notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint through scientific launch validation. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-joint-context-token-routed-smoke
+  config: config/pretrain/smoke-cls-joint-context-token-routed.yaml
+  hypothesis: A one-epoch miniature model exercises balanced per-query source routing and the single-pass predictor under the same one-CLS plus seven-register information boundary.
+  mechanism: Concatenate visible visual tokens and the raw CLS token, then balance target queries across joint, CLS-only, and visual-only visibility in one predictor forward.
+  changes:
+    - Use one CLS token and seven register tokens.
+    - Use joint_context_token_routed with a JEPA loss coefficient of 2.0.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-context-routing-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 4d95ebac24a18b17a13406cafc404602c5d9e260
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

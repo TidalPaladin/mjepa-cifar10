@@ -32,8 +32,8 @@ dynamic = [
 ]
 
 [tool.uv.sources]
-vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "67eae23786b8e458334b695be8f8a879d6994a43" }
-mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "4c6f6f43ab0734c65f2a78aca9a21682bd7bff66" }
+vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "bf15705454975f04912538cdc790d399eea69e67" }
+mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "4d95ebac24a18b17a13406cafc404602c5d9e260" }
 
 # For local sibling-repo testing, comment the git sources above and uncomment these:
 # vit = { path = "../vit", editable = true }
@@ -82,7 +82,7 @@ typeCheckingMode = "standard"
 [tool.uv]
 required-version = "==0.11.28"
 override-dependencies = [
-    "vit @ git+https://github.com/TidalPaladin/vit.git@67eae23786b8e458334b695be8f8a879d6994a43",
+    "vit @ git+https://github.com/TidalPaladin/vit.git@bf15705454975f04912538cdc790d399eea69e67",
 ]
 
 [tool.pytest.ini_options]

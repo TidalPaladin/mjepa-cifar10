@@ -57,6 +57,17 @@ CLS_PARTITION_COUNT_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent-2.yaml": 2,
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent-8.yaml": 8,
 }
+CLS_JOINT_CONTEXT_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-joint-context-unmasked.yaml": "joint_context",
+    REPO_ROOT
+    / "config"
+    / "pretrain"
+    / "vit-small-single-cls-joint-context-sample-routed.yaml": "joint_context_sample_routed",
+    REPO_ROOT
+    / "config"
+    / "pretrain"
+    / "vit-small-single-cls-joint-context-token-routed.yaml": "joint_context_token_routed",
+}
 CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p5.yaml": 0.5,
@@ -180,6 +191,39 @@ def test_cls_partition_count_configs_change_only_partition_count(
             assert getattr(candidate["jepa"], field.name) == getattr(control["jepa"], field.name)
     for section in ("trainer", "backbone", "optimizer"):
         assert candidate[section] == control[section]
+
+
+@pytest.mark.parametrize(("config_path", "cls_prediction_mode"), CLS_JOINT_CONTEXT_CONFIGS.items())
+def test_cls_joint_context_configs_change_only_prediction_mode_and_single_pass_loss_weight(
+    config_path: Path,
+    cls_prediction_mode: str,
+) -> None:
+    control = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent.yaml").read_text()
+    )
+    candidate = yaml.full_load(config_path.read_text())
+
+    assert candidate["backbone"].num_cls_tokens == 1
+    assert candidate["backbone"].num_register_tokens == 7
+    assert candidate["jepa"].cls_prediction_mode == cls_prediction_mode
+    assert candidate["jepa"].jepa_loss_weight == pytest.approx(2.0)
+    for field in fields(JEPAConfig):
+        if field.name not in ("cls_prediction_mode", "jepa_loss_weight"):
+            assert getattr(candidate["jepa"], field.name) == getattr(control["jepa"], field.name)
+    for section in ("trainer", "backbone", "optimizer"):
+        assert candidate[section] == control[section]
+
+
+def test_cls_joint_context_smoke_uses_maximum_routing_granularity() -> None:
+    config = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "smoke-cls-joint-context-token-routed.yaml").read_text()
+    )
+
+    assert config["trainer"].num_epochs == 1
+    assert config["backbone"].num_cls_tokens == 1
+    assert config["backbone"].num_register_tokens == 7
+    assert config["jepa"].cls_prediction_mode == "joint_context_token_routed"
+    assert config["jepa"].jepa_loss_weight == pytest.approx(2.0)
 
 
 @pytest.mark.parametrize(("config_path", "expected_weight"), CLS_GLOBAL_TARGET_CONFIGS.items())

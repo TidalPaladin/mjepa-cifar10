@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from typing import cast
 
 import pytest
@@ -5,6 +6,7 @@ import torch
 from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
+    JOINT_CONTEXT_CLS_PREDICTION_MODE,
     PARTITIONED_INDEPENDENT_CLS_PREDICTION_MODE,
     PARTITIONED_SHARED_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
@@ -49,7 +51,7 @@ def _predictor(
     )
 
 
-def test_blind_cls_path_parameter_count_excludes_attention_parameters() -> None:
+def test_complete_predictor_workload_parameter_count_includes_all_predictor_parameters() -> None:
     legacy = _predictor("legacy_cross_attention", num_cls_tokens=4)
     blind = _predictor(ADALN_BLIND_CLS_PREDICTION_MODE, num_cls_tokens=1)
 
@@ -57,8 +59,7 @@ def test_blind_cls_path_parameter_count_excludes_attention_parameters() -> None:
     blind_count = count_cls_prediction_path_parameters(blind)
 
     assert legacy_count == sum(parameter.numel() for parameter in legacy.parameters())
-    assert 0 < blind_count < sum(parameter.numel() for parameter in blind.parameters())
-    assert blind_count < legacy_count
+    assert blind_count == sum(parameter.numel() for parameter in blind.parameters())
 
 
 def test_projected_cls_path_parameter_count_includes_projection_and_legacy_predictor() -> None:
@@ -107,14 +108,65 @@ def test_partitioned_cls_benchmark_supports_configurable_context_count(cls_conte
     assert expanded.shape == (2, cls_context_tokens, 16)
 
 
-def test_cls_benchmark_executes_the_configured_auxiliary_path(mocker: MockerFixture) -> None:
+def test_cls_benchmark_executes_both_legacy_predictor_forwards(mocker: MockerFixture) -> None:
+    visual_context = torch.randn(2, 2, 16)
     cls_tokens = torch.randn(2, 1, 16)
+    context_mask = torch.zeros(2, 4, dtype=torch.bool)
+    target_mask = torch.zeros(2, 4, dtype=torch.bool)
+    visual_output = torch.randn(2, 1, 16)
+    cls_output = torch.randn(2, 1, 16)
+    jepa = mocker.Mock(spec=MJEPA)
+    jepa.config = SimpleNamespace(cls_prediction_mode="legacy_cross_attention")
+    jepa.forward_predictor.return_value = visual_output
+    jepa.forward_cls_predictor.return_value = cls_output
+
+    result = _run_cls_prediction_path(
+        cast(MJEPA, jepa),
+        (2, 2),
+        visual_context,
+        cls_tokens,
+        context_mask,
+        target_mask,
+    )
+
+    jepa.forward_predictor.assert_called_once_with(
+        (2, 2),
+        visual_context,
+        context_mask,
+        target_mask,
+        rope_seed=0,
+    )
+    jepa.forward_cls_predictor.assert_called_once_with((2, 2), cls_tokens, target_mask, rope_seed=0)
+    assert result == (visual_output, cls_output)
+
+
+def test_cls_benchmark_executes_one_joint_context_predictor_forward(mocker: MockerFixture) -> None:
+    visual_context = torch.randn(2, 2, 16)
+    cls_tokens = torch.randn(2, 1, 16)
+    context_mask = torch.zeros(2, 4, dtype=torch.bool)
     target_mask = torch.zeros(2, 4, dtype=torch.bool)
     output = torch.randn(2, 1, 16)
     jepa = mocker.Mock(spec=MJEPA)
-    jepa.forward_cls_predictor.return_value = output
+    jepa.config = SimpleNamespace(cls_prediction_mode=JOINT_CONTEXT_CLS_PREDICTION_MODE)
+    jepa.forward_joint_context_predictor_heads.return_value = (output, None)
 
-    result = _run_cls_prediction_path(cast(MJEPA, jepa), (2, 2), cls_tokens, target_mask)
+    result = _run_cls_prediction_path(
+        cast(MJEPA, jepa),
+        (2, 2),
+        visual_context,
+        cls_tokens,
+        context_mask,
+        target_mask,
+    )
 
-    jepa.forward_cls_predictor.assert_called_once_with((2, 2), cls_tokens, target_mask, rope_seed=0)
-    assert result is output
+    jepa.forward_joint_context_predictor_heads.assert_called_once_with(
+        (2, 2),
+        visual_context,
+        cls_tokens,
+        context_mask,
+        target_mask,
+        rope_seed=0,
+    )
+    jepa.forward_predictor.assert_not_called()
+    jepa.forward_cls_predictor.assert_not_called()
+    assert result == (output, None)

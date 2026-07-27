@@ -14,7 +14,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=67eae23786b8e458334b695be8f8a879d6994a43" }]
+overrides = [{ name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=bf15705454975f04912538cdc790d399eea69e67" }]
 
 [[package]]
 name = "annotated-types"
@@ -466,8 +466,8 @@ wheels = [
 
 [[package]]
 name = "mjepa"
-version = "0.1.dev73+g4c6f6f43a"
-source = { git = "https://github.com/TidalPaladin/mjepa.git?rev=4c6f6f43ab0734c65f2a78aca9a21682bd7bff66#4c6f6f43ab0734c65f2a78aca9a21682bd7bff66" }
+version = "0.1.dev75+g4d95ebac2"
+source = { git = "https://github.com/TidalPaladin/mjepa.git?rev=4d95ebac24a18b17a13406cafc404602c5d9e260#4d95ebac24a18b17a13406cafc404602c5d9e260" }
 dependencies = [
     { name = "einops" },
     { name = "ninja" },
@@ -515,14 +515,14 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "filelock", specifier = "==3.31.1" },
-    { name = "mjepa", git = "https://github.com/TidalPaladin/mjepa.git?rev=4c6f6f43ab0734c65f2a78aca9a21682bd7bff66" },
+    { name = "mjepa", git = "https://github.com/TidalPaladin/mjepa.git?rev=4d95ebac24a18b17a13406cafc404602c5d9e260" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "safetensors", specifier = "==0.8.0" },
     { name = "torch", specifier = "==2.13.0" },
     { name = "torchmetrics", specifier = "==1.9.0" },
     { name = "torchvision", specifier = "==0.28.0" },
     { name = "tqdm", specifier = "==4.68.4" },
-    { name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=67eae23786b8e458334b695be8f8a879d6994a43" },
+    { name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=bf15705454975f04912538cdc790d399eea69e67" },
     { name = "wandb", specifier = "==0.28.1" },
     { name = "websockets", specifier = "==16.1.1" },
 ]
@@ -1724,8 +1724,8 @@ wheels = [
 
 [[package]]
 name = "vit"
-version = "0.1.2.dev9+g67eae2378"
-source = { git = "https://github.com/TidalPaladin/vit.git?rev=67eae23786b8e458334b695be8f8a879d6994a43#67eae23786b8e458334b695be8f8a879d6994a43" }
+version = "0.1.2.dev10+gbf1570545"
+source = { git = "https://github.com/TidalPaladin/vit.git?rev=bf15705454975f04912538cdc790d399eea69e67#bf15705454975f04912538cdc790d399eea69e67" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },

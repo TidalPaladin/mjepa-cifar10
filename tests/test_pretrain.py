@@ -12,6 +12,7 @@ import torchmetrics as tm
 from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
+    JOINT_CONTEXT_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
     SLOT_BIAS_CLS_PREDICTION_MODE,
     CrossAttentionPredictor,
@@ -679,6 +680,70 @@ def test_cls_aux_shuffle_diagnostic_blinds_cross_sample_identity(
     shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
     assert recompute.call_count == 2
     assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls)
+
+
+def test_joint_context_shuffle_diagnostic_isolates_cls_and_visual_sources(mocker) -> None:
+    model = make_model(num_cls_tokens=1, cls_prediction_mode=JOINT_CONTEXT_CLS_PREDICTION_MODE)
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    context_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    target_mask = torch.ones_like(context_mask)
+    joint_prediction = torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    shuffled_joint_prediction = torch.ones_like(joint_prediction)
+    cls_only_prediction = torch.full_like(joint_prediction, 2.0)
+    shuffled_cls_only_prediction = torch.full_like(joint_prediction, 3.0)
+    visual_only_prediction = torch.full_like(joint_prediction, 4.0)
+    predictions = MJEPAPredictions(
+        pred=joint_prediction,
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=context_mask,
+        target_mask=target_mask,
+    )
+    recompute = mocker.patch.object(
+        model,
+        "forward_predictor",
+        side_effect=(
+            joint_prediction,
+            shuffled_joint_prediction,
+            cls_only_prediction,
+            shuffled_cls_only_prediction,
+            visual_only_prediction,
+        ),
+    )
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    target = teacher_output.visual_tokens
+    joint_loss = compute_jepa_prediction_loss(joint_prediction, target).item()
+    shuffled_joint_loss = compute_jepa_prediction_loss(shuffled_joint_prediction, target).item()
+    cls_only_loss = compute_jepa_prediction_loss(cls_only_prediction, target).item()
+    shuffled_cls_only_loss = compute_jepa_prediction_loss(shuffled_cls_only_prediction, target).item()
+    visual_only_loss = compute_jepa_prediction_loss(visual_only_prediction, target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_aux_loss": cls_only_loss,
+            "pretrain/validation_cls_aux_loss_shuffled": shuffled_cls_only_loss,
+            "pretrain/validation_cls_aux_shuffle_gap": shuffled_cls_only_loss - cls_only_loss,
+            "pretrain/validation_joint_context_loss": joint_loss,
+            "pretrain/validation_joint_context_loss_shuffled_cls": shuffled_joint_loss,
+            "pretrain/validation_joint_context_cls_shuffle_gap": shuffled_joint_loss - joint_loss,
+            "pretrain/validation_visual_only_loss": visual_only_loss,
+        }
+    )
+    assert recompute.call_count == 5
+    shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
+    assert torch.equal(recompute.call_args_list[0].args[1][:, -1:], student_output.cls_tokens)
+    assert torch.equal(recompute.call_args_list[1].args[1][:, -1:], shuffled_cls)
+    joint_mask = recompute.call_args_list[0].kwargs["context_attention_mask"]
+    cls_only_mask = recompute.call_args_list[2].kwargs["context_attention_mask"]
+    visual_only_mask = recompute.call_args_list[4].kwargs["context_attention_mask"]
+    assert joint_mask.all()
+    assert not cls_only_mask[..., :-1].any()
+    assert cls_only_mask[..., -1].all()
+    assert visual_only_mask[..., :-1].all()
+    assert not visual_only_mask[..., -1].any()
 
 
 def test_cls_global_target_loss_regresses_one_student_cls_to_pooled_teacher_visual_tokens() -> None:

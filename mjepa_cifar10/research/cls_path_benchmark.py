@@ -10,7 +10,7 @@ from statistics import median
 from typing import Any, Final, cast
 
 import torch
-from mjepa.jepa import ADALN_CLS_PREDICTION_MODES, CrossAttentionPredictor
+from mjepa.jepa import JOINT_CONTEXT_CLS_PREDICTION_MODES, CrossAttentionPredictor
 from mjepa.model import MJEPA
 
 
@@ -23,11 +23,14 @@ DEFAULT_MEASURED_ITERATIONS: Final[int] = 100
 @dataclass(frozen=True)
 class CLSPathBenchmarkResult:
     cls_prediction_mode: str
+    benchmark_scope: str
     median_ms: float
     p90_ms: float
     parameter_count: int
     batch_size: int
+    visual_context_tokens: int
     target_queries: int
+    predictor_forward_count: int
     warmup_iterations: int
     measured_iterations: int
     autocast_dtype: str
@@ -52,22 +55,37 @@ def _unique_parameter_count(modules: tuple[torch.nn.Module, ...]) -> int:
 
 
 def count_cls_prediction_path_parameters(predictor: CrossAttentionPredictor) -> int:
-    """Count unique parameters executed by the configured isolated CLS prediction path."""
-    if predictor.cls_prediction_mode not in ADALN_CLS_PREDICTION_MODES:
-        return sum(parameter.numel() for parameter in predictor.parameters())
-    modules: list[torch.nn.Module] = [predictor.pos_enc_target, predictor.predictor_proj]
-    for block in predictor.blocks:
-        modules.extend((block.mlp, block.layer_scale_mlp))  # type: ignore[attr-defined]
-    return _unique_parameter_count(tuple(modules))
+    """Count unique predictor parameters participating in the complete predictor workload."""
+    return _unique_parameter_count((predictor,))
 
 
 def _run_cls_prediction_path(
     jepa: MJEPA,
     tokenized_size: tuple[int, int],
+    visual_context: torch.Tensor,
     cls_tokens: torch.Tensor,
+    context_mask: torch.Tensor,
     target_mask: torch.Tensor,
-) -> torch.Tensor:
-    return jepa.forward_cls_predictor(tokenized_size, cls_tokens, target_mask, rope_seed=0)
+) -> tuple[torch.Tensor, torch.Tensor | None]:
+    """Execute the predictor work performed by one training step."""
+    if jepa.config.cls_prediction_mode in JOINT_CONTEXT_CLS_PREDICTION_MODES:
+        return jepa.forward_joint_context_predictor_heads(
+            tokenized_size,
+            visual_context,
+            cls_tokens,
+            context_mask,
+            target_mask,
+            rope_seed=0,
+        )
+    visual_prediction = jepa.forward_predictor(
+        tokenized_size,
+        visual_context,
+        context_mask,
+        target_mask,
+        rope_seed=0,
+    )
+    cls_prediction = jepa.forward_cls_predictor(tokenized_size, cls_tokens, target_mask, rope_seed=0)
+    return visual_prediction, cls_prediction
 
 
 def benchmark_cls_prediction_path(
@@ -78,7 +96,7 @@ def benchmark_cls_prediction_path(
     warmup_iterations: int = DEFAULT_WARMUP_ITERATIONS,
     measured_iterations: int = DEFAULT_MEASURED_ITERATIONS,
 ) -> CLSPathBenchmarkResult:
-    """Measure the isolated configured CLS auxiliary path with CUDA events."""
+    """Measure the complete configured predictor workload with CUDA events."""
     device = next(jepa.predictor.parameters()).device
     if device.type != "cuda":
         raise ValueError("CLS path benchmark requires a CUDA model")
@@ -94,7 +112,17 @@ def benchmark_cls_prediction_path(
 
     target_mask = torch.zeros(batch_size, visual_tokens, dtype=torch.bool, device=device)
     target_mask[:, :target_queries] = True
+    visual_context_tokens = max(1, min(round(visual_tokens * jepa.config.context_ratio), visual_tokens))
+    context_mask = torch.zeros(batch_size, visual_tokens, dtype=torch.bool, device=device)
+    context_mask[:, :visual_context_tokens] = True
     hidden_size = jepa.predictor.hidden_size
+    visual_context = torch.zeros(
+        batch_size,
+        visual_context_tokens,
+        hidden_size,
+        dtype=jepa.predictor.predictor_dtype,
+        device=device,
+    )
     cls_token_count = jepa.student.config.num_cls_tokens
     cls_tokens = torch.zeros(
         batch_size,
@@ -104,8 +132,15 @@ def benchmark_cls_prediction_path(
         device=device,
     )
 
-    def run_path() -> torch.Tensor:
-        return _run_cls_prediction_path(jepa, tokenized_size, cls_tokens, target_mask)
+    def run_path() -> None:
+        _run_cls_prediction_path(
+            jepa,
+            tokenized_size,
+            visual_context,
+            cls_tokens,
+            context_mask,
+            target_mask,
+        )
 
     was_training = jepa.predictor.training
     jepa.predictor.eval()
@@ -131,11 +166,14 @@ def benchmark_cls_prediction_path(
     properties = torch.cuda.get_device_properties(device)
     return CLSPathBenchmarkResult(
         cls_prediction_mode=jepa.config.cls_prediction_mode,
+        benchmark_scope="complete_predictor_workload",
         median_ms=median(ordered),
         p90_ms=ordered[p90_index],
         parameter_count=count_cls_prediction_path_parameters(jepa.predictor),
         batch_size=batch_size,
+        visual_context_tokens=visual_context_tokens,
         target_queries=target_queries,
+        predictor_forward_count=(1 if jepa.config.cls_prediction_mode in JOINT_CONTEXT_CLS_PREDICTION_MODES else 2),
         warmup_iterations=warmup_iterations,
         measured_iterations=measured_iterations,
         autocast_dtype="bfloat16",

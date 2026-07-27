@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import torchmetrics as tm
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
+    JOINT_CONTEXT_CLS_PREDICTION_MODES,
     compute_jepa_prediction_loss,
 )
 from mjepa.metrics import CLSPatchAlignmentMetric
@@ -120,16 +121,102 @@ def update_cls_patch_alignment_metric(metric: CLSPatchAlignmentMetric | None, fe
     return True
 
 
-def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) -> dict[str, float]:
-    """Compare one CLS auxiliary prediction with the same batch's CLS embeddings cyclically shuffled."""
-    if output.pred_with_cls is None or not MJEPA._has_cls_tokens(output.student_output):
-        return {}
+def _joint_context_source_mask(
+    output: MJEPAPredictions,
+    *,
+    show_visual: bool,
+    show_cls: bool,
+) -> Tensor:
+    batch_size, target_tokens = output.pred.shape[:2]
+    visual_context_tokens = output.student_output.visual_tokens.shape[1]
+    mask = torch.zeros(
+        batch_size,
+        1,
+        target_tokens,
+        visual_context_tokens + 1,
+        dtype=torch.bool,
+        device=output.pred.device,
+    )
+    mask[..., :-1] = show_visual
+    mask[..., -1] = show_cls
+    return mask
+
+
+def _forward_joint_context_diagnostic(
+    jepa: MJEPA,
+    output: MJEPAPredictions,
+    cls_tokens: Tensor,
+    source_mask: Tensor,
+    tokenized_size: tuple[int, int],
+) -> Tensor:
+    joint_context = torch.cat([output.student_output.visual_tokens, cls_tokens], dim=1)
+    return jepa.forward_predictor(
+        tokenized_size,
+        joint_context,
+        output.context_mask,
+        output.target_mask,
+        rope_seed=VALIDATION_DIAGNOSTIC_SEED,
+        context_attention_mask=source_mask,
+    )
+
+
+def _compute_joint_context_shuffle_diagnostic(
+    jepa: MJEPA,
+    output: MJEPAPredictions,
+    tokenized_size: tuple[int, int],
+) -> dict[str, float]:
     cls_tokens = output.student_output.cls_tokens
+    if cls_tokens.shape[1] != 1:
+        raise ValueError("joint-context CLS diagnostics require exactly one CLS token")
     shuffled_cls_tokens = torch.roll(cls_tokens, shifts=1, dims=0)
+    joint_mask = _joint_context_source_mask(output, show_visual=True, show_cls=True)
+    cls_only_mask = _joint_context_source_mask(output, show_visual=False, show_cls=True)
+    visual_only_mask = _joint_context_source_mask(output, show_visual=True, show_cls=False)
+
+    joint_prediction = _forward_joint_context_diagnostic(jepa, output, cls_tokens, joint_mask, tokenized_size)
+    shuffled_joint_prediction = _forward_joint_context_diagnostic(
+        jepa, output, shuffled_cls_tokens, joint_mask, tokenized_size
+    )
+    cls_only_prediction = _forward_joint_context_diagnostic(jepa, output, cls_tokens, cls_only_mask, tokenized_size)
+    shuffled_cls_only_prediction = _forward_joint_context_diagnostic(
+        jepa, output, shuffled_cls_tokens, cls_only_mask, tokenized_size
+    )
+    visual_only_prediction = _forward_joint_context_diagnostic(
+        jepa, output, cls_tokens, visual_only_mask, tokenized_size
+    )
+    target = jepa._masked_target(output.target_mask, output.teacher_output.visual_tokens)
+    loss = partial(compute_jepa_prediction_loss, teacher=target, kind=jepa.config.jepa_loss_kind)
+    joint_loss = loss(joint_prediction).item()
+    shuffled_joint_loss = loss(shuffled_joint_prediction).item()
+    cls_only_loss = loss(cls_only_prediction).item()
+    shuffled_cls_only_loss = loss(shuffled_cls_only_prediction).item()
+    visual_only_loss = loss(visual_only_prediction).item()
+    return {
+        "pretrain/validation_cls_aux_loss": cls_only_loss,
+        "pretrain/validation_cls_aux_loss_shuffled": shuffled_cls_only_loss,
+        "pretrain/validation_cls_aux_shuffle_gap": shuffled_cls_only_loss - cls_only_loss,
+        "pretrain/validation_joint_context_loss": joint_loss,
+        "pretrain/validation_joint_context_loss_shuffled_cls": shuffled_joint_loss,
+        "pretrain/validation_joint_context_cls_shuffle_gap": shuffled_joint_loss - joint_loss,
+        "pretrain/validation_visual_only_loss": visual_only_loss,
+    }
+
+
+def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) -> dict[str, float]:
+    """Measure target prediction dependence on the student's CLS identity."""
+    if not MJEPA._has_cls_tokens(output.student_output):
+        return {}
     raw_tokenized_size = output.teacher_output.tokenized_size
     if raw_tokenized_size is None or len(raw_tokenized_size) != 2:
         raise ValueError("teacher output must record tokenized_size for CLS diagnostics")
     tokenized_size = cast(tuple[int, int], raw_tokenized_size)
+    if jepa.config.cls_prediction_mode in JOINT_CONTEXT_CLS_PREDICTION_MODES:
+        return _compute_joint_context_shuffle_diagnostic(jepa, output, tokenized_size)
+    if output.pred_with_cls is None:
+        return {}
+
+    cls_tokens = output.student_output.cls_tokens
+    shuffled_cls_tokens = torch.roll(cls_tokens, shifts=1, dims=0)
     true_prediction = jepa.forward_cls_predictor(
         tokenized_size,
         cls_tokens,
