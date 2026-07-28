@@ -35,6 +35,7 @@ from mjepa_cifar10.pretrain import (
     CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING,
     CIFAR10MJEPA,
     CPA_RESULT_KEYS,
+    AttentionWeightPool,
     OptimizerStepResult,
     clip_optimizer_grad_norm_,
     compute_and_reset_cpa_metrics,
@@ -1032,6 +1033,49 @@ def test_ema_attention_pooler_has_trainable_online_and_frozen_target_copies() ->
     assert all(parameter.grad is not None for parameter in poolers.online.parameters())
     assert all(parameter.grad is None for parameter in poolers.target.parameters())
     assert any(name.startswith("_cls_global_target_poolers.") for name in model.predictor.state_dict())
+
+
+def test_ema_attention_diagnostic_reports_target_diversity_and_attention_shape() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=make_features(num_cls_tokens=1),
+        teacher_output=make_features(num_cls_tokens=1),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    metrics = compute_cls_global_target_diagnostic(predictions, model)
+
+    assert 0.0 <= metrics["pretrain/validation_cls_global_teacher_mean_pairwise_cosine"] <= 1.0
+    assert 0.0 <= metrics["pretrain/validation_cls_global_target_attention_normalized_entropy"] <= 1.0
+    assert 0.0 <= metrics["pretrain/validation_cls_global_target_attention_max_weight"] <= 1.0
+
+
+def test_attention_weight_pool_returns_convex_weighted_mean_of_input_tokens() -> None:
+    pooler = AttentionWeightPool(hidden_size=HIDDEN_SIZE, num_attention_heads=2)
+    visual_tokens = torch.randn(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+
+    weights = pooler.forward_weights(visual_tokens)
+    pooled = pooler(visual_tokens)
+
+    assert weights.shape == (BATCH_SIZE, NUM_VISUAL_TOKENS)
+    assert (weights >= 0).all()
+    assert torch.allclose(weights.sum(dim=-1), torch.ones(BATCH_SIZE))
+    assert torch.allclose(pooled, torch.einsum("bt,btd->bd", weights, visual_tokens))
+
+
+def test_attention_weight_pool_uses_every_trainable_parameter() -> None:
+    pooler = AttentionWeightPool(hidden_size=HIDDEN_SIZE, num_attention_heads=2)
+    visual_tokens = torch.randn(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+
+    pooler(visual_tokens).square().mean().backward()
+
+    assert all(parameter.grad is not None for parameter in pooler.parameters())
 
 
 def test_ema_attention_target_pooler_tracks_online_pooler() -> None:

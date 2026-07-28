@@ -45,7 +45,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler
 from torchmetrics.wrappers import Running
 from tqdm import tqdm
-from vit import AttentivePool, ViT, ViTFeatures
+from vit import ViT, ViTFeatures
 
 import wandb
 
@@ -85,6 +85,7 @@ ProgressPhase = Literal["training", "validation", "checkpointing", "checkpointed
 ProgressCallback = Callable[[ProgressPhase, int, int, float], object]
 FirstCycleCallback = Callable[[int, int, float], object]
 __all__ = [
+    "AttentionWeightPool",
     "CPA_RESULT_KEYS",
     "CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING",
     "CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING",
@@ -134,6 +135,65 @@ def report_checkpoint_lifecycle(
     return first_cycle_reported
 
 
+class AttentionWeightPool(nn.Module):
+    """Learn attention weights while keeping pooled values in the input feature space."""
+
+    def __init__(
+        self,
+        hidden_size: int,
+        num_attention_heads: int,
+        *,
+        bias: bool = False,
+        qk_normalization: bool = True,
+        device: torch.device | None = None,
+        dtype: torch.dtype | None = None,
+    ):
+        super().__init__()
+        if hidden_size % num_attention_heads != 0:
+            raise ValueError(
+                f"hidden_size ({hidden_size}) must be divisible by num_attention_heads ({num_attention_heads})"
+            )
+        factory_kwargs = {"device": device, "dtype": dtype}
+        self.num_attention_heads = num_attention_heads
+        self.head_dim = hidden_size // num_attention_heads
+        self.query = nn.Parameter(torch.empty(1, num_attention_heads, 1, self.head_dim, **factory_kwargs))
+        self.key_proj = nn.Linear(hidden_size, hidden_size, bias=bias, **factory_kwargs)
+        self.query_norm = nn.LayerNorm(self.head_dim, **factory_kwargs) if qk_normalization else nn.Identity()
+        self.key_norm = nn.LayerNorm(self.head_dim, **factory_kwargs) if qk_normalization else nn.Identity()
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        nn.init.trunc_normal_(self.query, std=0.02)
+        nn.init.xavier_uniform_(self.key_proj.weight)
+        if self.key_proj.bias is not None:
+            nn.init.zeros_(self.key_proj.bias)
+        for norm in (self.query_norm, self.key_norm):
+            if isinstance(norm, nn.LayerNorm):
+                nn.init.ones_(norm.weight)
+                nn.init.zeros_(norm.bias)
+
+    def forward_weights(self, visual_tokens: Tensor) -> Tensor:
+        batch_size, num_tokens, hidden_size = visual_tokens.shape
+        if hidden_size != self.num_attention_heads * self.head_dim:
+            raise ValueError(
+                f"Expected visual-token width {self.num_attention_heads * self.head_dim}, got {hidden_size}"
+            )
+        keys = self.key_proj(visual_tokens).view(
+            batch_size,
+            num_tokens,
+            self.num_attention_heads,
+            self.head_dim,
+        )
+        keys = self.key_norm(keys.movedim(1, 2))
+        query = self.query_norm(self.query)
+        logits = (query * keys).sum(dim=-1) * (self.head_dim**-0.5)
+        return logits.softmax(dim=-1).mean(dim=1)
+
+    def forward(self, visual_tokens: Tensor) -> Tensor:
+        weights = self.forward_weights(visual_tokens)
+        return torch.einsum("bt,btd->bd", weights, visual_tokens)
+
+
 class CLSGlobalTargetPoolers(nn.Module):
     """Matched online and EMA attention poolers for teacher-global targets."""
 
@@ -141,15 +201,12 @@ class CLSGlobalTargetPoolers(nn.Module):
         super().__init__()
         config = backbone.config
         reference_parameter = next(backbone.parameters())
-        self.online = AttentivePool(
+        self.online = AttentionWeightPool(
             config.hidden_size,
             config.num_attention_heads,
-            hidden_dropout=0.0,
-            attention_dropout=0.0,
             bias=config.attention_bias,
             device=reference_parameter.device,
             dtype=reference_parameter.dtype,
-            norm_type=config.norm_type,
             qk_normalization=config.qk_normalization,
         )
         self.target = setup_teacher(self.online)
@@ -441,6 +498,14 @@ def _normalized_global_regression_loss(student: Tensor, target: Tensor) -> Tenso
     return (student - target).square().sum(dim=-1).mean()
 
 
+def _mean_pairwise_cosine(normalized_embeddings: Tensor) -> float:
+    batch_size = normalized_embeddings.shape[0]
+    if batch_size < 2:
+        return 1.0
+    off_diagonal_sum = normalized_embeddings.sum(dim=0).square().sum() - normalized_embeddings.square().sum()
+    return off_diagonal_sum.div(batch_size * (batch_size - 1)).clamp(-1.0, 1.0).item()
+
+
 def _cls_global_target_views(
     jepa: CIFAR10MJEPA,
     output: MJEPAPredictions,
@@ -518,9 +583,25 @@ def compute_cls_global_target_diagnostic(
         "pretrain/validation_cls_global_student_norm": normalized_student_cls.norm(dim=-1).mean().item(),
         "pretrain/validation_cls_global_teacher_norm": teacher_global_target.norm(dim=-1).mean().item(),
         "pretrain/validation_cls_global_teacher_batch_std": teacher_global_target.std(dim=0).mean().item(),
+        "pretrain/validation_cls_global_teacher_mean_pairwise_cosine": _mean_pairwise_cosine(teacher_global_target),
     }
     if losses.pool_consistency_loss is not None:
         metrics["pretrain/validation_cls_global_pool_consistency_loss"] = losses.pool_consistency_loss.item()
+    if (poolers := jepa.cls_global_target_poolers) is not None:
+        target_weights = poolers.target.forward_weights(output.teacher_output.visual_tokens.float())
+        num_tokens = target_weights.shape[-1]
+        normalized_entropy = (
+            -(target_weights * target_weights.clamp_min(torch.finfo(target_weights.dtype).tiny).log())
+            .sum(dim=-1)
+            .div(math.log(num_tokens))
+            .mean()
+            if num_tokens > 1
+            else target_weights.new_zeros(())
+        )
+        metrics["pretrain/validation_cls_global_target_attention_normalized_entropy"] = normalized_entropy.item()
+        metrics["pretrain/validation_cls_global_target_attention_max_weight"] = (
+            target_weights.max(dim=-1).values.mean().item()
+        )
     return metrics
 
 

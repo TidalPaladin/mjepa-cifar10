@@ -105,6 +105,12 @@ CLS_TEACHER_GLOBAL_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind-global-ema-attention.yaml": (
         "centered_normalized_ema_attention"
     ),
+    REPO_ROOT
+    / "config"
+    / "pretrain"
+    / "vit-small-single-cls-packed-adaln-hard-blind-global-ema-attention-convex.yaml": (
+        "centered_normalized_ema_attention"
+    ),
 }
 
 

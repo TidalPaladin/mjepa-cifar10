@@ -31,26 +31,29 @@ variants:
       - Add direct CLS and visible-pool squared-L2 losses at weight 0.1 each.
       - Add no trainable pooling parameters.
   - id: cls-global-centered-ema-attention
-    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind-global-ema-attention.yaml
+    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind-global-ema-attention-convex.yaml
     finetune_config: config/finetune/vit-small-single-cls.yaml
-    hypothesis: A learned EMA attention pooler will select globally useful teacher content better than uniform pooling while retaining a stopped target.
-    mechanism: Regress the centered normalized student CLS and an online one-query attention pool of visible student tokens to a stopped centered normalized EMA-attention pool of every full-image teacher visual token.
+    hypothesis: Learned EMA attention weights will select globally useful teacher content better than uniform pooling while a convex raw-token value path prevents the sample-independent collapse seen with learned value and output projections.
+    mechanism: Regress the centered normalized student CLS and an online attention-weighted mean of visible student tokens to a stopped centered normalized EMA attention-weighted mean of every full-image teacher visual token.
     changes:
       - Preserve the packed hard-blind architecture and patch losses.
       - Add direct CLS and visible-pool squared-L2 losses at weight 0.1 each.
-      - Train the online pooler through visible-to-full consistency and update its target copy with the backbone teacher momentum.
+      - Learn only multi-head query/key attention weights, apply their head average directly to raw visual tokens, and update the target copy with the backbone teacher momentum.
 
 methodology:
   source_studies:
     - cls-global-target-v1
     - cls-partitioned-slots-v1
     - cls-adaln-hard-blind-v2
+    - cls-teacher-global-v2-smoke
   preregistration_operation: cls-teacher-global-v2-preregistration
   prior_evidence:
     - One backbone CLS token with independent four-partition readout reached 0.8988 peak validation accuracy, so the backbone bottleneck can retain sufficient information.
     - Plain packed hard-blind AdaLN reached 0.7890, its adapter reached 0.7982, and its token mixer reached 0.8046 versus the fresh 0.8988 baseline.
     - Ordered but small adapter and mixer gains identify the decoder target or interface as the remaining limitation rather than general collapse.
     - Raw arithmetic-mean MSE reduced performance as its weight increased and strongly reduced both student and teacher norms, motivating center and scale removal.
+    - A full CrossAttention EMA pooler completed its mechanical smoke but collapsed to mean pairwise target cosine 1.000000 and target channel standard deviation 0.000237 despite verified optimizer and EMA updates.
+    - The same smoke checkpoint's fixed-mean counterfactual retained mean pairwise cosine 0.715758 and channel standard deviation 0.088919, isolating learned value and output projections as the collapse pathway.
   information_boundary:
     backbone_cls_tokens: 1
     backbone_register_tokens: 7
@@ -80,7 +83,11 @@ methodology:
     queries: 1
     attention_heads: 12
     dropout: 0.0
-    normalization: Match the backbone LayerNorm and QK normalization.
+    query_key_normalization: Match the backbone per-head LayerNorm and QK normalization.
+    learned_parameters: One query, one key projection, and per-head query/key normalization.
+    attention_weights: Softmax over tokens independently per head, then average the head weights.
+    value_path: Apply the averaged nonnegative unit-sum weights directly to raw visual tokens with no learned value or output projection.
+    geometric_invariant: Every pooled embedding is a convex weighted mean in the teacher or student visual-feature space.
     online_input: Visible final student visual tokens.
     target_input: All full-image teacher visual tokens.
     initialization: Exact frozen copy of the online pooler.
@@ -99,7 +106,7 @@ methodology:
       - online-probe validation accuracy
   screening:
     runs: Fresh independent-partition baseline, fresh packed hard-blind control, fixed-mean target, and EMA-attention target at seed 0.
-    mechanical_gate: Candidate must use one CLS, seven registers, one predictor forward, a finite positive final target batch standard deviation, and a positive final CLS shuffle gap.
+    mechanical_gate: Candidate must use one CLS, seven registers, one predictor forward, final target channel standard deviation of at least 0.005, final mean pairwise target cosine below 0.99, and a positive final CLS shuffle gap.
     control_gate: Candidate peak validation accuracy must exceed the fresh hard-blind control by at least 0.05.
     cost_gate: Candidate common-step active time and isolated median latency must each improve by at least 5 percent versus the fresh independent-partition baseline.
     quality_floor: Candidate peak validation accuracy may trail the fresh independent-partition baseline by no more than 0.005.
