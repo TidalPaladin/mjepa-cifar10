@@ -1,0 +1,146 @@
+id: cls-routing-objective-v1
+question: Can a one-CLS, one-predictor-forward routed design recover the accepted four-partition baseline's accuracy or convergence while retaining a material predictor-cost advantage?
+hypothesis: Separately normalizing CLS-only and visual-only routes will remove the current objective dilution; packed full coverage will best recover accuracy, while budget-preserving dual routing will retain the strongest latency advantage.
+rejection_condition: Reject a candidate if it fails every preregistered promotion route, violates the one-CLS information boundary, executes more than one training predictor forward, leaks a blinded source, has a nonpositive deterministic CLS-only shuffle gap, or fails gradient, latency, checkpoint, recovery, or lifecycle validation.
+checkpoint_plan: Retain every checkpoint and backbone because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: single-cls-register-partitioned-independent
+  config: config/pretrain/vit-small-single-cls-register-partitioned-independent.yaml
+  finetune_config: config/finetune/vit-small-single-cls.yaml
+  hypothesis: The accepted four-partition single-CLS design provides a fresh quality, convergence, and complete predictor-workload reference under the current code.
+  mechanism: Preserve one CLS plus seven registers, independently lift four disjoint CLS channel partitions, and use separate visual-context and CLS-context predictor forwards.
+  changes: []
+
+variants:
+  - id: single-cls-joint-context-dual-routed
+    config: config/pretrain/vit-small-single-cls-joint-context-dual-routed.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Budget-preserving dual routing will improve convergence over the prior token-routed design by removing joint queries and separately normalizing visual-only and CLS-only losses without increasing query count.
+    mechanism: Randomly split each image's target queries equally between visual-only and CLS-only visibility, compute one route mean per source, and sum the two means from one predictor tensor.
+    changes:
+      - Replace the 50/25/25 joint, CLS-only, and visual-only route mix with a 50/50 CLS-only and visual-only mix.
+      - Replace the global coefficient of 2.0 with separately normalized visual and CLS route losses summed at coefficient 1.0.
+  - id: single-cls-joint-context-packed-dual-routed
+    config: config/pretrain/vit-small-single-cls-joint-context-packed-dual-routed.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Packed full coverage will recover the most accuracy by predicting every teacher target once from visual context and once from CLS context while sharing one predictor call.
+    mechanism: Duplicate all target queries inside one predictor call, blind the first copy to CLS and the second copy to visual context, and sum separately normalized route losses.
+    changes:
+      - Execute two predictor queries per spatial target but only one predictor forward.
+      - Preserve exact baseline-like visual and CLS target coverage without a learned CLS expansion.
+  - id: single-cls-joint-context-token-routed-source-balanced
+    config: config/pretrain/vit-small-single-cls-joint-context-token-routed-source-balanced.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Correcting the one-versus-many key-count imbalance on joint queries will strengthen useful CLS dependence and improve the prior token-routed design without adding queries.
+    mechanism: Retain 50 percent joint, 25 percent CLS-only, and 25 percent visual-only routing, then add log of the visible-visual-key count to the CLS attention logit only on joint queries.
+    changes:
+      - Preserve the prior token-routed query budget and loss coefficient.
+      - Apply a dynamic log visual-context-count bias to the CLS key on joint routes while preserving hard negative-infinity source blindness.
+
+methodology:
+  source_study: cls-context-routing-v1
+  preregistration_operation: cls-routing-objective-v1-preregistration
+  architecture_fact: The cross-attention predictor has cross-attention and an MLP but no target-query self-attention, so per-query source masks apply independently in every layer without a query-to-query leakage path.
+  prior_diagnosis:
+    baseline_objective: One visual-context loss plus one CLS-context loss, with every teacher target present in both terms.
+    prior_token_routed_objective: With a global coefficient of 2.0 and 50/25/25 routes, the expected weighting is one joint loss plus one-half CLS-only loss plus one-half visual-only loss.
+    consequence: The prior routed candidate changes both the source mixture and effective per-source target coverage, so its slower convergence does not isolate the value of one predictor call.
+  factor_order:
+    - Budget-preserving dual routing tests loss normalization without increasing executed queries.
+    - Packed dual routing tests whether exact two-source target coverage recovers quality despite one call.
+    - Source-balanced routing tests whether joint-query key cardinality, rather than objective dilution alone, limits CLS use.
+  information_bottleneck:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    candidate_predictor_context: Visible final student visual tokens followed by the raw final student CLS token.
+    candidate_exclusions: Register tokens, masked visual tokens, teacher features, intermediate backbone features, and other samples.
+    cls_position: Identity rotary position appended after spatially positioned visible visual tokens.
+    probe_input: The only final teacher CLS token.
+  route_objectives:
+    budget_dual:
+      spatial_target_queries: 16
+      executed_target_queries: 16
+      visual_only_fraction: 0.50
+      cls_only_fraction: 0.50
+      loss: Mean visual-route error plus mean CLS-route error.
+    packed_dual:
+      spatial_target_queries: 16
+      executed_target_queries: 32
+      visual_predictions_per_target: 1
+      cls_predictions_per_target: 1
+      loss: Mean visual-route error plus mean CLS-route error.
+    source_balanced:
+      spatial_target_queries: 16
+      executed_target_queries: 16
+      joint_fraction: 0.50
+      cls_only_fraction: 0.25
+      visual_only_fraction: 0.25
+      joint_cls_logit_bias: Dynamic natural logarithm of the visible visual-context count.
+  prior_external_reference:
+    baseline_peak_accuracy: 0.8988000154495239
+    baseline_step_to_95: 7830
+    baseline_active_seconds_to_95: 5031.585605269298
+    baseline_active_seconds_at_step_horizon: 11162.096499741077
+    baseline_cls_path_latency_median_ms: 31.555583953857422
+    token_routed_peak_accuracy: 0.8881999850273132
+    token_routed_step_to_95: 11310
+    token_routed_active_seconds_to_95: 6313.7022771481425
+    token_routed_active_seconds_at_step_horizon: 9701.280566278845
+    token_routed_cls_path_latency_median_ms: 18.276351928710938
+    rule: Treat these completed seed-0 values as diagnostic external context only. Promotion uses the fresh baseline in this study.
+  practical_recovery_diagnostic:
+    minimum_peak_accuracy: 0.8938000154495239
+    maximum_step_to_95: 8613
+    maximum_active_seconds_to_95: 5534.744165796228
+    maximum_cls_path_latency_median_ms: 29.97780475616455
+    rule: Report whether a candidate is within 0.005 peak accuracy and 10 percent convergence time of the prior accepted baseline while retaining at least 5 percent isolated predictor latency gain. This diagnostic does not replace promotion.
+  selection:
+    rule: A promoted candidate must use one training predictor forward and have a positive deterministic CLS-only shuffle gap. Rank qualifiers by peak accuracy, active time to the 95-percent target, active-time AUC, then isolated latency; prefer budget dual, then source-balanced, then packed dual on a complete tie.
+  goal_budget:
+    seed_zero_runs: 4
+    maximum_confirmation_runs: 4
+    maximum_scientific_trials: 8
+    smoke_runs_excluded: 1
+    rule: Launch a fresh baseline and all three candidates at seed 0. If one qualifies, launch fresh paired baseline and winner at seeds 1 and 2. Do not add variants after observing results.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-routing-objective-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 09fedcbb63b6959f3ec6db414faccd0c46a865dc
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+  cost_gain: 0.05
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

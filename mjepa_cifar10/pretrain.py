@@ -1,3 +1,4 @@
+import math
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
@@ -10,7 +11,10 @@ import torchmetrics as tm
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     JOINT_CONTEXT_CLS_PREDICTION_MODES,
+    SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    CLSPredictionMode,
     compute_jepa_prediction_loss,
+    joint_context_query_multiplier,
 )
 from mjepa.metrics import CLSPatchAlignmentMetric
 from mjepa.model import MJEPA, MJEPAPredictions
@@ -124,11 +128,28 @@ def update_cls_patch_alignment_metric(metric: CLSPatchAlignmentMetric | None, fe
 def _joint_context_source_mask(
     output: MJEPAPredictions,
     *,
+    cls_prediction_mode: CLSPredictionMode,
     show_visual: bool,
     show_cls: bool,
 ) -> Tensor:
-    batch_size, target_tokens = output.pred.shape[:2]
+    batch_size = output.pred.shape[0]
+    target_tokens = int(output.target_mask.sum(dim=1)[0].item()) * joint_context_query_multiplier(cls_prediction_mode)
     visual_context_tokens = output.student_output.visual_tokens.shape[1]
+    if (
+        cls_prediction_mode == SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE
+        and show_visual
+        and show_cls
+    ):
+        mask = torch.zeros(
+            batch_size,
+            1,
+            target_tokens,
+            visual_context_tokens + 1,
+            dtype=output.pred.dtype,
+            device=output.pred.device,
+        )
+        mask[..., -1] = math.log(visual_context_tokens)
+        return mask
     mask = torch.zeros(
         batch_size,
         1,
@@ -169,9 +190,25 @@ def _compute_joint_context_shuffle_diagnostic(
     if cls_tokens.shape[1] != 1:
         raise ValueError("joint-context CLS diagnostics require exactly one CLS token")
     shuffled_cls_tokens = torch.roll(cls_tokens, shifts=1, dims=0)
-    joint_mask = _joint_context_source_mask(output, show_visual=True, show_cls=True)
-    cls_only_mask = _joint_context_source_mask(output, show_visual=False, show_cls=True)
-    visual_only_mask = _joint_context_source_mask(output, show_visual=True, show_cls=False)
+    cls_prediction_mode = jepa.config.cls_prediction_mode
+    joint_mask = _joint_context_source_mask(
+        output,
+        cls_prediction_mode=cls_prediction_mode,
+        show_visual=True,
+        show_cls=True,
+    )
+    cls_only_mask = _joint_context_source_mask(
+        output,
+        cls_prediction_mode=cls_prediction_mode,
+        show_visual=False,
+        show_cls=True,
+    )
+    visual_only_mask = _joint_context_source_mask(
+        output,
+        cls_prediction_mode=cls_prediction_mode,
+        show_visual=True,
+        show_cls=False,
+    )
 
     joint_prediction = _forward_joint_context_diagnostic(jepa, output, cls_tokens, joint_mask, tokenized_size)
     shuffled_joint_prediction = _forward_joint_context_diagnostic(
@@ -185,6 +222,7 @@ def _compute_joint_context_shuffle_diagnostic(
         jepa, output, cls_tokens, visual_only_mask, tokenized_size
     )
     target = jepa._masked_target(output.target_mask, output.teacher_output.visual_tokens)
+    target = target.repeat(1, joint_context_query_multiplier(cls_prediction_mode), 1)
     loss = partial(compute_jepa_prediction_loss, teacher=target, kind=jepa.config.jepa_loss_kind)
     joint_loss = loss(joint_prediction).item()
     shuffled_joint_loss = loss(shuffled_joint_prediction).item()

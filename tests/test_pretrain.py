@@ -1,3 +1,4 @@
+import math
 import os
 import socket
 from collections.abc import Callable
@@ -13,8 +14,10 @@ from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    PACKED_DUAL_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
     SLOT_BIAS_CLS_PREDICTION_MODE,
+    SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
     CrossAttentionPredictor,
     compute_jepa_prediction_loss,
 )
@@ -744,6 +747,63 @@ def test_joint_context_shuffle_diagnostic_isolates_cls_and_visual_sources(mocker
     assert cls_only_mask[..., -1].all()
     assert visual_only_mask[..., :-1].all()
     assert not visual_only_mask[..., -1].any()
+
+
+def test_packed_joint_context_shuffle_diagnostic_aligns_duplicated_queries(mocker) -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_prediction_mode=PACKED_DUAL_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    )
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    context_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    target_mask = torch.ones_like(context_mask)
+    prediction = torch.zeros(BATCH_SIZE, 2 * NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    predictions = MJEPAPredictions(
+        pred=prediction,
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=context_mask,
+        target_mask=target_mask,
+    )
+    mocker.patch.object(model, "forward_predictor", return_value=prediction)
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    repeated_target = teacher_output.visual_tokens.repeat(1, 2, 1)
+    expected_loss = compute_jepa_prediction_loss(prediction, repeated_target).item()
+    assert metrics["pretrain/validation_joint_context_loss"] == pytest.approx(expected_loss)
+
+
+def test_source_balanced_joint_diagnostic_applies_cls_cardinality_bias() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_prediction_mode=SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    )
+    student_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=make_features(num_cls_tokens=1),
+        context_mask=torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool),
+        target_mask=torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool),
+    )
+
+    source_mask = pretrain_module._joint_context_source_mask(
+        predictions,
+        cls_prediction_mode=model.config.cls_prediction_mode,
+        show_visual=True,
+        show_cls=True,
+    )
+
+    assert source_mask.dtype == predictions.pred.dtype
+    assert (source_mask[..., :-1] == 0).all()
+    assert torch.equal(
+        source_mask[..., -1],
+        torch.full_like(source_mask[..., -1], math.log(NUM_VISUAL_TOKENS)),
+    )
 
 
 def test_cls_global_target_loss_regresses_one_student_cls_to_pooled_teacher_visual_tokens() -> None:

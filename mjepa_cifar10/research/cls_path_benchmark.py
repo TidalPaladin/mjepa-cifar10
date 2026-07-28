@@ -10,7 +10,7 @@ from statistics import median
 from typing import Any, Final, cast
 
 import torch
-from mjepa.jepa import JOINT_CONTEXT_CLS_PREDICTION_MODES, CrossAttentionPredictor
+from mjepa.jepa import JOINT_CONTEXT_CLS_PREDICTION_MODES, CrossAttentionPredictor, joint_context_query_multiplier
 from mjepa.model import MJEPA
 
 
@@ -30,6 +30,7 @@ class CLSPathBenchmarkResult:
     batch_size: int
     visual_context_tokens: int
     target_queries: int
+    executed_target_queries: int
     predictor_forward_count: int
     warmup_iterations: int
     measured_iterations: int
@@ -173,6 +174,7 @@ def benchmark_cls_prediction_path(
         batch_size=batch_size,
         visual_context_tokens=visual_context_tokens,
         target_queries=target_queries,
+        executed_target_queries=target_queries * joint_context_query_multiplier(jepa.config.cls_prediction_mode),
         predictor_forward_count=(1 if jepa.config.cls_prediction_mode in JOINT_CONTEXT_CLS_PREDICTION_MODES else 2),
         warmup_iterations=warmup_iterations,
         measured_iterations=measured_iterations,
