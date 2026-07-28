@@ -2,24 +2,30 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import hashlib
 import json
+import logging
 import os
+import re
 import subprocess
 from contextlib import closing
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence
+from typing import Any, Callable, Mapping, Sequence, TextIO
 
 from .codex_notifications import (
     UnixWebSocketTransport,
     capture_wake_context,
     ensure_notification,
     initialize_notification_root,
+    next_notification_attempt_at,
     register_notification_root,
     sweep_notifications,
     unix_connector,
+    validate_notification_root,
 )
 from .event_controller import DEFAULT_PROGRESS_TIMEOUT_SECONDS, serve_controller
+from .event_controller import LOGGER as EVENT_CONTROLLER_LOGGER
 from .inventory import index_local_runs, index_wandb_runs, inventory_counts, open_inventory
 from .models import WANDB_LOCAL_MODES, StudySpec
 from .provenance import assert_launch_provenance, collect_provenance
@@ -149,14 +155,69 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _load_spec(args: argparse.Namespace) -> tuple[StudySpec, Path]:
+UNRESOLVED_ENVIRONMENT_VARIABLE = re.compile(
+    r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<plain>[A-Za-z_][A-Za-z0-9_]*))"
+)
+EVENT_CONTROLLER_LOG_DIRECTORY = ".event-controller"
+
+
+def _event_controller_log_path(
+    root: Path,
+    study_ids: frozenset[str] | None,
+    *,
+    pid: int | None = None,
+) -> Path:
+    managed_root = validate_notification_root(root)
+    scope = "all" if study_ids is None else hashlib.sha256("\0".join(sorted(study_ids)).encode()).hexdigest()[:16]
+    log_directory = managed_root / EVENT_CONTROLLER_LOG_DIRECTORY
+    log_directory.mkdir(exist_ok=True)
+    if log_directory.is_symlink() or log_directory.resolve() != log_directory:
+        raise ValueError(f"event controller log directory must not be a symlink: {log_directory}")
+    log_path = log_directory / f"{scope}-{pid or os.getpid()}.jsonl"
+    if log_path.is_symlink():
+        raise ValueError(f"event controller log must not be a symlink: {log_path}")
+    return log_path
+
+
+def _append_controller_record(stream: TextIO, event: str, **payload: Any) -> None:
+    record = {"event": event, "recorded_at": datetime.now(UTC).isoformat(), **payload}
+    stream.write(json.dumps(record, sort_keys=True) + "\n")
+    stream.flush()
+
+
+class _ControllerJsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        return json.dumps(
+            {
+                "event": "controller_log",
+                "level": record.levelname,
+                "message": record.getMessage(),
+                "recorded_at": datetime.now(UTC).isoformat(),
+            },
+            sort_keys=True,
+        )
+
+
+def _load_spec(args: argparse.Namespace, *, require_data: bool = True) -> tuple[StudySpec, Path]:
     repo_root = args.repo_root.resolve()
     spec = StudySpec.from_path(args.study.resolve())
     spec.validate(repo_root)
     validate_managed_paths(spec, repo_root)
-    data_path = spec.data if spec.data.is_absolute() else repo_root / spec.data
-    if not data_path.is_dir():
-        raise NotADirectoryError(data_path)
+    if require_data:
+        unresolved = sorted(
+            {
+                match.group("braced") or match.group("plain")
+                for match in UNRESOLVED_ENVIRONMENT_VARIABLE.finditer(str(spec.data))
+            }
+        )
+        if unresolved:
+            raise EnvironmentError(
+                "study data path references unset environment "
+                f"{'variable' if len(unresolved) == 1 else 'variables'}: {', '.join(unresolved)}"
+            )
+        data_path = spec.data if spec.data.is_absolute() else repo_root / spec.data
+        if not data_path.is_dir():
+            raise NotADirectoryError(data_path)
     return spec, repo_root
 
 
@@ -246,13 +307,13 @@ def preflight_payload(spec: StudySpec, repo_root: Path, *, development: bool) ->
 
 
 def command_preflight(args: argparse.Namespace) -> int:
-    spec, repo_root = _load_spec(args)
+    spec, repo_root = _load_spec(args, require_data=True)
     print(json.dumps(preflight_payload(spec, repo_root, development=args.development), indent=2))
     return 0
 
 
 def command_launch(args: argparse.Namespace) -> int:
-    spec, repo_root = _load_spec(args)
+    spec, repo_root = _load_spec(args, require_data=not args.dry_run)
     if args.dry_run:
         study_dir = study_directory(spec, repo_root)
         initialize_notification_root(study_dir.parent)
@@ -305,7 +366,7 @@ def _state_payload(state) -> dict[str, Any]:
 
 
 def command_status(args: argparse.Namespace) -> int:
-    spec, repo_root = _load_spec(args)
+    spec, repo_root = _load_spec(args, require_data=False)
     with StateStore(study_directory(spec, repo_root)) as store:
         state = store.load()
     print(json.dumps(_state_payload(state), indent=2))
@@ -313,7 +374,7 @@ def command_status(args: argparse.Namespace) -> int:
 
 
 def command_monitor(args: argparse.Namespace) -> int:
-    spec, repo_root = _load_spec(args)
+    spec, repo_root = _load_spec(args, require_data=not args.no_launch)
     study_dir = study_directory(spec, repo_root)
     if args.no_launch:
         with StateStore(study_dir) as store:
@@ -339,7 +400,7 @@ def command_monitor(args: argparse.Namespace) -> int:
 
 
 def command_notify(args: argparse.Namespace) -> int:
-    spec, repo_root = _load_spec(args)
+    spec, repo_root = _load_spec(args, require_data=False)
     with StateStore(study_directory(spec, repo_root)) as store:
         state = store.load()
         run = state.runs[args.run_id]
@@ -434,19 +495,46 @@ def command_event_controller(args: argparse.Namespace) -> int:
     socket_path = resolve_event_controller_socket(args.socket)
     connector = unix_connector(socket_path)
     study_ids = frozenset(args.study_ids) if args.study_ids else None
+    log_path = _event_controller_log_path(args.root, study_ids)
+    file_handler = logging.FileHandler(log_path, encoding="utf-8")
+    file_handler.setFormatter(_ControllerJsonFormatter())
+    EVENT_CONTROLLER_LOGGER.addHandler(file_handler)
+    try:
+        with log_path.open("a", encoding="utf-8") as log_stream:
+            _append_controller_record(
+                log_stream,
+                "controller_started",
+                root=str(args.root.expanduser().resolve(strict=False)),
+                socket_path=str(socket_path),
+                study_ids=sorted(study_ids) if study_ids is not None else None,
+            )
 
-    def deliver_once() -> bool:
-        result = asyncio.run(sweep_notifications(args.root, connect=connector, study_ids=study_ids))
-        print(json.dumps(result.to_dict(), indent=2, sort_keys=True), flush=True)
-        return result.retrying == 0
+            def deliver_once() -> None:
+                result = asyncio.run(sweep_notifications(args.root, connect=connector, study_ids=study_ids))
+                print(json.dumps(result.to_dict(), indent=2, sort_keys=True), flush=True)
+                _append_controller_record(log_stream, "notification_sweep", **result.to_dict())
 
-    serve_controller(
-        args.root,
-        progress_timeout=timedelta(seconds=args.progress_timeout_seconds),
-        deliver=deliver_once,
-        socket_path=socket_path,
-        defer_until_socket_replaced=args.defer_until_socket_replaced,
-    )
+            try:
+                serve_controller(
+                    args.root,
+                    progress_timeout=timedelta(seconds=args.progress_timeout_seconds),
+                    deliver=deliver_once,
+                    next_delivery_at=lambda: next_notification_attempt_at(args.root, study_ids=study_ids),
+                    socket_path=socket_path,
+                    defer_until_socket_replaced=args.defer_until_socket_replaced,
+                )
+            except BaseException as error:
+                _append_controller_record(
+                    log_stream,
+                    "controller_failed",
+                    error=f"{type(error).__name__}: {error}",
+                )
+                raise
+            else:
+                _append_controller_record(log_stream, "controller_stopped")
+    finally:
+        EVENT_CONTROLLER_LOGGER.removeHandler(file_handler)
+        file_handler.close()
     return 0
 
 
@@ -457,7 +545,7 @@ def command_register_root(args: argparse.Namespace) -> int:
 
 
 def command_summarize(args: argparse.Namespace) -> int:
-    spec, repo_root = _load_spec(args)
+    spec, repo_root = _load_spec(args, require_data=False)
     summary = summarize_study(spec, args.study, repo_root)
     if args.record:
         summary["research_log_appended"] = append_research_log(spec, summary, repo_root)
@@ -487,7 +575,7 @@ def command_inventory(args: argparse.Namespace) -> int:
 
 
 def command_storage_report(args: argparse.Namespace) -> int:
-    spec, repo_root = _load_spec(args)
+    spec, repo_root = _load_spec(args, require_data=False)
     print(json.dumps(storage_report(spec, repo_root), indent=2))
     return 0
 
