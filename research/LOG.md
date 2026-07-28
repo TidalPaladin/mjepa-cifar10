@@ -1044,3 +1044,38 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Rejection and stopping: reject a candidate that fails every promotion route or any information-boundary, one-call, mask, gradient, latency, checkpoint, recovery, or lifecycle invariant. If no candidate qualifies, stop without confirmation. Do not add variants or tune routing probabilities after observing outcomes without a dated amendment and new authorization.
 - Resources and tracking: use physical GPUs 1 and 2, at most two concurrent jobs, 24 hours per job, the repository free-space reserve, and online W&B project `tidalpaladin/mjepa-cifar10` group `cls-routing-objective-v1` with declared metrics, configs, and provenance.
 - Retention: retain every checkpoint and backbone because destructive retention is not authorized.
+<!-- autoresearch-operation:{"content_sha256":"22a4b318d5598c269a3f32a891e599aaa8f0ae4acb947e3d20584fa026ef6735","operation_id":"589b1dc5702e69816399e38e893f8be8"} -->
+
+<!-- study:cls-routing-objective-v1-smoke:phase:no-promotion -->
+## cls-routing-objective-v1-smoke
+
+- Question: Can packed dual routing duplicate every spatial query, blind each copy to one source, normalize both source losses, and complete one managed GPU epoch through a single predictor forward?
+- Hypothesis: The packed full-coverage design will train without source leakage or nonfinite values, preserve gradients through the visual and CLS routes, emit exact-path diagnostics and executed-query benchmark metadata, checkpoint, recover, summarize, and notify.
+- Mechanisms and exact changes:
+  - `cls-joint-context-packed-dual-routed-smoke`: Mechanism: Duplicate each target query inside one predictor call, expose one copy only to visual context and the other only to the raw CLS token, and sum separately normalized route losses. Changes: Use one CLS token and seven register tokens.; Execute two predictor queries per spatial target in one packed cross-attention call.; Use a JEPA loss coefficient of 1.0 because the two route means are summed explicitly.
+- Launch code provenance:
+  - `pretrain-cls-joint-context-packed-dual-routed-smoke-seed0`: parent=`cafa65331fb68b74656d84bcd67425c7648b706f` (`codex/research/cls-routing-objective-v1`), mjepa=`09fedcbb63b6959f3ec6db414faccd0c46a865dc` (`codex/research/cls-routing-objective-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-routing-objective-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-cls-joint-context-packed-dual-routed-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-28T02:38:40.092359+00:00; finished=2026-07-28T02:40:57.351111+00:00; terminal_event=2ec7931a-f26b-4f77-a017-f4df3014c5d7; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-routing-objective-v1-smoke/runs/pretrain-cls-joint-context-packed-dual-routed-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/e698fc8f); checkpoint=retained; metrics=peak_accuracy=0.213600, final_accuracy=0.213600, step_to_90=2812, step_to_95=2812, active_seconds_to_90=120.597, active_seconds_to_95=120.597, step_auc=0.213600, active_time_auc=0.213600, active_seconds_at_step_horizon=120.597, cls_path_latency_median_ms=2.422784, cls_path_latency_p90_ms=2.458592; error=none
+<!-- autoresearch-operation:{"content_sha256":"61f80a71aebd1b42218086301f295f7848b1b6208b333309509871fc153c3652","operation_id":"cls-routing-objective-v1-smoke-result"} -->
+## 2026-07-28 mechanical validation: packed dual-route CLS objective
+
+- Operation: `cls-routing-objective-v1-smoke-result`
+- Scope: excluded one-epoch mechanical run `pretrain-cls-joint-context-packed-dual-routed-smoke-seed0`; it does not consume the eight-trial scientific budget.
+- Outcome: completed attempt 1 with exit code 0 at optimizer step 2,812 after 120.597 active seconds. Online W&B run `e698fc8f` synchronized successfully.
+- Architecture and objective: the persisted config and restored checkpoint contain one backbone CLS token, seven registers, `joint_context_packed_dual_routed`, and `jepa_loss_weight=1.0`. Every four spatial targets produce eight predictor queries in one forward: four visual-only copies followed by four CLS-only copies. The two route means are separately normalized and summed; `pred_with_cls` remains absent.
+- Mask and gradient validation: regression tests prove exact visual-only and CLS-only visibility, no joint routes, hidden-source invariance, and alignment of each duplicated query with its teacher target. The smoke run completed with all-trainable-parameter gradient assertions active for both student and predictor. Final W&B losses were finite, with visual-route JEPA loss 0.841172 and CLS-route JEPA loss 1.000114.
+- Mechanism diagnostics: deterministic CLS-only loss was 1.073118 versus 1.482925 after cross-sample CLS shuffling, a positive 0.409807 gap. Joint-context loss was 0.795509 versus 0.856548 after CLS shuffling, a positive 0.061039 gap; visual-only loss was 0.797122.
+- Complete predictor-workload benchmark: one packed predictor forward at batch 512, eight visible visual contexts, 16 spatial targets, and 32 executed queries took 2.422784 ms median and 2.458592 ms p90 on the RTX 3090. The miniature predictor contained 12,192 parameters.
+- Recovery: CPU restoration recovered finite student, teacher, predictor, optimizer, and scheduler state at step 2,812 and epoch 0 with cumulative elapsed time 120.608 seconds and W&B ID `e698fc8f`. A restored synthetic forward returned shape 2 by 8 by 32 with one attention mask of shape 2 by 1 by 8 by 9 and no auxiliary prediction tensor.
+- Lifecycle: first-cycle event `88ce14e8-ced4-5213-bbe6-7ccef65ad164` and terminal event `2ec7931a-f26b-4f77-a017-f4df3014c5d7` were each accepted once through `turn/steer` under the captured `:danger-full-access` permission profile and `never` approval policy.
+- Retention: retained `checkpoint.pt` and `backbone.safetensors`; no weights were deleted.
+- Decision: pass the mechanical gate and proceed with the preregistered fresh four-partition baseline plus the budget-dual, packed-dual, and source-balanced seed-0 scientific candidates.
+- Validation limitation: the vendored skills do not contain the protocol-referenced `quick_validate.py`; repository skill instructions were read in full and the repository quality/test gates remain the executable validation source.
