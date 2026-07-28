@@ -83,6 +83,17 @@ CLS_JOINT_CONTEXT_CONFIGS = {
         2.0,
     ),
 }
+CLS_PACKED_ADALN_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind.yaml": (
+        "packed_adaln_hard_blind"
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind-adapter.yaml": (
+        "packed_adaln_hard_blind_adapter"
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind-mixer.yaml": (
+        "packed_adaln_hard_blind_mixer"
+    ),
+}
 CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p5.yaml": 0.5,
@@ -254,6 +265,34 @@ def test_cls_packed_dual_routing_smoke_exercises_query_duplication() -> None:
     assert config["backbone"].num_cls_tokens == 1
     assert config["backbone"].num_register_tokens == 7
     assert config["jepa"].cls_prediction_mode == "joint_context_packed_dual_routed"
+    assert config["jepa"].jepa_loss_weight == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(("config_path", "cls_prediction_mode"), CLS_PACKED_ADALN_CONFIGS.items())
+def test_cls_packed_adaln_configs_change_only_prediction_mode(
+    config_path: Path,
+    cls_prediction_mode: str,
+) -> None:
+    control = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent.yaml").read_text()
+    )
+    candidate = yaml.full_load(config_path.read_text())
+
+    assert candidate["jepa"].cls_prediction_mode == cls_prediction_mode
+    for field in fields(JEPAConfig):
+        if field.name != "cls_prediction_mode":
+            assert getattr(candidate["jepa"], field.name) == getattr(control["jepa"], field.name)
+    for section in ("trainer", "backbone", "optimizer"):
+        assert candidate[section] == control[section]
+
+
+def test_cls_packed_adaln_smoke_exercises_hard_blind_packing() -> None:
+    config = yaml.full_load((REPO_ROOT / "config" / "pretrain" / "smoke-cls-packed-adaln-hard-blind.yaml").read_text())
+
+    assert config["trainer"].num_epochs == 1
+    assert config["backbone"].num_cls_tokens == 1
+    assert config["backbone"].num_register_tokens == 7
+    assert config["jepa"].cls_prediction_mode == "packed_adaln_hard_blind"
     assert config["jepa"].jepa_loss_weight == pytest.approx(1.0)
 
 

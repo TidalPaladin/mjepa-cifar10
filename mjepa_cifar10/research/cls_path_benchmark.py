@@ -10,7 +10,12 @@ from statistics import median
 from typing import Any, Final, cast
 
 import torch
-from mjepa.jepa import JOINT_CONTEXT_CLS_PREDICTION_MODES, CrossAttentionPredictor, joint_context_query_multiplier
+from mjepa.jepa import (
+    JOINT_CONTEXT_CLS_PREDICTION_MODES,
+    PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODES,
+    CrossAttentionPredictor,
+    joint_context_query_multiplier,
+)
 from mjepa.model import MJEPA
 
 
@@ -71,6 +76,15 @@ def _run_cls_prediction_path(
     """Execute the predictor work performed by one training step."""
     if jepa.config.cls_prediction_mode in JOINT_CONTEXT_CLS_PREDICTION_MODES:
         return jepa.forward_joint_context_predictor_heads(
+            tokenized_size,
+            visual_context,
+            cls_tokens,
+            context_mask,
+            target_mask,
+            rope_seed=0,
+        )
+    if jepa.config.cls_prediction_mode in PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODES:
+        return jepa.forward_packed_adaln_hard_blind_predictor_heads(
             tokenized_size,
             visual_context,
             cls_tokens,
@@ -175,7 +189,12 @@ def benchmark_cls_prediction_path(
         visual_context_tokens=visual_context_tokens,
         target_queries=target_queries,
         executed_target_queries=target_queries * joint_context_query_multiplier(jepa.config.cls_prediction_mode),
-        predictor_forward_count=(1 if jepa.config.cls_prediction_mode in JOINT_CONTEXT_CLS_PREDICTION_MODES else 2),
+        predictor_forward_count=(
+            1
+            if jepa.config.cls_prediction_mode
+            in (*JOINT_CONTEXT_CLS_PREDICTION_MODES, *PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODES)
+            else 2
+        ),
         warmup_iterations=warmup_iterations,
         measured_iterations=measured_iterations,
         autocast_dtype="bfloat16",

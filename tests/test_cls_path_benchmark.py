@@ -7,6 +7,7 @@ from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODE,
     PARTITIONED_INDEPENDENT_CLS_PREDICTION_MODE,
     PARTITIONED_SHARED_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
@@ -160,6 +161,38 @@ def test_cls_benchmark_executes_one_joint_context_predictor_forward(mocker: Mock
     )
 
     jepa.forward_joint_context_predictor_heads.assert_called_once_with(
+        (2, 2),
+        visual_context,
+        cls_tokens,
+        context_mask,
+        target_mask,
+        rope_seed=0,
+    )
+    jepa.forward_predictor.assert_not_called()
+    jepa.forward_cls_predictor.assert_not_called()
+    assert result == (output, None)
+
+
+def test_cls_benchmark_executes_one_packed_adaln_predictor_forward(mocker: MockerFixture) -> None:
+    visual_context = torch.randn(2, 2, 16)
+    cls_tokens = torch.randn(2, 1, 16)
+    context_mask = torch.zeros(2, 4, dtype=torch.bool)
+    target_mask = torch.zeros(2, 4, dtype=torch.bool)
+    output = torch.randn(2, 2, 16)
+    jepa = mocker.Mock(spec=MJEPA)
+    jepa.config = SimpleNamespace(cls_prediction_mode=PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODE)
+    jepa.forward_packed_adaln_hard_blind_predictor_heads.return_value = (output, None)
+
+    result = _run_cls_prediction_path(
+        cast(MJEPA, jepa),
+        (2, 2),
+        visual_context,
+        cls_tokens,
+        context_mask,
+        target_mask,
+    )
+
+    jepa.forward_packed_adaln_hard_blind_predictor_heads.assert_called_once_with(
         (2, 2),
         visual_context,
         cls_tokens,

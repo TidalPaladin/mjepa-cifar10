@@ -467,7 +467,7 @@ wheels = [
 [[package]]
 name = "mjepa"
 version = "0.1.dev76+g09fedcbb6"
-source = { git = "https://github.com/TidalPaladin/mjepa.git?rev=09fedcbb63b6959f3ec6db414faccd0c46a865dc#09fedcbb63b6959f3ec6db414faccd0c46a865dc" }
+source = { git = "https://github.com/TidalPaladin/mjepa.git?rev=d17ec9e937a61022b9bc6d8676082226bfda7f94#d17ec9e937a61022b9bc6d8676082226bfda7f94" }
 dependencies = [
     { name = "einops" },
     { name = "ninja" },
@@ -515,7 +515,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "filelock", specifier = "==3.31.1" },
-    { name = "mjepa", git = "https://github.com/TidalPaladin/mjepa.git?rev=09fedcbb63b6959f3ec6db414faccd0c46a865dc" },
+    { name = "mjepa", git = "https://github.com/TidalPaladin/mjepa.git?rev=d17ec9e937a61022b9bc6d8676082226bfda7f94" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "safetensors", specifier = "==0.8.0" },
     { name = "torch", specifier = "==2.13.0" },

@@ -14,6 +14,7 @@ from mjepa import CLSPredictionMode, JEPAConfig
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODE,
     PACKED_DUAL_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
     PROJECTED_CLS_PREDICTION_MODE,
     SLOT_BIAS_CLS_PREDICTION_MODE,
@@ -774,6 +775,54 @@ def test_packed_joint_context_shuffle_diagnostic_aligns_duplicated_queries(mocke
     repeated_target = teacher_output.visual_tokens.repeat(1, 2, 1)
     expected_loss = compute_jepa_prediction_loss(prediction, repeated_target).item()
     assert metrics["pretrain/validation_joint_context_loss"] == pytest.approx(expected_loss)
+
+
+def test_packed_adaln_shuffle_diagnostic_isolates_blind_cls_dependence(mocker) -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_prediction_mode=PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODE,
+    )
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    context_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    target_mask = torch.ones_like(context_mask)
+    visual_prediction = torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    blind_prediction = torch.full_like(visual_prediction, 2.0)
+    shuffled_blind_prediction = torch.full_like(visual_prediction, 3.0)
+    true_prediction = torch.cat([visual_prediction, blind_prediction], dim=1)
+    shuffled_prediction = torch.cat([visual_prediction, shuffled_blind_prediction], dim=1)
+    predictions = MJEPAPredictions(
+        pred=true_prediction,
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=context_mask,
+        target_mask=target_mask,
+    )
+    recompute = mocker.patch.object(
+        model,
+        "forward_packed_adaln_hard_blind_predictor_heads",
+        side_effect=((true_prediction, None), (shuffled_prediction, None)),
+    )
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    target = teacher_output.visual_tokens
+    visual_loss = compute_jepa_prediction_loss(visual_prediction, target).item()
+    blind_loss = compute_jepa_prediction_loss(blind_prediction, target).item()
+    shuffled_blind_loss = compute_jepa_prediction_loss(shuffled_blind_prediction, target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_aux_loss": blind_loss,
+            "pretrain/validation_cls_aux_loss_shuffled": shuffled_blind_loss,
+            "pretrain/validation_cls_aux_shuffle_gap": shuffled_blind_loss - blind_loss,
+            "pretrain/validation_visual_only_loss": visual_loss,
+        }
+    )
+    assert recompute.call_count == 2
+    shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
+    assert torch.equal(recompute.call_args_list[0].args[2], student_output.cls_tokens)
+    assert torch.equal(recompute.call_args_list[1].args[2], shuffled_cls)
 
 
 def test_source_balanced_joint_diagnostic_applies_cls_cardinality_bias() -> None:

@@ -11,6 +11,7 @@ import torchmetrics as tm
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     JOINT_CONTEXT_CLS_PREDICTION_MODES,
+    PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODES,
     SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
     CLSPredictionMode,
     compute_jepa_prediction_loss,
@@ -240,6 +241,48 @@ def _compute_joint_context_shuffle_diagnostic(
     }
 
 
+def _compute_packed_adaln_shuffle_diagnostic(
+    jepa: MJEPA,
+    output: MJEPAPredictions,
+    tokenized_size: tuple[int, int],
+) -> dict[str, float]:
+    cls_tokens = output.student_output.cls_tokens
+    if cls_tokens.shape[1] != 1:
+        raise ValueError("packed AdaLN CLS diagnostics require exactly one CLS token")
+    shuffled_cls_tokens = torch.roll(cls_tokens, shifts=1, dims=0)
+    prediction, _ = jepa.forward_packed_adaln_hard_blind_predictor_heads(
+        tokenized_size,
+        output.student_output.visual_tokens,
+        cls_tokens,
+        output.context_mask,
+        output.target_mask,
+        rope_seed=VALIDATION_DIAGNOSTIC_SEED,
+    )
+    shuffled_prediction, _ = jepa.forward_packed_adaln_hard_blind_predictor_heads(
+        tokenized_size,
+        output.student_output.visual_tokens,
+        shuffled_cls_tokens,
+        output.context_mask,
+        output.target_mask,
+        rope_seed=VALIDATION_DIAGNOSTIC_SEED,
+    )
+    target = jepa._masked_target(output.target_mask, output.teacher_output.visual_tokens)
+    target_tokens = target.shape[1]
+    visual_prediction = prediction[:, :target_tokens]
+    blind_prediction = prediction[:, target_tokens:]
+    shuffled_blind_prediction = shuffled_prediction[:, target_tokens:]
+    loss = partial(compute_jepa_prediction_loss, teacher=target, kind=jepa.config.jepa_loss_kind)
+    visual_loss = loss(visual_prediction).item()
+    blind_loss = loss(blind_prediction).item()
+    shuffled_blind_loss = loss(shuffled_blind_prediction).item()
+    return {
+        "pretrain/validation_cls_aux_loss": blind_loss,
+        "pretrain/validation_cls_aux_loss_shuffled": shuffled_blind_loss,
+        "pretrain/validation_cls_aux_shuffle_gap": shuffled_blind_loss - blind_loss,
+        "pretrain/validation_visual_only_loss": visual_loss,
+    }
+
+
 def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) -> dict[str, float]:
     """Measure target prediction dependence on the student's CLS identity."""
     if not MJEPA._has_cls_tokens(output.student_output):
@@ -248,6 +291,8 @@ def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) ->
     if raw_tokenized_size is None or len(raw_tokenized_size) != 2:
         raise ValueError("teacher output must record tokenized_size for CLS diagnostics")
     tokenized_size = cast(tuple[int, int], raw_tokenized_size)
+    if jepa.config.cls_prediction_mode in PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODES:
+        return _compute_packed_adaln_shuffle_diagnostic(jepa, output, tokenized_size)
     if jepa.config.cls_prediction_mode in JOINT_CONTEXT_CLS_PREDICTION_MODES:
         return _compute_joint_context_shuffle_diagnostic(jepa, output, tokenized_size)
     if output.pred_with_cls is None:

@@ -1,0 +1,57 @@
+id: cls-adaln-hard-blind-v2-smoke
+question: Can packed hard-blind AdaLN predict every teacher target once from visual context and once from one CLS token in one managed predictor forward without source leakage?
+hypothesis: The one-epoch shared-core path will produce two predictions per target, keep blind-query gradients independent of student visual tokens, give nonzero CLS gradients, emit finite route-normalized losses and diagnostics, checkpoint, recover, summarize, and notify.
+rejection_condition: Reject the mechanical validation if the run fails, times out, executes more than one training predictor forward, produces other than two predictions per target, exposes student visual tokens to blind queries, lacks CLS or predictor gradients, emits nonfinite loss, lacks recovery artifacts, cannot summarize, or its lifecycle notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint through scientific launch validation. Retain all managed checkpoints unless the user later authorizes deletion. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-packed-adaln-hard-blind-smoke
+  config: config/pretrain/smoke-cls-packed-adaln-hard-blind.yaml
+  hypothesis: Immediate mild AdaLN modulation plus a unit residual gate will train the shared visual and blind routes without the cold-start behavior of AdaLN-Zero.
+  mechanism: For every target position, run one query through visual cross-attention with null conditioning and a duplicate query through the same AdaLN MLP with one student CLS embedding while skipping the blind cross-attention residual exactly.
+  changes:
+    - Preserve one backbone CLS token plus seven register tokens.
+    - Execute one predictor forward with one visual and one blind prediction per spatial target.
+    - Initialize AdaLN modulation weights at standard deviation 0.001 and its residual gate at 1.0.
+    - Sum separately normalized visual-route and blind-route prediction losses.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-adaln-hard-blind-v2-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: d17ec9e937a61022b9bc6d8676082226bfda7f94
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
