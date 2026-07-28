@@ -1,3 +1,4 @@
+import argparse
 import hashlib
 import json
 import subprocess
@@ -10,10 +11,11 @@ from types import SimpleNamespace
 
 import pytest
 
+from mjepa_cifar10.research.cli import _load_spec, wandb_preflight_errors
 from mjepa_cifar10.research.cli import main as research_main
-from mjepa_cifar10.research.cli import wandb_preflight_errors
 from mjepa_cifar10.research.codex_notifications import (
     MANAGED_ROOT_MARKER_FILENAME,
+    SweepResult,
     initialize_notification_root,
     queue_notification_from_terminal,
     write_notification_event,
@@ -125,6 +127,55 @@ def make_baseline_reference(tmp_path: Path) -> BaselineReference:
         metrics=metrics,
         metrics_sha256=hashlib.sha256(metrics.read_bytes()).hexdigest(),
     )
+
+
+def test_spec_loading_skips_dataset_validation_for_recovery_commands(mocker, tmp_path: Path) -> None:
+    spec = replace(make_spec(tmp_path), data=Path("${CIFAR10_DATA}"))
+    study_path = tmp_path / "study.yaml"
+    study_path.touch()
+    mocker.patch.object(StudySpec, "from_path", return_value=spec)
+    args = argparse.Namespace(repo_root=tmp_path, study=study_path)
+
+    loaded, repo_root = _load_spec(args, require_data=False)
+
+    assert loaded is spec
+    assert repo_root == tmp_path
+
+
+def test_spec_loading_names_unset_dataset_variable_when_data_is_required(mocker, tmp_path: Path) -> None:
+    spec = replace(make_spec(tmp_path), data=Path("${CIFAR10_DATA}"))
+    study_path = tmp_path / "study.yaml"
+    study_path.touch()
+    mocker.patch.object(StudySpec, "from_path", return_value=spec)
+    args = argparse.Namespace(repo_root=tmp_path, study=study_path)
+
+    with pytest.raises(EnvironmentError, match=r"unset environment variable.*CIFAR10_DATA"):
+        _load_spec(args, require_data=True)
+
+
+def test_status_and_read_only_monitor_do_not_require_dataset(mocker, tmp_path: Path, capsys) -> None:
+    spec = replace(make_spec(tmp_path), data=Path("${CIFAR10_DATA}"))
+    study_path = tmp_path / "study.yaml"
+    study_path.touch()
+    mocker.patch.object(StudySpec, "from_path", return_value=spec)
+    with StateStore(spec.log_root / spec.id) as store:
+        store.load_or_create(spec, study_path)
+
+    assert research_main(["status", str(study_path), "--repo-root", str(tmp_path)]) == 0
+    assert json.loads(capsys.readouterr().out)["study_id"] == spec.id
+    assert (
+        research_main(
+            [
+                "monitor",
+                str(study_path),
+                "--repo-root",
+                str(tmp_path),
+                "--no-launch",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["study_id"] == spec.id
 
 
 def test_convergence_targets_are_fixed_from_baseline_peak() -> None:
@@ -759,6 +810,47 @@ def test_notify_worker_defaults_to_direct_daemon_socket(mocker, tmp_path: Path, 
     assert exit_code == 0
     assert json.loads(capsys.readouterr().out)["discovered"] == 0
     resolve_socket.assert_called_once_with(None)
+
+
+def test_event_controller_persists_startup_and_sweep_output(mocker, tmp_path: Path, capsys) -> None:
+    initialize_notification_root(tmp_path)
+    (tmp_path / "study-a").mkdir()
+    socket_path = tmp_path / "app-server.sock"
+    mocker.patch(
+        "mjepa_cifar10.research.cli.sweep_notifications",
+        new=mocker.AsyncMock(return_value=SweepResult(discovered=1, due=1, accepted=1)),
+    )
+
+    def serve_once(_root, **kwargs) -> None:
+        kwargs["deliver"]()
+
+    mocker.patch("mjepa_cifar10.research.cli.serve_controller", side_effect=serve_once)
+
+    assert (
+        research_main(
+            [
+                "event-controller",
+                "--root",
+                str(tmp_path),
+                "--socket",
+                str(socket_path),
+                "--study-id",
+                "study-a",
+            ]
+        )
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["accepted"] == 1
+    log_paths = tuple((tmp_path / ".event-controller").glob("*.jsonl"))
+    assert len(log_paths) == 1
+    records = [json.loads(line) for line in log_paths[0].read_text(encoding="utf-8").splitlines()]
+    assert [record["event"] for record in records] == [
+        "controller_started",
+        "notification_sweep",
+        "controller_stopped",
+    ]
+    assert records[1]["accepted"] == 1
 
 
 def test_state_marks_missing_supervisor_as_retryable(mocker, tmp_path: Path) -> None:

@@ -132,6 +132,10 @@ structured cause in terminal state. Notification failure cannot change terminal
 status. `monitor` merges terminal and notification files into `state.json` and
 launches eligible pending work only after the same launch checks pass.
 `monitor --no-launch` is strictly read-only for delegated monitoring.
+`status`, `monitor --no-launch`, `notify`, `summarize`, and `storage-report`
+remain usable without the CIFAR-10 mount. Preflight and commands that can launch
+training require the dataset and identify an unresolved `CIFAR10_DATA` variable
+instead of treating its literal placeholder as a directory.
 
 For supervisor-bound managed runs, the rank-zero trainer atomically replaces
 `progress.json` at training start, normal metric intervals, validation start,
@@ -146,10 +150,13 @@ If a run is marked `retryable`, inspect its terminal log, fix and push the cause
 Run `event-controller --root logs/research --study-id <study-id>` as a
 persistent local non-model process for new launches. Direct Unix-socket
 delivery is the default, and the CLI discovers the running daemon socket.
-Study-scoped delivery prevents a
-pending or retrying notification from another study from disarming the active
-wake path. Launch and dry-run operations register the exact
-managed root with `.mjepa-research-root.json`. Register a pre-existing root once
+The controller includes the earliest persisted notification `next_attempt_at` in
+its selector deadline, so transient retries do not depend on another filesystem
+event or model turn. A retrying notification never suppresses a fresh due event,
+and notification-state writes do not recursively trigger delivery. Each
+controller persists startup, sweep, isolated-problem, and shutdown or failure
+records under `logs/research/.event-controller/`. Launch and dry-run operations
+register the exact managed root with `.mjepa-research-root.json`. Register a pre-existing root once
 with `register-root --root logs/research`; this also migrates the legacy marker.
 The marker binds its canonical `root_path`, and the notification worker rejects
 missing, mismatched, symlinked, repository, home, and broad roots before any
