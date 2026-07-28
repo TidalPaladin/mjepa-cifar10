@@ -8,6 +8,7 @@ from typing import Final, Literal, cast
 import torch
 import torch.nn.functional as F
 import torchmetrics as tm
+import wandb
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
     JOINT_CONTEXT_CLS_PREDICTION_MODES,
@@ -38,8 +39,6 @@ from torch.utils.data import DistributedSampler
 from torchmetrics.wrappers import Running
 from tqdm import tqdm
 from vit import ViTFeatures
-
-import wandb
 
 from .classification import forward_classifier
 from .experiment import append_metric_record, save_safetensors_atomic
