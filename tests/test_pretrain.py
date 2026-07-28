@@ -31,6 +31,8 @@ from vit import AttentivePoolHeadConfig, HeadConfig, ViTConfig, ViTFeatures
 
 import mjepa_cifar10.pretrain as pretrain_module
 from mjepa_cifar10.pretrain import (
+    CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING,
     CIFAR10MJEPA,
     CPA_RESULT_KEYS,
     OptimizerStepResult,
@@ -40,6 +42,7 @@ from mjepa_cifar10.pretrain import (
     compute_cls_aux_shuffle_diagnostic,
     compute_cls_global_target_diagnostic,
     compute_cls_global_target_loss,
+    compute_cls_global_target_objective,
     did_gradient_clip,
     get_gradient_norm_stats,
     get_gradient_sync_context,
@@ -602,6 +605,7 @@ def make_model(
     num_cls_tokens: int,
     head_config: HeadConfig | AttentivePoolHeadConfig | None = None,
     cls_prediction_mode: CLSPredictionMode = "legacy_cross_attention",
+    cls_global_target_pooling: str = "raw_mean",
 ) -> CIFAR10MJEPA:
     backbone_config = ViTConfig(
         in_channels=3,
@@ -623,6 +627,7 @@ def make_model(
         backbone,
         predictor,
         autocast_dtype=torch.float32,
+        cls_global_target_pooling=cls_global_target_pooling,
     )
 
 
@@ -945,6 +950,123 @@ def test_cls_global_target_loss_requires_exactly_one_student_cls_token() -> None
 
     with pytest.raises(ValueError, match="exactly one student CLS token"):
         compute_cls_global_target_loss(predictions)
+
+
+def test_centered_normalized_mean_global_target_is_shift_and_scale_invariant() -> None:
+    teacher_output = make_features(num_cls_tokens=1)
+    teacher_target = teacher_output.visual_tokens.mean(dim=1)
+    student_output = make_features(num_cls_tokens=1)
+    student_output.cls_tokens.copy_((teacher_target * 3.0 + 7.0).unsqueeze(1))
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING,
+    )
+
+    losses = compute_cls_global_target_objective(model, predictions)
+
+    assert losses.cls_loss.item() == pytest.approx(0.0, abs=1e-6)
+    assert losses.pool_consistency_loss is not None
+    assert losses.teacher_target.requires_grad is False
+
+
+def test_centered_normalized_mean_cls_loss_keeps_visual_path_blind() -> None:
+    student_dense = torch.randn(
+        BATCH_SIZE,
+        1 + NUM_REGISTER_TOKENS + NUM_VISUAL_TOKENS,
+        HIDDEN_SIZE,
+        requires_grad=True,
+    )
+    teacher_dense = torch.randn_like(student_dense, requires_grad=True)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=ViTFeatures(student_dense, NUM_REGISTER_TOKENS, 1, tokenized_size=(2, 2)),
+        teacher_output=ViTFeatures(teacher_dense, NUM_REGISTER_TOKENS, 1, tokenized_size=(2, 2)),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING,
+    )
+
+    losses = compute_cls_global_target_objective(model, predictions)
+    losses.cls_loss.backward()
+
+    assert student_dense.grad is not None
+    assert torch.count_nonzero(student_dense.grad[:, 0]).item() > 0
+    assert torch.count_nonzero(student_dense.grad[:, 1:]).item() == 0
+    assert teacher_dense.grad is None
+
+
+def test_ema_attention_pooler_has_trainable_online_and_frozen_target_copies() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=make_features(num_cls_tokens=1),
+        teacher_output=make_features(num_cls_tokens=1),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    losses = compute_cls_global_target_objective(model, predictions)
+    assert losses.pool_consistency_loss is not None
+    losses.pool_consistency_loss.backward()
+
+    poolers = model.cls_global_target_poolers
+    assert poolers is not None
+    assert all(parameter.requires_grad for parameter in poolers.online.parameters())
+    assert all(not parameter.requires_grad for parameter in poolers.target.parameters())
+    assert all(parameter.grad is not None for parameter in poolers.online.parameters())
+    assert all(parameter.grad is None for parameter in poolers.target.parameters())
+    assert any(name.startswith("_cls_global_target_poolers.") for name in model.predictor.state_dict())
+
+
+def test_ema_attention_target_pooler_tracks_online_pooler() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    poolers = model.cls_global_target_poolers
+    assert poolers is not None
+    with torch.no_grad():
+        for parameter in poolers.online.parameters():
+            parameter.add_(1.0)
+    target_before = [parameter.detach().clone() for parameter in poolers.target.parameters()]
+
+    model.update_teacher(step=0, total_steps=10)
+
+    for before, online, target in zip(target_before, poolers.online.parameters(), poolers.target.parameters()):
+        expected = before.lerp(online, 1.0 - model.config.momentum)
+        assert torch.allclose(target, expected)
+
+
+def test_ema_attention_poolers_round_trip_through_predictor_state() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    resumed = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+
+    resumed.predictor.load_state_dict(model.predictor.state_dict())
+
+    for expected, actual in zip(model.predictor.parameters(), resumed.predictor.parameters()):
+        assert torch.equal(actual, expected)
 
 
 def test_forward_probe_pools_cls_tokens_before_linear_head(mocker) -> None:

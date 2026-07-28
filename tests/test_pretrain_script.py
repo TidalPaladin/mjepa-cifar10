@@ -98,6 +98,14 @@ CLS_GLOBAL_TARGET_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind-global-w0p5.yaml": 0.5,
 }
+CLS_TEACHER_GLOBAL_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind-global-mean.yaml": (
+        "centered_normalized_mean"
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind-global-ema-attention.yaml": (
+        "centered_normalized_ema_attention"
+    ),
+}
 
 
 def load_pretrain_script_module() -> ModuleType:
@@ -319,7 +327,7 @@ def test_cls_global_target_configuration_requires_blinded_single_cls_model() -> 
     pretrain_script.validate_cls_global_target_configuration(baseline["backbone"], baseline["jepa"], 0.0)
     with pytest.raises(ValueError, match="exactly one student CLS token"):
         pretrain_script.validate_cls_global_target_configuration(baseline["backbone"], blinded["jepa"], 0.1)
-    with pytest.raises(ValueError, match="adaln_blind"):
+    with pytest.raises(ValueError, match="visually blinded"):
         pretrain_script.validate_cls_global_target_configuration(blinded["backbone"], baseline["jepa"], 0.1)
 
 
@@ -330,6 +338,75 @@ def test_cls_global_target_configuration_rejects_invalid_weight(loss_weight: flo
 
     with pytest.raises(ValueError, match="finite non-negative"):
         pretrain_script.validate_cls_global_target_configuration(blinded["backbone"], blinded["jepa"], loss_weight)
+
+
+@pytest.mark.parametrize(("config_path", "expected_pooling"), CLS_TEACHER_GLOBAL_CONFIGS.items())
+def test_cls_teacher_global_configs_change_only_pooled_target_objective(
+    config_path: Path,
+    expected_pooling: str,
+) -> None:
+    control = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind.yaml").read_text()
+    )
+    candidate = yaml.full_load(config_path.read_text())
+
+    assert candidate["cls_global_target_pooling"] == expected_pooling
+    assert candidate["cls_global_target_loss_weight"] == pytest.approx(0.1)
+    assert candidate["cls_global_pool_consistency_loss_weight"] == pytest.approx(0.1)
+    assert set(candidate) == {
+        *control,
+        "cls_global_target_pooling",
+        "cls_global_target_loss_weight",
+        "cls_global_pool_consistency_loss_weight",
+    }
+    for section in ("trainer", "backbone", "jepa", "optimizer"):
+        assert candidate[section] == control[section]
+
+
+def test_cls_teacher_global_configuration_accepts_hard_blind_normalized_pooling() -> None:
+    pretrain_script = load_pretrain_script_module()
+    hard_blind = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind.yaml").read_text()
+    )
+
+    pretrain_script.validate_cls_global_target_configuration(
+        hard_blind["backbone"],
+        hard_blind["jepa"],
+        0.1,
+        "centered_normalized_mean",
+        0.1,
+    )
+    pretrain_script.validate_cls_global_target_configuration(
+        hard_blind["backbone"],
+        hard_blind["jepa"],
+        0.1,
+        "centered_normalized_ema_attention",
+        0.1,
+    )
+
+
+def test_cls_teacher_global_configuration_requires_online_loss_for_ema_pooler() -> None:
+    pretrain_script = load_pretrain_script_module()
+    hard_blind = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-packed-adaln-hard-blind.yaml").read_text()
+    )
+
+    with pytest.raises(ValueError, match="positive pool-consistency"):
+        pretrain_script.validate_cls_global_target_configuration(
+            hard_blind["backbone"],
+            hard_blind["jepa"],
+            0.1,
+            "centered_normalized_ema_attention",
+            0.0,
+        )
+    with pytest.raises(ValueError, match="positive pool-consistency"):
+        pretrain_script.validate_cls_global_target_configuration(
+            hard_blind["backbone"],
+            hard_blind["jepa"],
+            0.0,
+            "centered_normalized_ema_attention",
+            0.0,
+        )
 
 
 def test_single_cls_finetune_config_changes_only_cls_count() -> None:
@@ -374,7 +451,12 @@ def test_instantiate_jepa_forwards_predictor_configuration(mocker) -> None:
         cls_context_tokens=jepa_config.cls_context_tokens,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
-    model_constructor.assert_called_once_with(jepa_config, backbone, predictor)
+    model_constructor.assert_called_once_with(
+        jepa_config,
+        backbone,
+        predictor,
+        cls_global_target_pooling="raw_mean",
+    )
 
 
 def test_pretrain_checkpoint_argument_is_forwarded_to_full_state_restore(mocker, tmp_path: Path) -> None:

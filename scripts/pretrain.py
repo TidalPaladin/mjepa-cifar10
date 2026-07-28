@@ -15,7 +15,12 @@ from typing import Final, NamedTuple
 import torch
 import torch.distributed as dist
 import yaml
-from mjepa.jepa import ADALN_BLIND_CLS_PREDICTION_MODE, CrossAttentionPredictor, JEPAConfig
+from mjepa.jepa import (
+    ADALN_BLIND_CLS_PREDICTION_MODE,
+    PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODES,
+    CrossAttentionPredictor,
+    JEPAConfig,
+)
 from mjepa.optimizer import OptimizerConfig, OptimizerLike, SchedulerLike
 from mjepa.trainer import (
     CheckpointMetadata,
@@ -36,8 +41,12 @@ import wandb
 from mjepa_cifar10.data import cifar10_split_fingerprint, get_test_dataloader, get_train_dataloader, get_val_dataloader
 from mjepa_cifar10.experiment import append_metric_record, write_run_metadata
 from mjepa_cifar10.pretrain import (
+    CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
     CIFAR10MJEPA,
+    CLS_GLOBAL_TARGET_POOLINGS,
+    DEFAULT_CLS_GLOBAL_POOL_CONSISTENCY_LOSS_WEIGHT,
     DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT,
+    RAW_MEAN_CLS_GLOBAL_TARGET_POOLING,
     FirstCycleCallback,
     train,
 )
@@ -106,7 +115,12 @@ def parse_args() -> Namespace:
     return parser.parse_args()
 
 
-def instantiate_jepa(backbone_config: ViTConfig, jepa_config: JEPAConfig, device: torch.device) -> CIFAR10MJEPA:
+def instantiate_jepa(
+    backbone_config: ViTConfig,
+    jepa_config: JEPAConfig,
+    device: torch.device,
+    cls_global_target_pooling: str = RAW_MEAN_CLS_GLOBAL_TARGET_POOLING,
+) -> CIFAR10MJEPA:
     backbone = backbone_config.instantiate(device=device)
     predictor = CrossAttentionPredictor(
         backbone,
@@ -117,22 +131,41 @@ def instantiate_jepa(backbone_config: ViTConfig, jepa_config: JEPAConfig, device
         cls_context_tokens=jepa_config.cls_context_tokens,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
-    return CIFAR10MJEPA(jepa_config, backbone, predictor)
+    return CIFAR10MJEPA(
+        jepa_config,
+        backbone,
+        predictor,
+        cls_global_target_pooling=cls_global_target_pooling,
+    )
 
 
 def validate_cls_global_target_configuration(
     backbone_config: ViTConfig,
     jepa_config: JEPAConfig,
     loss_weight: float,
+    pooling: str = RAW_MEAN_CLS_GLOBAL_TARGET_POOLING,
+    pool_consistency_loss_weight: float = DEFAULT_CLS_GLOBAL_POOL_CONSISTENCY_LOSS_WEIGHT,
 ) -> None:
     if not math.isfinite(loss_weight) or loss_weight < 0:
         raise ValueError("cls_global_target_loss_weight must be a finite non-negative float")
-    if loss_weight == 0:
+    if not math.isfinite(pool_consistency_loss_weight) or pool_consistency_loss_weight < 0:
+        raise ValueError("cls_global_pool_consistency_loss_weight must be a finite non-negative float")
+    if pooling not in CLS_GLOBAL_TARGET_POOLINGS:
+        raise ValueError(f"Unsupported cls_global_target_pooling: {pooling!r}")
+    if pooling == CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING and pool_consistency_loss_weight <= 0:
+        raise ValueError("EMA attention pooling requires a positive pool-consistency loss weight")
+    if loss_weight == 0 and pool_consistency_loss_weight == 0:
         return
     if backbone_config.num_cls_tokens != 1:
         raise ValueError("CLS global-target loss requires exactly one student CLS token")
-    if jepa_config.cls_prediction_mode != ADALN_BLIND_CLS_PREDICTION_MODE:
-        raise ValueError("CLS global-target loss requires cls_prediction_mode='adaln_blind'")
+    supported_prediction_modes = {
+        ADALN_BLIND_CLS_PREDICTION_MODE,
+        *PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODES,
+    }
+    if jepa_config.cls_prediction_mode not in supported_prediction_modes:
+        raise ValueError("CLS global-target loss requires a visually blinded AdaLN predictor mode")
+    if pool_consistency_loss_weight > 0 and pooling == RAW_MEAN_CLS_GLOBAL_TARGET_POOLING:
+        raise ValueError("cls_global_pool_consistency_loss_weight requires centered normalized pooling")
 
 
 def restore_pretraining_checkpoint(
@@ -226,7 +259,20 @@ def main(args: Namespace) -> None:
     cls_global_target_loss_weight = float(
         config.get("cls_global_target_loss_weight", DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT)
     )
-    validate_cls_global_target_configuration(backbone_config, jepa_config, cls_global_target_loss_weight)
+    cls_global_target_pooling = str(config.get("cls_global_target_pooling", RAW_MEAN_CLS_GLOBAL_TARGET_POOLING))
+    cls_global_pool_consistency_loss_weight = float(
+        config.get(
+            "cls_global_pool_consistency_loss_weight",
+            DEFAULT_CLS_GLOBAL_POOL_CONSISTENCY_LOSS_WEIGHT,
+        )
+    )
+    validate_cls_global_target_configuration(
+        backbone_config,
+        jepa_config,
+        cls_global_target_loss_weight,
+        cls_global_target_pooling,
+        cls_global_pool_consistency_loss_weight,
+    )
     if args.log_dir and not args.log_dir.is_dir():
         raise NotADirectoryError(args.log_dir)
     if args.exact_log_dir and not args.exact_log_dir.is_dir():
@@ -265,7 +311,12 @@ def main(args: Namespace) -> None:
 
     # Instantiate other model elements and move to device
     device = torch.device("cuda", local_rank)
-    jepa = instantiate_jepa(backbone_config, jepa_config, device)
+    jepa = instantiate_jepa(
+        backbone_config,
+        jepa_config,
+        device,
+        cls_global_target_pooling,
+    )
 
     # Wrap in DDP for distributed training
     if world_size > 1:
@@ -352,6 +403,8 @@ def main(args: Namespace) -> None:
                 "optimizer": optimizer_config.__dict__,
                 "trainer": trainer_config.__dict__,
                 "cls_global_target_loss_weight": cls_global_target_loss_weight,
+                "cls_global_target_pooling": cls_global_target_pooling,
+                "cls_global_pool_consistency_loss_weight": cls_global_pool_consistency_loss_weight,
                 **provenance_config,
             },
             tags=("pretrain", config_path.stem),
@@ -368,6 +421,8 @@ def main(args: Namespace) -> None:
                 "local_weight_disposition": "retained",
                 "model_class": args.model_class,
                 "cls_global_target_loss_weight": cls_global_target_loss_weight,
+                "cls_global_target_pooling": cls_global_target_pooling,
+                "cls_global_pool_consistency_loss_weight": cls_global_pool_consistency_loss_weight,
             },
         )
         if should_benchmark_cls_prediction_path(args.checkpoint):
@@ -416,6 +471,7 @@ def main(args: Namespace) -> None:
             output_dir=run_log_dir,
             max_grad_norm=optimizer_config.max_grad_norm,
             cls_global_target_loss_weight=cls_global_target_loss_weight,
+            cls_global_pool_consistency_loss_weight=cls_global_pool_consistency_loss_weight,
             progress_callback=lifecycle_reporter.progress if lifecycle_reporter is not None else None,
             first_cycle_callback=first_cycle_callback,
         )
