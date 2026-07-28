@@ -1079,3 +1079,44 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Retention: retained `checkpoint.pt` and `backbone.safetensors`; no weights were deleted.
 - Decision: pass the mechanical gate and proceed with the preregistered fresh four-partition baseline plus the budget-dual, packed-dual, and source-balanced seed-0 scientific candidates.
 - Validation limitation: the vendored skills do not contain the protocol-referenced `quick_validate.py`; repository skill instructions were read in full and the repository quality/test gates remain the executable validation source.
+<!-- autoresearch-operation:{"content_sha256":"a2a91db7f7fe05a73d2f6180f7ccecf81ffe6ba6c1afc3df9ced1ab29bbba00d","operation_id":"162a220747eca5c2d11ac52cfb970ad5"} -->
+
+<!-- study:cls-routing-objective-v1:phase:screening -->
+## cls-routing-objective-v1
+
+- Question: Can a one-CLS, one-predictor-forward routed design recover the accepted four-partition baseline's accuracy or convergence while retaining a material predictor-cost advantage?
+- Hypothesis: Separately normalizing CLS-only and visual-only routes will remove the current objective dilution; packed full coverage will best recover accuracy, while budget-preserving dual routing will retain the strongest latency advantage.
+- Mechanisms and exact changes:
+  - `single-cls-register-partitioned-independent`: Mechanism: Preserve one CLS plus seven registers, independently lift four disjoint CLS channel partitions, and use separate visual-context and CLS-context predictor forwards. Changes: not recorded.
+  - `single-cls-joint-context-dual-routed`: Mechanism: Randomly split each image's target queries equally between visual-only and CLS-only visibility, compute one route mean per source, and sum the two means from one predictor tensor. Changes: Replace the 50/25/25 joint, CLS-only, and visual-only route mix with a 50/50 CLS-only and visual-only mix.; Replace the global coefficient of 2.0 with separately normalized visual and CLS route losses summed at coefficient 1.0.
+  - `single-cls-joint-context-packed-dual-routed`: Mechanism: Duplicate all target queries inside one predictor call, blind the first copy to CLS and the second copy to visual context, and sum separately normalized route losses. Changes: Execute two predictor queries per spatial target but only one predictor forward.; Preserve exact baseline-like visual and CLS target coverage without a learned CLS expansion.
+  - `single-cls-joint-context-token-routed-source-balanced`: Mechanism: Retain 50 percent joint, 25 percent CLS-only, and 25 percent visual-only routing, then add log of the visible-visual-key count to the CLS attention logit only on joint queries. Changes: Preserve the prior token-routed query budget and loss coefficient.; Apply a dynamic log visual-context-count bias to the CLS key on joint routes while preserving hard negative-infinity source blindness.
+- Launch code provenance:
+  - `pretrain-single-cls-joint-context-dual-routed-seed0`: parent=`e9ea4d0eb35f9c9b20051d2f040d1f6751fc0abd` (`codex/research/cls-routing-objective-v1`), mjepa=`09fedcbb63b6959f3ec6db414faccd0c46a865dc` (`codex/research/cls-routing-objective-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+  - `pretrain-single-cls-joint-context-packed-dual-routed-seed0`: parent=`e9ea4d0eb35f9c9b20051d2f040d1f6751fc0abd` (`codex/research/cls-routing-objective-v1`), mjepa=`09fedcbb63b6959f3ec6db414faccd0c46a865dc` (`codex/research/cls-routing-objective-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+  - `pretrain-single-cls-register-partitioned-independent-seed0`: parent=`e9ea4d0eb35f9c9b20051d2f040d1f6751fc0abd` (`codex/research/cls-routing-objective-v1`), mjepa=`09fedcbb63b6959f3ec6db414faccd0c46a865dc` (`codex/research/cls-routing-objective-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: screening
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/cls-routing-objective-v1/summary.json`; external_detail=True
+- Conclusion: Seed-0 screening is still running.
+- Follow-up: complete the preregistered seed-0 screening trials.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-cls-joint-context-dual-routed-seed0`: attempt=1; status=completed; decision=pending; started=2026-07-28T02:50:23.609113+00:00; finished=2026-07-28T05:31:48.591380+00:00; terminal_event=93f53914-87c3-4b59-a9ea-21843765a78c; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-routing-objective-v1/runs/pretrain-single-cls-joint-context-dual-routed-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/00b899eb); checkpoint=retained; metrics=unavailable; error=none
+- `pretrain-single-cls-joint-context-packed-dual-routed-seed0`: attempt=1; status=running; decision=pending; started=2026-07-28T05:32:31.929243+00:00; finished=unknown; terminal_event=unknown; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-routing-objective-v1/runs/pretrain-single-cls-joint-context-packed-dual-routed-seed0`; W&B=offline/unlinked (`bbe667e8`); checkpoint=retained; metrics=unavailable; error=none
+- `pretrain-single-cls-joint-context-token-routed-source-balanced-seed0`: attempt=1; status=pending; decision=pending; started=unknown; finished=unknown; terminal_event=unknown; artifacts=`unavailable`; W&B=unavailable; checkpoint=retained; metrics=unavailable; error=none
+- `pretrain-single-cls-register-partitioned-independent-seed0`: attempt=1; status=running; decision=pending; started=2026-07-28T02:50:23.371172+00:00; finished=unknown; terminal_event=unknown; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/cls-routing-objective-v1/runs/pretrain-single-cls-register-partitioned-independent-seed0`; W&B=offline/unlinked (`07ae3a53`); checkpoint=retained; metrics=unavailable; error=none
+<!-- autoresearch-operation:{"content_sha256":"ca52b5b5bd5cebd01feb8831391bd8ea4955f508271ee8a117d46131f9e8e0d5","operation_id":"cls-routing-objective-v1-dual-routed-seed0-terminal"} -->
+
+## 2026-07-28 terminal result: route-normalized budget-preserving dual routing
+
+- Operation: `cls-routing-objective-v1-dual-routed-seed0-terminal`
+- Run: `pretrain-single-cls-joint-context-dual-routed-seed0`, attempt 1, seed 0, candidate role.
+- Terminal outcome: completed with exit code 0 at 2026-07-28T05:31:48.591380+00:00; terminal event `93f53914-87c3-4b59-a9ea-21843765a78c` was accepted once through `turn/steer`.
+- Endpoint quality: peak online-probe validation accuracy 0.845200 and final accuracy 0.836800 at optimizer step 17,400. Baseline-relative convergence targets, AUC values, and promotion status remain unavailable until the fresh baseline is terminal.
+- Cost: cumulative active time at the final step was 9,667.947 seconds. The isolated one-forward predictor path executed 16 target queries with 9,633,152 parameters at 17.862656 ms median and 18.526209 ms p90 on an RTX 3090.
+- CLS diagnostics: final CLS auxiliary shuffle gap was 1.752893 and the global CLS shuffle gap was 1.624766, confirming that the CLS representation carried cross-sample-specific information. The joint-context CLS shuffle gap was only 0.001310, so visual tokens still dominated when both sources were exposed in the diagnostic joint path.
+- Provenance: parent `e9ea4d0eb35f9c9b20051d2f040d1f6751fc0abd`, mjepa `09fedcbb63b6959f3ec6db414faccd0c46a865dc`, vit `bf15705454975f04912538cdc790d399eea69e67`; online W&B run `00b899eb`.
+- Artifacts: retained `checkpoint.pt` and `backbone.safetensors` under the exact managed run directory; no weights were deleted.
+- Decision: keep pending until the fresh baseline and remaining seed-0 candidates complete.
