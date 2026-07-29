@@ -288,7 +288,7 @@ def persist_wake_context(run_dir: Path, root: Path, context: WakeContext) -> Pat
     with FileLock(str(managed_run_dir / NOTIFICATION_LOCK_FILENAME)):
         current = _read_wake_context(managed_run_dir, managed_root)
         if current is not None:
-            if current != context:
+            if not current.has_same_authority(context):
                 raise NotificationStateError("managed run already has a different immutable wake context")
             return context_path
         atomic_write_json(context_path, context.to_dict())

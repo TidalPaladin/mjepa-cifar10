@@ -362,6 +362,21 @@ def test_wake_prompt_contains_only_validated_terminal_identifiers(tmp_path: Path
     assert "wandb-1" not in prompt
 
 
+def test_persisted_wake_context_accepts_recapture_of_same_permission_identity(tmp_path: Path) -> None:
+    root, event = queued_notification(tmp_path)
+    context_path = Path(event.terminal_state_path).with_name("wake-context.json")
+    original_payload = context_path.read_text()
+
+    persisted_path = persist_wake_context(
+        Path(event.terminal_state_path).parent,
+        root,
+        replace(WAKE_CONTEXT, captured_at=NOW + timedelta(hours=1)),
+    )
+
+    assert persisted_path == context_path
+    assert context_path.read_text() == original_payload
+
+
 def test_persisted_wake_context_cannot_be_replaced(tmp_path: Path) -> None:
     root, event = queued_notification(tmp_path)
 
