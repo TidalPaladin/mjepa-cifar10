@@ -6,7 +6,7 @@ from typing import Any, cast
 import pytest
 import torch
 from mjepa import JEPAConfig
-from mjepa.jepa import CrossAttentionPredictor
+from mjepa.jepa import PARTITIONED_INDEPENDENT_CLS_PREDICTION_MODE, CrossAttentionPredictor
 from torch import nn
 from vit import ViTConfig
 from vit.fused import NormMLP
@@ -199,7 +199,7 @@ def test_validate_completed_checkpoint_requires_config(tmp_path: Path) -> None:
         validate_completed_checkpoint(checkpoint)
 
 
-def _tiny_backbone_config(activation: str = "srelu") -> ViTConfig:
+def _tiny_backbone_config(activation: str = "srelu", *, num_cls_tokens: int = 0) -> ViTConfig:
     return ViTConfig(
         in_channels=3,
         patch_size=[2, 2],
@@ -208,6 +208,7 @@ def _tiny_backbone_config(activation: str = "srelu") -> ViTConfig:
         hidden_size=TINY_BACKBONE_HIDDEN_SIZE,
         ffn_hidden_size=TINY_BACKBONE_FFN_HIDDEN_SIZE,
         num_attention_heads=1,
+        num_cls_tokens=num_cls_tokens,
         activation=activation,
         norm_type="layernorm",
         dtype=torch.float32,
@@ -224,14 +225,20 @@ def test_instrument_student_mlps_wraps_every_backbone_layer() -> None:
 
 
 def test_load_checkpoint_model_restores_all_jepa_weights(tmp_path: Path) -> None:
-    backbone_config = _tiny_backbone_config()
-    jepa_config = JEPAConfig(predictor_depth=1)
+    backbone_config = _tiny_backbone_config(num_cls_tokens=1)
+    jepa_config = JEPAConfig(
+        predictor_depth=1,
+        cls_prediction_mode=PARTITIONED_INDEPENDENT_CLS_PREDICTION_MODE,
+        cls_context_tokens=2,
+    )
     backbone = backbone_config.instantiate(device=torch.device("cpu"))
     predictor = CrossAttentionPredictor(
         backbone,
         jepa_config.predictor_depth,
         device=torch.device("cpu"),
         attention_mode=jepa_config.predictor_attention_mode,
+        cls_prediction_mode=jepa_config.cls_prediction_mode,
+        cls_context_tokens=jepa_config.cls_context_tokens,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     source = CIFAR10MJEPA(jepa_config, backbone, predictor, autocast_dtype=torch.float32)

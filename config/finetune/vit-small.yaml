@@ -1,4 +1,4 @@
-# Config for finetuning ViT-S/4 on CIFAR-10.
+# Default fine-tuning config for the one-CLS, seven-register ViT-S/4 backbone.
 # Assumes 2xGPUs
 trainer: !!python/object:mjepa.TrainerConfig
   batch_size: 512
@@ -21,8 +21,8 @@ backbone: !!python/object:vit.ViTConfig
   attention_dropout: 0.1
   hidden_dropout: 0.1
   drop_path_rate: 0.1
-  num_register_tokens: 4
-  num_cls_tokens: 4
+  num_register_tokens: 7
+  num_cls_tokens: 1
   pos_enc: "rope"
   rope_base: 100
   rope_rescale_coords: 2.0

@@ -1,0 +1,166 @@
+id: cls-teacher-global-v2
+question: Can a centered normalized full-teacher target make one hard-blind CLS token match the accepted independent four-partition predictor while preserving one backbone CLS token and one predictor forward?
+hypothesis: Removing raw target norm and common-mode information will avoid the representation shrinkage seen with direct raw-mean MSE. Fixed-mean or learned EMA-attention pooling will improve seed-0 peak validation accuracy by at least 0.05 over a fresh packed hard-blind control; a qualifying candidate will trail a fresh independent-partition baseline by no more than 0.005 while reducing common-step active time and isolated CLS-path latency by at least 5 percent.
+rejection_condition: Reject the mechanism if neither pooled target passes the fresh hard-blind control-gain gate and the fresh independent-partition cost gate at seed 0, if its stopped target collapses across samples, if its final CLS shuffle gap is nonpositive, or if the direct CLS loss reads student visual tokens or propagates gradients into teacher features. Do not add fallback targets, weights, or poolers after observing results.
+checkpoint_plan: Retain every checkpoint and backbone because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: single-cls-register-partitioned-independent
+  config: config/pretrain/vit-small-single-cls-register-partitioned-independent.yaml
+  finetune_config: config/finetune/vit-small-single-cls.yaml
+  hypothesis: The accepted independent four-partition readout provides a fresh quality, convergence, and complete predictor-workload reference.
+  mechanism: Preserve one CLS plus seven registers, independently lift four disjoint CLS channel partitions, and use separate visual-context and CLS-context predictor forwards.
+  changes: []
+
+variants:
+  - id: single-cls-packed-adaln-hard-blind-control
+    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Repeating the simplest and fastest stage-1 hard-blind path provides the paired seed-0 control for target-driven recovery.
+    mechanism: Use packed visual and hard-blind CLS-conditioned target copies without any teacher-global objective.
+    changes:
+      - Preserve one CLS plus seven registers and one predictor forward.
+      - Add no teacher-global target or pooling module.
+  - id: cls-global-centered-mean
+    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind-global-mean.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Centered normalized arithmetic pooling supplies a stable global target without the norm-shrink incentive of raw MSE.
+    mechanism: Regress the centered normalized student CLS and visible-token mean to the stopped centered normalized mean of all full-image teacher visual tokens.
+    changes:
+      - Preserve the packed hard-blind architecture and patch losses.
+      - Add direct CLS and visible-pool squared-L2 losses at weight 0.1 each.
+      - Add no trainable pooling parameters.
+  - id: cls-global-centered-ema-attention
+    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind-global-ema-attention-convex.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Learned EMA attention weights will select globally useful teacher content better than uniform pooling while a convex raw-token value path prevents the sample-independent collapse seen with learned value and output projections.
+    mechanism: Regress the centered normalized student CLS and an online attention-weighted mean of visible student tokens to a stopped centered normalized EMA attention-weighted mean of every full-image teacher visual token.
+    changes:
+      - Preserve the packed hard-blind architecture and patch losses.
+      - Add direct CLS and visible-pool squared-L2 losses at weight 0.1 each.
+      - Learn only multi-head query/key attention weights, apply their head average directly to raw visual tokens, and update the target copy with the backbone teacher momentum.
+
+methodology:
+  source_studies:
+    - cls-global-target-v1
+    - cls-partitioned-slots-v1
+    - cls-adaln-hard-blind-v2
+    - cls-teacher-global-v2-smoke
+  preregistration_operation: cls-teacher-global-v2-preregistration
+  prior_evidence:
+    - One backbone CLS token with independent four-partition readout reached 0.8988 peak validation accuracy, so the backbone bottleneck can retain sufficient information.
+    - Plain packed hard-blind AdaLN reached 0.7890, its adapter reached 0.7982, and its token mixer reached 0.8046 versus the fresh 0.8988 baseline.
+    - Ordered but small adapter and mixer gains identify the decoder target or interface as the remaining limitation rather than general collapse.
+    - Raw arithmetic-mean MSE reduced performance as its weight increased and strongly reduced both student and teacher norms, motivating center and scale removal.
+    - A full CrossAttention EMA pooler completed its mechanical smoke but collapsed to mean pairwise target cosine 1.000000 and target channel standard deviation 0.000237 despite verified optimizer and EMA updates.
+    - The same smoke checkpoint's fixed-mean counterfactual retained mean pairwise cosine 0.715758 and channel standard deviation 0.088919, isolating learned value and output projections as the collapse pathway.
+  information_boundary:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    patch_predictor_forwards: 1
+    patch_visual_route: Visible final student visual tokens through ordinary cross-attention.
+    patch_blind_route: Final student CLS token through AdaLN while exactly skipping visual cross-attention.
+    direct_cls_loss_student_input: The only final student CLS token.
+    direct_cls_loss_exclusions: Student visual tokens, registers, predictor visual residuals, teacher gradients, intermediate features, and other samples.
+    teacher_target_input: Every full-image EMA-teacher visual token before masking.
+    teacher_target_stop_rule: Detach the pooled teacher embedding before centering, normalization, and both regression losses.
+    visible_pool_loss: A separate consistency path may update visible student visual tokens and the online pooler but cannot feed those tokens into the direct CLS loss.
+  target_transform:
+    order:
+      - Pool visual tokens to one embedding.
+      - Subtract that embedding's mean across channels.
+      - L2-normalize across channels.
+      - Stop all teacher-target gradients.
+    loss: Squared L2 distance between unit embeddings, equivalent to twice cosine distance.
+    cls_loss_weight: 0.1
+    visible_pool_consistency_loss_weight: 0.1
+    weight_rationale: A post-hoc batch from the completed hard-blind control gave direct and visible-pool losses of 1.201 and 0.270, so weights of 0.1 add approximately 0.147 total loss, comparable to one JEPA route without dominating it.
+  fixed_mean_pooling:
+    teacher: Arithmetic mean of all full-image teacher visual tokens.
+    student: Arithmetic mean of visible final student visual tokens.
+    trainable_parameters: 0
+  ema_attention_pooling:
+    queries: 1
+    attention_heads: 12
+    dropout: 0.0
+    query_key_normalization: Match the backbone per-head LayerNorm and QK normalization.
+    learned_parameters: One query, one key projection, and per-head query/key normalization.
+    attention_weights: Softmax over tokens independently per head, then average the head weights.
+    value_path: Apply the averaged nonnegative unit-sum weights directly to raw visual tokens with no learned value or output projection.
+    geometric_invariant: Every pooled embedding is a convex weighted mean in the teacher or student visual-feature space.
+    online_input: Visible final student visual tokens.
+    target_input: All full-image teacher visual tokens.
+    initialization: Exact frozen copy of the online pooler.
+    update: EMA after each optimizer step at the same 0.98 unscheduled momentum as the backbone teacher.
+    checkpointing: Store both poolers inside the predictor checkpoint; downstream backbone artifacts remain unchanged.
+  validation_diagnostics:
+    batch: First deterministic validation batch at each validation interval.
+    metrics:
+      - true and cross-sample-shuffled centered normalized CLS loss
+      - shuffled-minus-true CLS loss gap
+      - visible-pool consistency loss
+      - teacher-target mean cross-sample channel standard deviation
+      - normalized student and teacher embedding norms
+      - hard-blind patch loss and shuffled loss
+      - CLS-patch alignment
+      - online-probe validation accuracy
+  screening:
+    runs: Fresh independent-partition baseline, fresh packed hard-blind control, fixed-mean target, and EMA-attention target at seed 0.
+    mechanical_gate: Candidate must use one CLS, seven registers, one predictor forward, final target channel standard deviation of at least 0.005, final mean pairwise target cosine below 0.99, and a positive final CLS shuffle gap.
+    control_gate: Candidate peak validation accuracy must exceed the fresh hard-blind control by at least 0.05.
+    cost_gate: Candidate common-step active time and isolated median latency must each improve by at least 5 percent versus the fresh independent-partition baseline.
+    quality_floor: Candidate peak validation accuracy may trail the fresh independent-partition baseline by no more than 0.005.
+    disabled_routes: Accuracy-only, time-to-95-only, and active-time-AUC-only promotion are disabled for this mechanism test.
+    ranking: Peak validation accuracy, common-horizon active-time AUC, active seconds to the fixed 95-percent target, then isolated latency.
+    no_fallback_variants: true
+  confirmation:
+    runs: Fresh independent-partition baseline and selected winner at seeds 1 and 2, for eight total scientific pretraining trials.
+    rule: The three-seed mean must meet the cost route, at least two paired seeds must improve active time and isolated latency, and the seed-0 winner must retain the hard-blind control accuracy gain.
+  evaluation:
+    trigger: Confirmed winner only.
+    regimes: Full data, 10 shots per class, and 100 shots per class.
+    seeds: [0, 1, 2]
+    official_test_scope: Confirmed baseline and winner only.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-teacher-global-v2
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: d17ec9e937a61022b9bc6d8676082226bfda7f94
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+  cost_gain: 0.05
+  screening_control_variant: single-cls-packed-adaln-hard-blind-control
+  screening_control_accuracy_gain: 0.05
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

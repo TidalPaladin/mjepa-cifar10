@@ -63,11 +63,17 @@ excluded from this scientific-run count.
    - peak validation probe accuracy improves by at least 0.01;
    - active time to the fixed 95% target improves by at least 15%, while peak accuracy loses no more than 0.005;
    - common-horizon active-time AUC improves by at least 10%, with the same accuracy constraint.
+   - when a study explicitly sets `promotion.cost_gain`, active time at the common final optimizer-step horizon improves by at least that fraction, isolated path latency decreases, and peak accuracy loses no more than 0.005.
 3. Rank qualifying candidates by active-time AUC, peak accuracy, then time to the 95% target.
 4. Confirm the chosen candidate and baseline with seeds 1 and 2.
 5. If no initial candidate qualifies, spend no more than the four remaining trials on additional seed-0 variants. Do not replicate an unqualified result.
 
 Confirmation requires the three-seed mean to meet the same promotion threshold and at least two paired seeds to move in the required direction. Report mean, sample standard deviation, per-seed paired differences, and censored runs. Three pairs do not support a statistical-significance claim.
+
+Cost-route confirmation also requires lower mean isolated path latency. At least
+two paired seeds must improve both active time at the common final step and
+isolated latency. The cost route is disabled when `promotion.cost_gain` is
+absent.
 
 An explicitly authorized candidate-only follow-up may reuse one completed
 seed-0 baseline instead of launching a new baseline. Commit the exact validation
@@ -95,6 +101,13 @@ Derive fixed targets at 90% and 95% of the baseline seed-0 peak online-probe val
 - peak and final validation probe accuracy;
 - trapezoidal validation-accuracy AUC over the common optimizer-step horizon;
 - trapezoidal validation-accuracy AUC over the common active-time horizon.
+- cumulative active seconds at the common final optimizer-step horizon.
+
+When a study uses the cost route, benchmark the isolated changed path before
+training. Record the input shape, autocast dtype, warmup count, measured count,
+CUDA-event median and p90 latency, executed-path parameter count, and GPU
+identity. Do not substitute this component benchmark for end-to-end active
+training time.
 
 Do not reset active time after resume. The checkpoint restores the student, predictor, teacher, optimizer, scheduler, completed epoch, optimizer step, W&B run ID, image size, and cumulative active seconds. Checkpoint writes use a temporary file in the run directory followed by atomic replacement.
 

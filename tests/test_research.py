@@ -20,7 +20,7 @@ from mjepa_cifar10.research.codex_notifications import (
     queue_notification_from_terminal,
     write_notification_event,
 )
-from mjepa_cifar10.research.inventory import index_local_runs, inventory_counts, open_inventory
+from mjepa_cifar10.research.inventory import index_local_runs, index_wandb_runs, inventory_counts, open_inventory
 from mjepa_cifar10.research.metrics import (
     ConvergenceSummary,
     MetricPoint,
@@ -34,6 +34,7 @@ from mjepa_cifar10.research.models import (
     DEFAULT_MAX_PRETRAIN_TRIALS,
     WANDB_OPERATION_EMITTED_DATA_CLASSES,
     BaselineReference,
+    PromotionRules,
     ResourceLimits,
     RunSpec,
     RunState,
@@ -79,6 +80,8 @@ def make_summary(
     peak: float,
     time_to_95: float | None,
     time_auc: float,
+    active_seconds_at_horizon: float = 500.0,
+    cls_latency_ms: float | None = None,
 ) -> ConvergenceSummary:
     return ConvergenceSummary(
         peak_accuracy=peak,
@@ -91,6 +94,8 @@ def make_summary(
         active_time_auc=time_auc,
         step_horizon=100,
         active_time_horizon=500.0,
+        active_seconds_at_step_horizon=active_seconds_at_horizon,
+        cls_path_latency_median_ms=cls_latency_ms,
     )
 
 
@@ -195,6 +200,7 @@ def test_convergence_summary_reports_censoring_and_common_horizon_auc() -> None:
     assert summary.step_to_95 is None
     assert summary.step_auc == pytest.approx(accuracy_auc(points, "step", 25))
     assert summary.active_time_auc == pytest.approx(accuracy_auc(points, "active_seconds", 250))
+    assert summary.active_seconds_at_step_horizon == pytest.approx(250.0)
 
 
 @pytest.mark.parametrize(
@@ -214,6 +220,56 @@ def test_promotion_rules_accept_each_documented_path(candidate: ConvergenceSumma
     assert decision.criterion == criterion
 
 
+def test_opt_in_cost_promotion_requires_end_to_end_and_isolated_latency_gains() -> None:
+    rules = PromotionRules(cost_gain=0.05)
+    baseline = make_summary(
+        peak=0.80,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=500,
+        cls_latency_ms=4.0,
+    )
+    candidate = make_summary(
+        peak=0.795,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=470,
+        cls_latency_ms=2.0,
+    )
+
+    decision = promotion_decision(baseline, candidate, rules)
+
+    assert decision.promoted
+    assert decision.criterion == "cost"
+
+
+@pytest.mark.parametrize(
+    ("active_seconds_at_horizon", "cls_latency_ms"),
+    ((480.0, 2.0), (470.0, 4.0), (470.0, None)),
+)
+def test_cost_promotion_rejects_incomplete_cost_gate(
+    active_seconds_at_horizon: float,
+    cls_latency_ms: float | None,
+) -> None:
+    rules = PromotionRules(cost_gain=0.05)
+    baseline = make_summary(
+        peak=0.80,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=500,
+        cls_latency_ms=4.0,
+    )
+    candidate = make_summary(
+        peak=0.795,
+        time_to_95=100,
+        time_auc=0.50,
+        active_seconds_at_horizon=active_seconds_at_horizon,
+        cls_latency_ms=cls_latency_ms,
+    )
+
+    assert promotion_decision(baseline, candidate, rules).criterion is None
+
+
 def test_confirmation_requires_mean_threshold_and_two_paired_improvements() -> None:
     baseline = [make_summary(peak=0.80, time_to_95=100, time_auc=0.5) for _ in range(3)]
     candidate = [
@@ -227,6 +283,59 @@ def test_confirmation_requires_mean_threshold_and_two_paired_improvements() -> N
     assert decision.confirmed
     assert decision.paired_improvements == 2
     assert decision.mean_paired_difference == pytest.approx(0.0133333333)
+
+
+def test_cost_confirmation_requires_two_joint_paired_improvements() -> None:
+    rules = PromotionRules(cost_gain=0.05)
+    baseline = [
+        make_summary(
+            peak=0.80,
+            time_to_95=100,
+            time_auc=0.5,
+            active_seconds_at_horizon=500,
+            cls_latency_ms=4.0,
+        )
+        for _ in range(3)
+    ]
+    candidate = [
+        make_summary(
+            peak=0.80,
+            time_to_95=100,
+            time_auc=0.5,
+            active_seconds_at_horizon=active_seconds,
+            cls_latency_ms=latency,
+        )
+        for active_seconds, latency in ((460, 2.0), (470, 3.0), (480, 4.1))
+    ]
+
+    decision = confirmation_decision(baseline, candidate, "cost", rules)
+
+    assert decision.confirmed
+    assert decision.paired_improvements == 2
+
+
+def test_variant_specific_finetune_config_overrides_global_fallback(tmp_path: Path) -> None:
+    pretrain_config = tmp_path / "pretrain.yaml"
+    global_finetune = tmp_path / "global-finetune.yaml"
+    single_cls_finetune = tmp_path / "single-cls-finetune.yaml"
+    for config in (pretrain_config, global_finetune, single_cls_finetune):
+        config.write_text("trainer: test\n")
+    baseline = VariantSpec("baseline", pretrain_config, "reference")
+    winner = VariantSpec(
+        "winner",
+        pretrain_config,
+        "candidate",
+        finetune_config=single_cls_finetune,
+    )
+    spec = replace(
+        make_spec(tmp_path, variants=0),
+        baseline=baseline,
+        variants=(winner,),
+        evaluation=replace(make_spec(tmp_path).evaluation, finetune_config=global_finetune),
+    )
+
+    assert spec.finetune_config_for("baseline") == global_finetune
+    assert spec.finetune_config_for("winner") == single_cls_finetune
 
 
 def test_study_rejects_more_than_eight_pretraining_trials(tmp_path: Path) -> None:
@@ -266,6 +375,84 @@ def test_screening_promotion_adds_only_four_replication_trials(tmp_path: Path) -
     assert state.phase == "confirmation"
     assert state.winner == "variant-0"
     assert sum(run.spec.kind == "pretrain" for run in state.runs.values()) == 8
+
+
+def test_screening_control_gate_requires_peak_gain_before_cost_promotion(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path),
+        promotion=PromotionRules(
+            accuracy_gain=1.0,
+            convergence_gain=0.99,
+            auc_gain=1.0,
+            maximum_accuracy_loss=0.04,
+            cost_gain=0.05,
+            screening_control_variant="variant-0",
+            screening_control_accuracy_gain=0.05,
+        ),
+    )
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.id: RunState(run, status="completed") for run in spec.initial_runs()},
+    )
+    summaries = {
+        "pretrain-baseline-seed0": make_summary(
+            peak=0.91,
+            time_to_95=100,
+            time_auc=0.50,
+            active_seconds_at_horizon=500,
+            cls_latency_ms=4.0,
+        ),
+        "pretrain-variant-0-seed0": make_summary(
+            peak=0.83,
+            time_to_95=None,
+            time_auc=0.45,
+            active_seconds_at_horizon=450,
+            cls_latency_ms=2.0,
+        ),
+        "pretrain-variant-1-seed0": make_summary(
+            peak=0.879,
+            time_to_95=None,
+            time_auc=0.46,
+            active_seconds_at_horizon=450,
+            cls_latency_ms=2.0,
+        ),
+        "pretrain-variant-2-seed0": make_summary(
+            peak=0.885,
+            time_to_95=None,
+            time_auc=0.47,
+            active_seconds_at_horizon=450,
+            cls_latency_ms=2.0,
+        ),
+    }
+
+    advance_study(state, spec, summaries)
+
+    assert state.phase == "confirmation"
+    assert state.winner == "variant-2"
+    assert state.runs["pretrain-variant-0-seed0"].decision == "rejected"
+    assert state.runs["pretrain-variant-1-seed0"].decision == "rejected"
+    assert state.runs["pretrain-variant-2-seed0"].decision == "promoted"
+
+
+@pytest.mark.parametrize(
+    "rules",
+    (
+        PromotionRules(screening_control_variant="variant-0"),
+        PromotionRules(screening_control_accuracy_gain=0.05),
+        PromotionRules(screening_control_variant="missing", screening_control_accuracy_gain=0.05),
+        PromotionRules(screening_control_variant="baseline", screening_control_accuracy_gain=0.05),
+        PromotionRules(screening_control_variant="variant-0", screening_control_accuracy_gain=0.0),
+    ),
+)
+def test_study_rejects_invalid_screening_control_gate(tmp_path: Path, rules: PromotionRules) -> None:
+    spec = replace(make_spec(tmp_path), promotion=rules)
+
+    with pytest.raises(ValueError, match="screening control"):
+        spec.validate(require_files=False)
 
 
 def test_reference_baseline_schedules_only_muon_candidates(tmp_path: Path) -> None:
@@ -1100,6 +1287,27 @@ def test_inventory_combines_config_metrics_packages_and_weight_availability(tmp_
     assert "val/acc" in row[1]
     assert "torch==2.13.0" in row[2]
     assert row[3] == 1
+
+
+def test_wandb_inventory_passes_history_keys_as_a_list(mocker, tmp_path: Path) -> None:
+    run = SimpleNamespace(
+        id="wandb-run",
+        url="https://wandb.example/run",
+        config={},
+        summary={},
+        metadata={},
+        scan_history=mocker.Mock(return_value=[]),
+    )
+    api = mocker.Mock()
+    api.runs.return_value = [run]
+    mocker.patch("wandb.Api", return_value=api)
+
+    with closing(open_inventory(tmp_path / "inventory.sqlite3")) as connection:
+        assert index_wandb_runs("entity", "project", connection) == 1
+
+    history_keys = run.scan_history.call_args.kwargs["keys"]
+    assert isinstance(history_keys, list)
+    assert history_keys[0] == "_step"
 
 
 def test_summary_publishes_standardized_fields_to_wandb(mocker, monkeypatch, tmp_path: Path) -> None:

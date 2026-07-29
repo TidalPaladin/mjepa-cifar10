@@ -1,0 +1,130 @@
+id: cls-register-slots-v1
+question: Can a backbone with one CLS readout recover four-CLS quality and convergence by retaining the same eight-token prefix as one CLS plus seven registers, while the auxiliary predictor receives only that CLS?
+hypothesis: At least one candidate will remain within 0.005 peak validation accuracy and 10 percent convergence time of the fixed four-CLS reference because the three reclassified register tokens preserve backbone scratch capacity while the single CLS remains the only global readout and auxiliary context source.
+rejection_condition: Reject the mechanism if every candidate has peak online-probe validation accuracy below 0.9050, exceeds either fixed 95-percent convergence ceiling, falls more than 0.005 below either common-horizon AUC, exposes register or visual tokens to the auxiliary predictor, or fails gradient and recovery validation.
+checkpoint_plan: Retain all candidate checkpoints and backbones because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: four-cls-legacy
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
+  hypothesis: Four backbone CLS tokens and four registers provide the fixed quality and convergence reference.
+  mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe.
+  changes: []
+
+baseline_reference:
+  study_id: cls-global-target-v1
+  run_id: pretrain-four-cls-legacy-seed0
+  metrics: research/baselines/cls-global-target-v1-four-cls-legacy-seed0.metrics.jsonl
+  metrics_sha256: 81a387a429495ed52cd03f97b646e32f288cccac23bcb063611f975f2b1d35a9
+
+variants:
+  - id: single-cls-register-legacy
+    config: config/pretrain/vit-small-single-cls-register-legacy.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Reclassifying the removed CLS tokens as registers is sufficient to recover backbone quality even when the auxiliary predictor sees only the single raw CLS token.
+    mechanism: Preserve eight backbone prefix tokens as one CLS plus seven registers; expose only the one CLS token to the unchanged auxiliary legacy predictor.
+    changes:
+      - Set backbone num_cls_tokens from 4 to 1.
+      - Set backbone num_register_tokens from 4 to 7.
+  - id: single-cls-register-slot-bias
+    config: config/pretrain/vit-small-single-cls-register-slot-bias.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Four additive slot identities will give the strong predictor query-dependent context choices without transforming or increasing the information content of the single CLS embedding.
+    mechanism: Preserve one CLS plus seven registers, then add four learned D-dimensional predictor-owned slot biases to four broadcast views of the one CLS token.
+    changes:
+      - Reclassify three CLS tokens as registers.
+      - Expand the only CLS token as CLS plus four learned slot biases for the auxiliary predictor.
+  - id: single-cls-register-projected
+    config: config/pretrain/vit-small-single-cls-register-projected.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Combining the best prior affine expansion with preserved backbone prefix capacity will recover the four-CLS quality and convergence equivalence gates.
+    mechanism: Preserve one CLS plus seven registers, then apply the previously validated D-to-4D affine expansion only for the auxiliary predictor.
+    changes:
+      - Reclassify three CLS tokens as registers.
+      - Expand the only CLS token with one learned D-to-4D affine map for the auxiliary predictor.
+methodology:
+  factor_order:
+    - single-cls-register-legacy isolates backbone prefix capacity.
+    - single-cls-register-slot-bias adds the simplest useful four-slot predictor compatibility layer.
+    - single-cls-register-projected combines the prefix-capacity change with the best prior predictor expansion.
+  information_bottleneck:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    auxiliary_visible_tokens: The only student CLS token or deterministic learned views of it.
+    auxiliary_exclusions: Student visual tokens, register tokens, teacher features, and other samples.
+    probe_input: The only teacher CLS token.
+  fixed_reference:
+    peak_accuracy: 0.9100000262260437
+    step_to_95: 7830
+    active_seconds_to_95: 5038.553869029507
+    step_auc: 0.8012299999594689
+    active_time_auc: 0.7965834199456636
+  equivalence_gate:
+    minimum_peak_accuracy: 0.9050
+    maximum_step_to_95: 8613
+    maximum_active_seconds_to_95: 5542.409255932458
+    minimum_step_auc: 0.7962299999594689
+    minimum_active_time_auc: 0.7915834199456636
+    rule: A candidate must satisfy every threshold. This supports seed-0 equivalence only and is not confirmation.
+  selection:
+    rule: Among equivalence-qualified candidates, prefer fewer learned expansion parameters, then higher active-time AUC, peak accuracy, and faster time to 95 percent.
+    excluded_prior_result: The prior four-register full projector peaked at 0.8724 and is not rerun.
+  fallback_budget:
+    reserved_trials: 4
+    committed_trials: 2
+    remaining_trials: 2
+    linked_study: cls-register-residual-v1
+    rule: The 2026-07-27 amendment commits two reserved trials in a linked study after every initial candidate failed the equivalence gate. Retain the final two trials for another dated amendment only if neither residual expansion qualifies.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-register-slots-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 4d1c577fb57e0883544c908de9bf60d6bcfd909e
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 3
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
+
+amendments:
+  - date: 2026-07-27
+    operation_id: cls-register-slots-v1-residual-expansion-fallback-v1
+    trigger: All three initial candidates failed the conjunctive seed-0 equivalence gate. The direct affine projector was best but remained 0.0188 below the peak floor, reached the 95-percent target 2262 steps and 1391.9 active seconds beyond the ceilings, and missed the step and active-time AUC floors by 0.0120 and 0.0078.
+    interpretation: Register reclassification consistently recovered about 0.014 peak accuracy and direct affine expansion recovered another 0.044, while additive slot identities did not help. This supports preserving the raw CLS signal and increasing content-dependent decoding capacity rather than adding more static slots or direct global-target loss.
+    hypothesis: A residual expansion that preserves the only CLS embedding while learning four content-dependent views can close the remaining quality and convergence gap.
+    trials:
+      - single-cls-register-residual-projected
+      - single-cls-register-residual-mlp
+    linked_study: cls-register-residual-v1
+    stopping_rule: Stop and select the simplest qualifying residual expansion if either candidate satisfies every existing equivalence threshold. Do not use the final two reserved trials without another dated amendment.

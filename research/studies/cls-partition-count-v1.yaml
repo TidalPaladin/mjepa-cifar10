@@ -1,0 +1,130 @@
+id: cls-partition-count-v1
+question: Does splitting one final CLS embedding into two or eight independently lifted channel partitions improve the practical quality and convergence of the successful four-partition single-CLS design?
+hypothesis: Two broader partitions will preserve practical parity with less predictor context complexity, while eight finer partitions will reveal whether the residual gap to four backbone CLS tokens comes from insufficient slot specialization.
+rejection_condition: Reject a candidate if it fails any preregistered practical-parity threshold, exposes visual or register tokens to the auxiliary predictor, changes the dominant independent-projection weight count, or fails gradient, benchmark, checkpoint, or recovery validation.
+checkpoint_plan: Retain every candidate checkpoint and backbone because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: four-cls-legacy
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
+  hypothesis: Four backbone CLS tokens and four registers provide the immutable strict quality and convergence reference.
+  mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe.
+  changes: []
+
+baseline_reference:
+  study_id: cls-global-target-v1
+  run_id: pretrain-four-cls-legacy-seed0
+  metrics: research/baselines/cls-global-target-v1-four-cls-legacy-seed0.metrics.jsonl
+  metrics_sha256: 81a387a429495ed52cd03f97b646e32f288cccac23bcb063611f975f2b1d35a9
+
+variants:
+  - id: single-cls-register-partitioned-independent-2
+    config: config/pretrain/vit-small-single-cls-register-partitioned-independent-2.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Four partitions over-fragment the compressed embedding, so two 192-dimensional groups will preserve practical parity with a shorter predictor context.
+    mechanism: Preserve one CLS plus seven registers, split the only CLS into two 192-dimensional channel groups, and independently lift them into two auxiliary predictor contexts.
+    changes:
+      - Reuse the one-CLS plus seven-register backbone.
+      - Change only the independent partition count from four to two.
+  - id: single-cls-register-partitioned-independent-8
+    config: config/pretrain/vit-small-single-cls-register-partitioned-independent-8.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Eight 48-dimensional groups will create enough slot specialization to satisfy the strict four-CLS reference despite their longer context sequence.
+    mechanism: Preserve one CLS plus seven registers, split the only CLS into eight 48-dimensional channel groups, and independently lift them into eight auxiliary predictor contexts.
+    changes:
+      - Reuse the one-CLS plus seven-register backbone.
+      - Change only the independent partition count from four to eight.
+
+methodology:
+  source_study: cls-partitioned-slots-v1
+  source_run: pretrain-single-cls-register-partitioned-independent-seed0
+  factor_order:
+    - The two-partition candidate tests whether broader subspaces improve the simpler practical-parity design.
+    - The eight-partition candidate tests whether finer specialization closes the strict four-CLS gap.
+  capacity_control:
+    hidden_size: 384
+    independent_projection_weight_count: 147456
+    two_partition_adapter_parameters: 148224
+    four_partition_adapter_parameters: 148992
+    eight_partition_adapter_parameters: 150528
+    rule: The independent projection weights remain D squared; only slot biases and predictor context length vary.
+  information_bottleneck:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    auxiliary_visible_tokens: Deterministic learned lifts of disjoint channel groups from the only final student CLS token.
+    auxiliary_exclusions: Student visual tokens, register tokens, teacher features, intermediate backbone features, and other samples.
+    probe_input: The only final teacher CLS token.
+  fixed_reference:
+    peak_accuracy: 0.9100000262260437
+    step_to_95: 7830
+    active_seconds_to_95: 5038.553869029507
+    step_auc: 0.8012299999594689
+    active_time_auc: 0.7965834199456636
+  strict_equivalence_gate:
+    minimum_peak_accuracy: 0.9050
+    maximum_step_to_95: 8613
+    maximum_active_seconds_to_95: 5542.409255932458
+    minimum_step_auc: 0.7962299999594689
+    minimum_active_time_auc: 0.7915834199456636
+    rule: A candidate must satisfy every threshold. This supports seed-0 reference promotion only and is not confirmation.
+  four_partition_control:
+    peak_accuracy: 0.8980000019073486
+    step_to_95: 10005
+    active_seconds_to_95: 6369.559
+    step_auc: 0.7879074965
+    active_time_auc: 0.7875933072
+  practical_parity_gate:
+    minimum_peak_accuracy: 0.8930
+    maximum_step_to_95: 11006
+    maximum_active_seconds_to_95: 7006.515
+    minimum_step_auc: 0.782907
+    minimum_active_time_auc: 0.782593
+    rule: A candidate must satisfy every threshold relative to the accepted four-partition control.
+  selection:
+    rule: Prefer two partitions if it satisfies practical parity. Retain four partitions over eight unless eight partitions satisfy the strict equivalence gate.
+  goal_budget:
+    user_authorized_trials: 2
+    allocated_trials: 2
+    remaining_trials: 0
+    rule: No additional scientific pretraining trial is authorized without a new user-approved budget.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-partition-count-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 4c6f6f43ab0734c65f2a78aca9a21682bd7bff66
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

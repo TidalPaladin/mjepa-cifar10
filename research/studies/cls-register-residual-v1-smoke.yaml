@@ -1,0 +1,55 @@
+id: cls-register-residual-v1-smoke
+question: Can the one-CLS register and residual nonlinear expansion path train, validate, benchmark, checkpoint, recover, summarize, and notify through one managed GPU epoch?
+hypothesis: The smoke run will complete with exactly one backbone CLS token, seven registers, residual MLP gradients, online W&B telemetry, exact-path diagnostics, an isolated-path benchmark, a first-cycle checkpoint, and accepted lifecycle notifications.
+rejection_condition: Reject the mechanical validation if the run fails, times out, lacks residual MLP gradients or required recovery artifacts, recomputes a different auxiliary path for diagnostics, cannot summarize, or its lifecycle notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint through fallback launch validation. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-register-residual-mlp-smoke
+  config: config/pretrain/smoke-cls-register-residual-mlp.yaml
+  hypothesis: A one-epoch miniature model exercises the residual nonlinear decoder and unchanged legacy predictor without register or visual-token leakage.
+  mechanism: Run one CLS token plus seven registers and expand only the CLS as four broadcast residual MLP contexts.
+  changes:
+    - Use one CLS token and seven register tokens.
+    - Use residual_mlp_cross_attention for the auxiliary predictor.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-register-residual-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 4d1c577fb57e0883544c908de9bf60d6bcfd909e
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

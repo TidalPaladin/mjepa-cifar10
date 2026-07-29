@@ -1,0 +1,127 @@
+id: cls-context-routing-v1
+question: Can one raw final CLS token and the visible student visual tokens share one predictor forward while structured source masking preserves the quality and convergence of the four-partition single-CLS design and reduces predictor workload?
+hypothesis: Per-token routing will provide the lowest-variance pressure for every image to encode globally predictive information in one CLS token while preserving visual-token prediction, and will satisfy the preregistered cost route against a fresh four-partition baseline.
+rejection_condition: Reject a candidate if it fails every promotion route, violates the information boundary or mask invariants, performs more than one training predictor forward, has a nonpositive deterministic CLS-only shuffle gap, or fails gradient, latency, checkpoint, recovery, or lifecycle validation.
+checkpoint_plan: Retain every checkpoint and backbone because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: single-cls-register-partitioned-independent
+  config: config/pretrain/vit-small-single-cls-register-partitioned-independent.yaml
+  finetune_config: config/finetune/vit-small-single-cls.yaml
+  hypothesis: The accepted four-partition single-CLS design provides a fresh quality, convergence, and complete predictor-workload reference.
+  mechanism: Preserve one CLS plus seven registers, independently lift four disjoint CLS channel partitions, and use separate visual-context and CLS-context predictor forwards.
+  changes: []
+
+variants:
+  - id: single-cls-joint-context-unmasked
+    config: config/pretrain/vit-small-single-cls-joint-context-unmasked.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: One unmasked joint predictor pass will preserve prediction quality while reducing workload, but may underuse the single CLS token when visible visual context is sufficient.
+    mechanism: Concatenate visible student visual tokens with the raw final CLS token and let every target query attend to both sources in one cross-attention predictor pass.
+    changes:
+      - Remove the learned four-way CLS expansion and auxiliary predictor forward.
+      - Append the raw final CLS token to visible visual context in one predictor forward.
+  - id: single-cls-joint-context-sample-routed
+    config: config/pretrain/vit-small-single-cls-joint-context-sample-routed.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Sample-level source routing will force CLS dependence for one quarter of images while retaining coherent per-image prediction conditions.
+    mechanism: In one predictor pass, balance images across 50 percent joint, 25 percent CLS-only, and 25 percent visual-only source visibility, shared by all target queries in each image.
+    changes:
+      - Use the unmasked candidate's raw joint context and single predictor forward.
+      - Apply one balanced source-visibility route per image in every predictor layer.
+  - id: single-cls-joint-context-token-routed
+    config: config/pretrain/vit-small-single-cls-joint-context-token-routed.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Per-token routing will expose every image to joint, CLS-only, and visual-only prediction pressure with lower route variance than sample-level masking.
+    mechanism: In one predictor pass, balance target queries across 50 percent joint, 25 percent CLS-only, and 25 percent visual-only source visibility.
+    changes:
+      - Use the unmasked candidate's raw joint context and single predictor forward.
+      - Apply a balanced source-visibility route per target query in every predictor layer.
+
+methodology:
+  source_study: cls-partition-count-v1
+  preregistration_operation: cls-context-routing-v1-preregistration
+  architecture_fact: The cross-attention predictor contains cross-attention and an MLP but no target-query self-attention, so source masks propagate directly through every predictor layer without an alternate leakage path.
+  factor_order:
+    - The unmasked candidate isolates the effect of merging two predictor passes into one.
+    - Sample routing measures whether structured blinding helps at image granularity.
+    - Token routing tests the user's proposed lowest-variance per-query blinding.
+  information_bottleneck:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    candidate_predictor_context: Visible final student visual tokens followed by the raw final student CLS token.
+    candidate_exclusions: Register tokens, masked visual tokens, teacher features, intermediate backbone features, and other samples.
+    cls_position: Identity rotary position appended after spatially positioned visible visual tokens.
+    probe_input: The only final teacher CLS token.
+  loss_control:
+    baseline_prediction_losses: 2
+    candidate_prediction_losses: 1
+    candidate_jepa_loss_weight: 2.0
+    rule: Match the coefficient of the baseline visual plus CLS prediction loss while preserving one candidate prediction tensor.
+  routing:
+    joint_fraction: 0.50
+    cls_only_fraction: 0.25
+    visual_only_fraction: 0.25
+    rule: Balance routes within each generated mask, apply the same mask to every predictor layer, and never hide all keys from a query.
+  strict_four_cls_reference:
+    peak_accuracy: 0.9100000262260437
+    step_to_95: 7830
+    active_seconds_to_95: 5038.553869029507
+    step_auc: 0.8012299999594689
+    active_time_auc: 0.7965834199456636
+  strict_equivalence_gate:
+    minimum_peak_accuracy: 0.9050
+    maximum_step_to_95: 8613
+    maximum_active_seconds_to_95: 5542.409255932458
+    minimum_step_auc: 0.7962299999594689
+    minimum_active_time_auc: 0.7915834199456636
+    rule: Report this immutable external comparison in addition to the fresh-baseline promotion decision.
+  selection:
+    rule: A promoted candidate must use one training predictor forward and have a positive deterministic CLS-only shuffle gap. Rank qualifiers by active-time AUC, peak accuracy, then active time to the 95-percent target; prefer unmasked, then sample routing, then token routing on a complete tie.
+  goal_budget:
+    seed_zero_runs: 4
+    maximum_confirmation_runs: 4
+    maximum_scientific_trials: 8
+    smoke_runs_excluded: 1
+    rule: Launch fresh baseline and all three candidates at seed 0. If one qualifies, launch fresh paired baseline and winner at seeds 1 and 2. Do not add variants after observing results.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-context-routing-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 4d95ebac24a18b17a13406cafc404602c5d9e260
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+  cost_gain: 0.05
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

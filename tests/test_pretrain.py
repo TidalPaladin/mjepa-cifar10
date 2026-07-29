@@ -1,3 +1,4 @@
+import math
 import os
 import socket
 from collections.abc import Callable
@@ -9,9 +10,20 @@ import torch
 import torch.distributed as dist
 import torch.multiprocessing as mp
 import torchmetrics as tm
-from mjepa import JEPAConfig
-from mjepa.jepa import CrossAttentionPredictor
+from mjepa import CLSPredictionMode, JEPAConfig
+from mjepa.jepa import (
+    ADALN_BLIND_CLS_PREDICTION_MODE,
+    JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODE,
+    PACKED_DUAL_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    PROJECTED_CLS_PREDICTION_MODE,
+    SLOT_BIAS_CLS_PREDICTION_MODE,
+    SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    CrossAttentionPredictor,
+    compute_jepa_prediction_loss,
+)
 from mjepa.metrics import CLSPatchAlignmentMetric
+from mjepa.model import MJEPAPredictions
 from mjepa.optimizer import OptimizerConfig
 from torch import Tensor, nn
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -19,12 +31,19 @@ from vit import AttentivePoolHeadConfig, HeadConfig, ViTConfig, ViTFeatures
 
 import mjepa_cifar10.pretrain as pretrain_module
 from mjepa_cifar10.pretrain import (
+    CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING,
     CIFAR10MJEPA,
     CPA_RESULT_KEYS,
+    AttentionWeightPool,
     OptimizerStepResult,
     clip_optimizer_grad_norm_,
     compute_and_reset_cpa_metrics,
     compute_and_reset_mean_percentage,
+    compute_cls_aux_shuffle_diagnostic,
+    compute_cls_global_target_diagnostic,
+    compute_cls_global_target_loss,
+    compute_cls_global_target_objective,
     did_gradient_clip,
     get_gradient_norm_stats,
     get_gradient_sync_context,
@@ -586,6 +605,8 @@ def make_model(
     *,
     num_cls_tokens: int,
     head_config: HeadConfig | AttentivePoolHeadConfig | None = None,
+    cls_prediction_mode: CLSPredictionMode = "legacy_cross_attention",
+    cls_global_target_pooling: str = "raw_mean",
 ) -> CIFAR10MJEPA:
     backbone_config = ViTConfig(
         in_channels=3,
@@ -601,8 +622,14 @@ def make_model(
         heads={"cls": head_config} if head_config is not None else {},
     )
     backbone = backbone_config.instantiate()
-    predictor = CrossAttentionPredictor(backbone, depth=1)
-    return CIFAR10MJEPA(JEPAConfig(gram_start_epoch=None), backbone, predictor, autocast_dtype=torch.float32)
+    predictor = CrossAttentionPredictor(backbone, depth=1, cls_prediction_mode=cls_prediction_mode)
+    return CIFAR10MJEPA(
+        JEPAConfig(gram_start_epoch=None, cls_prediction_mode=cls_prediction_mode),
+        backbone,
+        predictor,
+        autocast_dtype=torch.float32,
+        cls_global_target_pooling=cls_global_target_pooling,
+    )
 
 
 def make_features(*, num_cls_tokens: int) -> ViTFeatures:
@@ -612,6 +639,478 @@ def make_features(*, num_cls_tokens: int) -> ViTFeatures:
         BATCH_SIZE, total_tokens, HIDDEN_SIZE
     )
     return ViTFeatures(dense_features, NUM_REGISTER_TOKENS, cls_count, tokenized_size=(2, 2))
+
+
+@pytest.mark.parametrize(
+    ("cls_prediction_mode", "num_cls_tokens"),
+    (
+        ("legacy_cross_attention", NUM_CLS_TOKENS),
+        (ADALN_BLIND_CLS_PREDICTION_MODE, 1),
+        (PROJECTED_CLS_PREDICTION_MODE, 1),
+        (SLOT_BIAS_CLS_PREDICTION_MODE, 1),
+    ),
+)
+def test_cls_aux_shuffle_diagnostic_blinds_cross_sample_identity(
+    mocker,
+    cls_prediction_mode: CLSPredictionMode,
+    num_cls_tokens: int,
+) -> None:
+    model = make_model(num_cls_tokens=num_cls_tokens, cls_prediction_mode=cls_prediction_mode)
+    student_output = make_features(num_cls_tokens=num_cls_tokens)
+    teacher_output = make_features(num_cls_tokens=num_cls_tokens)
+    target_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    true_prediction = torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    shuffled_prediction = torch.ones_like(true_prediction)
+    predictions = MJEPAPredictions(
+        pred=true_prediction,
+        pred_with_cls=true_prediction,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.zeros_like(target_mask),
+        target_mask=target_mask,
+    )
+    recompute = mocker.patch.object(
+        model,
+        "forward_cls_predictor",
+        side_effect=(true_prediction, shuffled_prediction),
+    )
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    target = teacher_output.visual_tokens
+    expected_true = compute_jepa_prediction_loss(true_prediction, target).item()
+    expected_shuffled = compute_jepa_prediction_loss(shuffled_prediction, target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_aux_loss": expected_true,
+            "pretrain/validation_cls_aux_loss_shuffled": expected_shuffled,
+            "pretrain/validation_cls_aux_shuffle_gap": expected_shuffled - expected_true,
+        }
+    )
+    shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
+    assert recompute.call_count == 2
+    assert torch.equal(recompute.call_args_list[1].args[1], shuffled_cls)
+
+
+def test_joint_context_shuffle_diagnostic_isolates_cls_and_visual_sources(mocker) -> None:
+    model = make_model(num_cls_tokens=1, cls_prediction_mode=JOINT_CONTEXT_CLS_PREDICTION_MODE)
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    context_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    target_mask = torch.ones_like(context_mask)
+    joint_prediction = torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    shuffled_joint_prediction = torch.ones_like(joint_prediction)
+    cls_only_prediction = torch.full_like(joint_prediction, 2.0)
+    shuffled_cls_only_prediction = torch.full_like(joint_prediction, 3.0)
+    visual_only_prediction = torch.full_like(joint_prediction, 4.0)
+    predictions = MJEPAPredictions(
+        pred=joint_prediction,
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=context_mask,
+        target_mask=target_mask,
+    )
+    recompute = mocker.patch.object(
+        model,
+        "forward_predictor",
+        side_effect=(
+            joint_prediction,
+            shuffled_joint_prediction,
+            cls_only_prediction,
+            shuffled_cls_only_prediction,
+            visual_only_prediction,
+        ),
+    )
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    target = teacher_output.visual_tokens
+    joint_loss = compute_jepa_prediction_loss(joint_prediction, target).item()
+    shuffled_joint_loss = compute_jepa_prediction_loss(shuffled_joint_prediction, target).item()
+    cls_only_loss = compute_jepa_prediction_loss(cls_only_prediction, target).item()
+    shuffled_cls_only_loss = compute_jepa_prediction_loss(shuffled_cls_only_prediction, target).item()
+    visual_only_loss = compute_jepa_prediction_loss(visual_only_prediction, target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_aux_loss": cls_only_loss,
+            "pretrain/validation_cls_aux_loss_shuffled": shuffled_cls_only_loss,
+            "pretrain/validation_cls_aux_shuffle_gap": shuffled_cls_only_loss - cls_only_loss,
+            "pretrain/validation_joint_context_loss": joint_loss,
+            "pretrain/validation_joint_context_loss_shuffled_cls": shuffled_joint_loss,
+            "pretrain/validation_joint_context_cls_shuffle_gap": shuffled_joint_loss - joint_loss,
+            "pretrain/validation_visual_only_loss": visual_only_loss,
+        }
+    )
+    assert recompute.call_count == 5
+    shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
+    assert torch.equal(recompute.call_args_list[0].args[1][:, -1:], student_output.cls_tokens)
+    assert torch.equal(recompute.call_args_list[1].args[1][:, -1:], shuffled_cls)
+    joint_mask = recompute.call_args_list[0].kwargs["context_attention_mask"]
+    cls_only_mask = recompute.call_args_list[2].kwargs["context_attention_mask"]
+    visual_only_mask = recompute.call_args_list[4].kwargs["context_attention_mask"]
+    assert joint_mask.all()
+    assert not cls_only_mask[..., :-1].any()
+    assert cls_only_mask[..., -1].all()
+    assert visual_only_mask[..., :-1].all()
+    assert not visual_only_mask[..., -1].any()
+
+
+def test_packed_joint_context_shuffle_diagnostic_aligns_duplicated_queries(mocker) -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_prediction_mode=PACKED_DUAL_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    )
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    context_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    target_mask = torch.ones_like(context_mask)
+    prediction = torch.zeros(BATCH_SIZE, 2 * NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    predictions = MJEPAPredictions(
+        pred=prediction,
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=context_mask,
+        target_mask=target_mask,
+    )
+    mocker.patch.object(model, "forward_predictor", return_value=prediction)
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    repeated_target = teacher_output.visual_tokens.repeat(1, 2, 1)
+    expected_loss = compute_jepa_prediction_loss(prediction, repeated_target).item()
+    assert metrics["pretrain/validation_joint_context_loss"] == pytest.approx(expected_loss)
+
+
+def test_packed_adaln_shuffle_diagnostic_isolates_blind_cls_dependence(mocker) -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_prediction_mode=PACKED_ADALN_HARD_BLIND_CLS_PREDICTION_MODE,
+    )
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    context_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    target_mask = torch.ones_like(context_mask)
+    visual_prediction = torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+    blind_prediction = torch.full_like(visual_prediction, 2.0)
+    shuffled_blind_prediction = torch.full_like(visual_prediction, 3.0)
+    true_prediction = torch.cat([visual_prediction, blind_prediction], dim=1)
+    shuffled_prediction = torch.cat([visual_prediction, shuffled_blind_prediction], dim=1)
+    predictions = MJEPAPredictions(
+        pred=true_prediction,
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=context_mask,
+        target_mask=target_mask,
+    )
+    recompute = mocker.patch.object(
+        model,
+        "forward_packed_adaln_hard_blind_predictor_heads",
+        side_effect=((true_prediction, None), (shuffled_prediction, None)),
+    )
+
+    metrics = compute_cls_aux_shuffle_diagnostic(model, predictions)
+
+    target = teacher_output.visual_tokens
+    visual_loss = compute_jepa_prediction_loss(visual_prediction, target).item()
+    blind_loss = compute_jepa_prediction_loss(blind_prediction, target).item()
+    shuffled_blind_loss = compute_jepa_prediction_loss(shuffled_blind_prediction, target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_aux_loss": blind_loss,
+            "pretrain/validation_cls_aux_loss_shuffled": shuffled_blind_loss,
+            "pretrain/validation_cls_aux_shuffle_gap": shuffled_blind_loss - blind_loss,
+            "pretrain/validation_visual_only_loss": visual_loss,
+        }
+    )
+    assert recompute.call_count == 2
+    shuffled_cls = torch.roll(student_output.cls_tokens, shifts=1, dims=0)
+    assert torch.equal(recompute.call_args_list[0].args[2], student_output.cls_tokens)
+    assert torch.equal(recompute.call_args_list[1].args[2], shuffled_cls)
+
+
+def test_source_balanced_joint_diagnostic_applies_cls_cardinality_bias() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_prediction_mode=SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
+    )
+    student_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.zeros(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=make_features(num_cls_tokens=1),
+        context_mask=torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool),
+        target_mask=torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool),
+    )
+
+    source_mask = pretrain_module._joint_context_source_mask(
+        predictions,
+        cls_prediction_mode=model.config.cls_prediction_mode,
+        show_visual=True,
+        show_cls=True,
+    )
+
+    assert source_mask.dtype == predictions.pred.dtype
+    assert (source_mask[..., :-1] == 0).all()
+    assert torch.equal(
+        source_mask[..., -1],
+        torch.full_like(source_mask[..., -1], math.log(NUM_VISUAL_TOKENS)),
+    )
+
+
+def test_cls_global_target_loss_regresses_one_student_cls_to_pooled_teacher_visual_tokens() -> None:
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    loss = compute_cls_global_target_loss(predictions)
+
+    expected_target = teacher_output.visual_tokens.mean(dim=1)
+    assert loss == pytest.approx(torch.nn.functional.mse_loss(student_output.cls_tokens[:, 0], expected_target))
+
+
+def test_cls_global_target_loss_does_not_read_student_visual_or_register_tokens() -> None:
+    student_dense = torch.randn(
+        BATCH_SIZE,
+        1 + NUM_REGISTER_TOKENS + NUM_VISUAL_TOKENS,
+        HIDDEN_SIZE,
+        requires_grad=True,
+    )
+    student_output = ViTFeatures(
+        student_dense,
+        NUM_REGISTER_TOKENS,
+        num_cls_tokens=1,
+        tokenized_size=(2, 2),
+    )
+    teacher_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    compute_cls_global_target_loss(predictions).backward()
+
+    assert student_dense.grad is not None
+    assert torch.count_nonzero(student_dense.grad[:, 0]).item() > 0
+    assert torch.count_nonzero(student_dense.grad[:, 1:]).item() == 0
+
+
+def test_cls_global_target_diagnostic_compares_true_and_cross_sample_shuffled_cls() -> None:
+    student_output = make_features(num_cls_tokens=1)
+    teacher_output = make_features(num_cls_tokens=1)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    metrics = compute_cls_global_target_diagnostic(predictions)
+
+    teacher_target = teacher_output.visual_tokens.mean(dim=1)
+    student_cls = student_output.cls_tokens[:, 0]
+    expected_true = torch.nn.functional.mse_loss(student_cls, teacher_target).item()
+    expected_shuffled = torch.nn.functional.mse_loss(torch.roll(student_cls, shifts=1, dims=0), teacher_target).item()
+    assert metrics == pytest.approx(
+        {
+            "pretrain/validation_cls_global_loss": expected_true,
+            "pretrain/validation_cls_global_loss_shuffled": expected_shuffled,
+            "pretrain/validation_cls_global_shuffle_gap": expected_shuffled - expected_true,
+            "pretrain/validation_cls_global_student_norm": student_cls.norm(dim=-1).mean().item(),
+            "pretrain/validation_cls_global_teacher_norm": teacher_target.norm(dim=-1).mean().item(),
+        }
+    )
+
+
+def test_cls_global_target_loss_requires_exactly_one_student_cls_token() -> None:
+    student_output = make_features(num_cls_tokens=NUM_CLS_TOKENS)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=make_features(num_cls_tokens=NUM_CLS_TOKENS),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    with pytest.raises(ValueError, match="exactly one student CLS token"):
+        compute_cls_global_target_loss(predictions)
+
+
+def test_centered_normalized_mean_global_target_is_shift_and_scale_invariant() -> None:
+    teacher_output = make_features(num_cls_tokens=1)
+    teacher_target = teacher_output.visual_tokens.mean(dim=1)
+    student_output = make_features(num_cls_tokens=1)
+    student_output.cls_tokens.copy_((teacher_target * 3.0 + 7.0).unsqueeze(1))
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=student_output,
+        teacher_output=teacher_output,
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING,
+    )
+
+    losses = compute_cls_global_target_objective(model, predictions)
+
+    assert losses.cls_loss.item() == pytest.approx(0.0, abs=1e-6)
+    assert losses.pool_consistency_loss is not None
+    assert losses.teacher_target.requires_grad is False
+
+
+def test_centered_normalized_mean_cls_loss_keeps_visual_path_blind() -> None:
+    student_dense = torch.randn(
+        BATCH_SIZE,
+        1 + NUM_REGISTER_TOKENS + NUM_VISUAL_TOKENS,
+        HIDDEN_SIZE,
+        requires_grad=True,
+    )
+    teacher_dense = torch.randn_like(student_dense, requires_grad=True)
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=ViTFeatures(student_dense, NUM_REGISTER_TOKENS, 1, tokenized_size=(2, 2)),
+        teacher_output=ViTFeatures(teacher_dense, NUM_REGISTER_TOKENS, 1, tokenized_size=(2, 2)),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_MEAN_CLS_GLOBAL_TARGET_POOLING,
+    )
+
+    losses = compute_cls_global_target_objective(model, predictions)
+    losses.cls_loss.backward()
+
+    assert student_dense.grad is not None
+    assert torch.count_nonzero(student_dense.grad[:, 0]).item() > 0
+    assert torch.count_nonzero(student_dense.grad[:, 1:]).item() == 0
+    assert teacher_dense.grad is None
+
+
+def test_ema_attention_pooler_has_trainable_online_and_frozen_target_copies() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=make_features(num_cls_tokens=1),
+        teacher_output=make_features(num_cls_tokens=1),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    losses = compute_cls_global_target_objective(model, predictions)
+    assert losses.pool_consistency_loss is not None
+    losses.pool_consistency_loss.backward()
+
+    poolers = model.cls_global_target_poolers
+    assert poolers is not None
+    assert all(parameter.requires_grad for parameter in poolers.online.parameters())
+    assert all(not parameter.requires_grad for parameter in poolers.target.parameters())
+    assert all(parameter.grad is not None for parameter in poolers.online.parameters())
+    assert all(parameter.grad is None for parameter in poolers.target.parameters())
+    assert any(name.startswith("_cls_global_target_poolers.") for name in model.predictor.state_dict())
+
+
+def test_ema_attention_diagnostic_reports_target_diversity_and_attention_shape() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    predictions = MJEPAPredictions(
+        pred=torch.empty(0),
+        pred_with_cls=None,
+        student_output=make_features(num_cls_tokens=1),
+        teacher_output=make_features(num_cls_tokens=1),
+        context_mask=torch.empty(0, dtype=torch.bool),
+        target_mask=torch.empty(0, dtype=torch.bool),
+    )
+
+    metrics = compute_cls_global_target_diagnostic(predictions, model)
+
+    assert 0.0 <= metrics["pretrain/validation_cls_global_teacher_mean_pairwise_cosine"] <= 1.0
+    assert 0.0 <= metrics["pretrain/validation_cls_global_target_attention_normalized_entropy"] <= 1.0
+    assert 0.0 <= metrics["pretrain/validation_cls_global_target_attention_max_weight"] <= 1.0
+
+
+def test_attention_weight_pool_returns_convex_weighted_mean_of_input_tokens() -> None:
+    pooler = AttentionWeightPool(hidden_size=HIDDEN_SIZE, num_attention_heads=2)
+    visual_tokens = torch.randn(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+
+    weights = pooler.forward_weights(visual_tokens)
+    pooled = pooler(visual_tokens)
+
+    assert weights.shape == (BATCH_SIZE, NUM_VISUAL_TOKENS)
+    assert (weights >= 0).all()
+    assert torch.allclose(weights.sum(dim=-1), torch.ones(BATCH_SIZE))
+    assert torch.allclose(pooled, torch.einsum("bt,btd->bd", weights, visual_tokens))
+
+
+def test_attention_weight_pool_uses_every_trainable_parameter() -> None:
+    pooler = AttentionWeightPool(hidden_size=HIDDEN_SIZE, num_attention_heads=2)
+    visual_tokens = torch.randn(BATCH_SIZE, NUM_VISUAL_TOKENS, HIDDEN_SIZE)
+
+    pooler(visual_tokens).square().mean().backward()
+
+    assert all(parameter.grad is not None for parameter in pooler.parameters())
+
+
+def test_ema_attention_target_pooler_tracks_online_pooler() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    poolers = model.cls_global_target_poolers
+    assert poolers is not None
+    with torch.no_grad():
+        for parameter in poolers.online.parameters():
+            parameter.add_(1.0)
+    target_before = [parameter.detach().clone() for parameter in poolers.target.parameters()]
+
+    model.update_teacher(step=0, total_steps=10)
+
+    for before, online, target in zip(target_before, poolers.online.parameters(), poolers.target.parameters()):
+        expected = before.lerp(online, 1.0 - model.config.momentum)
+        assert torch.allclose(target, expected)
+
+
+def test_ema_attention_poolers_round_trip_through_predictor_state() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+    resumed = make_model(
+        num_cls_tokens=1,
+        cls_global_target_pooling=CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
+    )
+
+    resumed.predictor.load_state_dict(model.predictor.state_dict())
+
+    for expected, actual in zip(model.predictor.parameters(), resumed.predictor.parameters()):
+        assert torch.equal(actual, expected)
 
 
 def test_forward_probe_pools_cls_tokens_before_linear_head(mocker) -> None:

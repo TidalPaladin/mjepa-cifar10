@@ -1,0 +1,56 @@
+id: cls-global-target-v1-smoke
+question: Can direct CLS-to-teacher-global regression train, validate, checkpoint, resume, summarize, and notify through one managed GPU epoch?
+hypothesis: The one-epoch smoke run will produce finite raw and weighted global losses, identity-sensitive global and patch diagnostics, valid student gradients, a recoverable checkpoint, an isolated-path benchmark, and accepted lifecycle notifications.
+rejection_condition: Reject the mechanical validation if the run fails, times out, lacks any preregistered metric or lifecycle artifact, cannot resume, cannot summarize, or its notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint and backbone. Do not delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-global-target-smoke
+  config: config/pretrain/smoke-cls-global-target.yaml
+  hypothesis: The 0.1-weight direct global target completes one managed online-W&B epoch at smoke scale.
+  mechanism: Exercise the direct student-CLS to pooled-teacher MSE alongside the blinded AdaLN patch-target path.
+  changes:
+    - Use one CLS token and adaln_blind mode.
+    - Add cls_global_target_loss_weight 0.1.
+    - Use a one-block, one-epoch mechanical configuration.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-global-target-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: c63b014aacc1860e18b0f45aca65fad88396b95e
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

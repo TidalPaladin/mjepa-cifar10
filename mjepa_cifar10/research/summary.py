@@ -84,6 +84,7 @@ def calculate_study_summaries(
         reference_points = load_metric_points_file(metrics_path)
         if reference_points:
             points_by_run[baseline_id] = reference_points
+    run_directories = {run_id: Path(run.run_dir) for run_id, run in state.runs.items() if run.run_dir is not None}
     baseline_points = points_by_run.get(baseline_id)
     if baseline_points is None:
         return {}
@@ -96,6 +97,16 @@ def calculate_study_summaries(
             baseline_peak,
             step_horizon=common_step_horizon,
             active_time_horizon=common_time_horizon,
+            cls_path_latency_median_ms=(
+                _last_metric(run_directories[run_id], "diagnostics/cls_path_latency_median_ms")
+                if run_id in run_directories
+                else None
+            ),
+            cls_path_latency_p90_ms=(
+                _last_metric(run_directories[run_id], "diagnostics/cls_path_latency_p90_ms")
+                if run_id in run_directories
+                else None
+            ),
         )
         for run_id, points in points_by_run.items()
     }
@@ -192,6 +203,9 @@ def calculate_pretraining_aggregates(
         peaks = [summary.peak_accuracy for summary in variant_summaries]
         aucs = [summary.active_time_auc for summary in variant_summaries]
         times = [summary.active_seconds_to_95 for summary in variant_summaries]
+        final_active_times = [summary.active_seconds_at_step_horizon for summary in variant_summaries]
+        cls_latencies = [summary.cls_path_latency_median_ms for summary in variant_summaries]
+        present_cls_latencies = [value for value in cls_latencies if value is not None]
         present_times = [value for value in times if value is not None]
         all_reached_95 = len(present_times) == len(times)
         aggregates[variant] = {
@@ -202,6 +216,14 @@ def calculate_pretraining_aggregates(
             "active_seconds_to_95_mean": (statistics.mean(present_times) if all_reached_95 else None),
             "active_seconds_to_95_std": (statistics.stdev(present_times) if all_reached_95 else None),
             "censored_95_count": sum(value is None for value in times),
+            "active_seconds_at_step_horizon_mean": statistics.mean(final_active_times),
+            "active_seconds_at_step_horizon_std": statistics.stdev(final_active_times),
+            "cls_path_latency_median_ms_mean": (
+                statistics.mean(present_cls_latencies) if len(present_cls_latencies) == len(cls_latencies) else None
+            ),
+            "cls_path_latency_median_ms_std": (
+                statistics.stdev(present_cls_latencies) if len(present_cls_latencies) == len(cls_latencies) else None
+            ),
         }
     if state.winner is not None and spec.baseline.id in summaries_by_variant and state.winner in summaries_by_variant:
         baseline_summaries = summaries_by_variant[spec.baseline.id]
@@ -267,9 +289,10 @@ def _add_exploration_runs(state: StudyState, spec: StudySpec) -> None:
 
 
 def _add_sft_runs(state: StudyState, spec: StudySpec, winner: str) -> None:
-    if spec.evaluation.finetune_config is None:
-        return
     for variant, role in ((spec.baseline.id, "baseline"), (winner, "winner")):
+        finetune_config = spec.finetune_config_for(variant)
+        if finetune_config is None:
+            continue
         for seed in spec.evaluation.seeds:
             source_run = state.runs[f"pretrain-{variant}-seed{seed}"]
             if source_run.run_dir is None:
@@ -281,7 +304,7 @@ def _add_sft_runs(state: StudyState, spec: StudySpec, winner: str) -> None:
                     id=f"sft-{variant}-{shot_name}-seed{seed}",
                     kind="sft",
                     variant=variant,
-                    config=spec.evaluation.finetune_config,
+                    config=finetune_config,
                     seed=seed,
                     role=role,
                     source_checkpoint=source_checkpoint,
@@ -290,6 +313,24 @@ def _add_sft_runs(state: StudyState, spec: StudySpec, winner: str) -> None:
                     evaluate_test=True,
                 )
                 state.runs.setdefault(run_spec.id, RunState(run_spec))
+
+
+def _passes_screening_control_gate(
+    candidate_variant: str,
+    candidate_summary: ConvergenceSummary,
+    spec: StudySpec,
+    summaries: Mapping[str, ConvergenceSummary],
+) -> bool:
+    control_variant = spec.promotion.screening_control_variant
+    required_gain = spec.promotion.screening_control_accuracy_gain
+    if control_variant is None or required_gain is None:
+        return True
+    if candidate_variant == control_variant:
+        return False
+    control_summary = summaries.get(f"pretrain-{control_variant}-seed0")
+    if control_summary is None:
+        return False
+    return candidate_summary.peak_accuracy >= control_summary.peak_accuracy + required_gain
 
 
 def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, ConvergenceSummary]) -> None:
@@ -310,8 +351,15 @@ def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, Co
             if candidate_summary is None:
                 continue
             decision = promotion_decision(baseline_summary, candidate_summary, spec.promotion)
-            run.decision = "promoted" if decision.promoted else "rejected"
-            if decision.promoted:
+            control_gate_passes = _passes_screening_control_gate(
+                run.spec.variant,
+                candidate_summary,
+                spec,
+                summaries,
+            )
+            promoted = decision.promoted and control_gate_passes
+            run.decision = "promoted" if promoted else "rejected"
+            if promoted:
                 qualifying.append((run.spec.variant, candidate_summary))
         if qualifying:
             winner = rank_promoted_candidates(qualifying)[0][0]
@@ -340,7 +388,12 @@ def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, Co
         baseline_summaries = [summaries[run.spec.id] for run in baseline_runs if run is not None]
         candidate_summaries = [summaries[run.spec.id] for run in candidate_runs if run is not None]
         seed_zero_decision = promotion_decision(baseline_summaries[0], candidate_summaries[0], spec.promotion)
-        if seed_zero_decision.criterion is None:
+        if seed_zero_decision.criterion is None or not _passes_screening_control_gate(
+            state.winner,
+            candidate_summaries[0],
+            spec,
+            summaries,
+        ):
             state.phase = "not-confirmed"
             return
         confirmation = confirmation_decision(
@@ -444,7 +497,9 @@ def markdown_summary(summary: Mapping[str, Any]) -> str:
     for run_id, result in summary.get("pretraining", {}).items():
         lines.append(
             f"- `{run_id}`: peak={result.get('peak_accuracy')}, final={result.get('final_accuracy')}, "
-            f"step_to_95={result.get('step_to_95')}, active_seconds_to_95={result.get('active_seconds_to_95')}"
+            f"step_to_95={result.get('step_to_95')}, active_seconds_to_95={result.get('active_seconds_to_95')}, "
+            f"active_seconds_at_step_horizon={result.get('active_seconds_at_step_horizon')}, "
+            f"cls_path_latency_median_ms={result.get('cls_path_latency_median_ms')}"
         )
     return "\n".join(lines)
 
@@ -490,6 +545,9 @@ def publish_summaries_to_wandb(
                     "convergence/active_seconds_to_95": convergence.active_seconds_to_95,
                     "convergence/step_auc": convergence.step_auc,
                     "convergence/active_time_auc": convergence.active_time_auc,
+                    "convergence/active_seconds_at_step_horizon": convergence.active_seconds_at_step_horizon,
+                    "diagnostics/cls_path_latency_median_ms": convergence.cls_path_latency_median_ms,
+                    "diagnostics/cls_path_latency_p90_ms": convergence.cls_path_latency_p90_ms,
                 }
             )
         if run_id in sft.get("runs", {}):
@@ -568,6 +626,9 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
             ("active_seconds_to_95", 3),
             ("step_auc", 6),
             ("active_time_auc", 6),
+            ("active_seconds_at_step_horizon", 3),
+            ("cls_path_latency_median_ms", 6),
+            ("cls_path_latency_p90_ms", 6),
             ("test_accuracy", 6),
         ):
             if key not in metrics:

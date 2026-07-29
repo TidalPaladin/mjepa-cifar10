@@ -1,0 +1,121 @@
+id: cls-global-target-v1
+question: Does direct regression from one student CLS token to a pooled teacher-global target recover representation quality while the blinded AdaLN patch predictor preserves its cost advantage?
+hypothesis: Adding a direct MSE loss from the single student CLS token to the mean of the full teacher visual-token sequence will improve peak validation-probe accuracy by at least 0.05 over a fresh blinded-AdaLN control. A qualifying candidate must also remain within 0.0266 peak accuracy of a fresh four-CLS baseline, reduce common-step active time by at least 5 percent, and reduce isolated CLS-path latency.
+rejection_condition: Reject the mechanism if neither loss weight meets both the fresh blinded-control accuracy-gain gate and the fresh four-CLS cost gate at seed 0. Do not add fallback variants or replicate an unqualified candidate.
+checkpoint_plan: Retain all managed checkpoints and backbones because destructive retention is not authorized for this study. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: four-cls-legacy
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
+  hypothesis: The existing four-CLS predictor replay supplies the fresh representation-quality and cost reference.
+  mechanism: Run the current predictor twice, using student visual tokens for the main pass and four student CLS tokens for the auxiliary pass.
+  changes: []
+
+variants:
+  - id: single-cls-adaln-blind-control
+    config: config/pretrain/vit-small-single-cls-adaln-blind.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
+    hypothesis: Repeating blinded AdaLN without the global loss estimates the paired seed-0 control for accuracy recovery.
+    mechanism: Predict masked teacher patches from one CLS-conditioned, attention-free AdaLN MLP path while keeping the main predictor conditioned on zero.
+    changes:
+      - Set num_cls_tokens to 1.
+      - Keep the blinded patch-target loss at unit weight.
+      - Do not add a direct CLS global-target loss.
+  - id: cls-global-mse-w0p1
+    config: config/pretrain/vit-small-single-cls-adaln-blind-global-w0p1.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
+    hypothesis: A 0.1-weight direct global loss will improve the CLS representation without dominating the two unit-weight JEPA prediction losses.
+    mechanism: Add projector-free MSE from the single student CLS token to the arithmetic mean of all full-image teacher visual tokens, while retaining the blinded patch-target objective.
+    changes:
+      - Preserve the single-CLS adaln_blind architecture and unit-weight patch losses.
+      - Add cls_global_target_loss_weight 0.1.
+  - id: cls-global-mse-w0p5
+    config: config/pretrain/vit-small-single-cls-adaln-blind-global-w0p5.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
+    hypothesis: A 0.5-weight direct global loss will provide a stronger global target if weight 0.1 undertrains the CLS token.
+    mechanism: Add the same projector-free CLS-to-pooled-teacher MSE at five times the lower candidate weight, with no other training change.
+    changes:
+      - Preserve the single-CLS adaln_blind architecture and unit-weight patch losses.
+      - Add cls_global_target_loss_weight 0.5.
+
+methodology:
+  global_target:
+    student: The only student CLS token after encoding the masked context.
+    teacher: Arithmetic mean over every visual token from the full-image EMA teacher output.
+    detach_rule: The teacher is evaluated under inference mode; the loss can update the student but not the teacher.
+    transform: No projector, predictor, normalization, or stop-gradient is added beyond the existing teacher detachment.
+    loss: Float32 mean-squared error.
+  blinded_patch_path:
+    target: Existing masked teacher visual tokens.
+    loss: Existing JEPA prediction loss at unit weight.
+    exclusions: Student visual tokens, self-attention, cross-attention, and stochastic depth.
+    main_predictor_conditioning: Constant zero embedding.
+  validation_diagnostics:
+    batch: First deterministic validation batch at each validation interval.
+    metrics:
+      - true and cross-sample-shuffled CLS global-target loss
+      - shuffled-minus-true global-target loss gap
+      - mean student CLS and pooled teacher-target norms
+      - true and shuffled blinded patch-target loss
+      - CLS-patch alignment
+      - online-probe validation accuracy
+  screening:
+    runs: Fresh four-CLS baseline, fresh blinded-AdaLN control, and both global-loss weights at seed 0.
+    control_gate: Candidate peak validation accuracy must exceed the fresh blinded-AdaLN control by at least 0.05.
+    cost_gate: Candidate common-step active time must improve by at least 5 percent and isolated median latency must decrease versus the fresh four-CLS baseline.
+    quality_floor: Candidate peak validation accuracy may trail the fresh four-CLS baseline by no more than 0.0266.
+    disabled_routes: Accuracy-only, time-to-95-only, and active-time-AUC-only promotion are disabled for this mechanism test.
+    ranking: Common-horizon active-time AUC, peak validation accuracy, then active seconds to the fixed 95 percent target.
+    no_fallback_variants: true
+  confirmation:
+    runs: Fresh four-CLS baseline and selected winner at seeds 1 and 2, for eight total pretraining trials.
+    rule: The three-seed mean must meet the cost route, at least two paired seeds must improve active time and isolated latency, and the seed-0 candidate must retain the blinded-control accuracy gain.
+  evaluation:
+    trigger: Confirmed winner only.
+    regimes: Full data, 10 shots per class, and 100 shots per class.
+    seeds: [0, 1, 2]
+    official_test_scope: Confirmed baseline and winner only.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-global-target-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: c63b014aacc1860e18b0f45aca65fad88396b95e
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0266
+  cost_gain: 0.05
+  screening_control_variant: single-cls-adaln-blind-control
+  screening_control_accuracy_gain: 0.05
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

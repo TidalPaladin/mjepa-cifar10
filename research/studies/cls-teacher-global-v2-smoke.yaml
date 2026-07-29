@@ -1,0 +1,56 @@
+id: cls-teacher-global-v2-smoke
+question: Can a centered normalized EMA-attention teacher-global target train one CLS token without leaking teacher or student visual features into its direct optimization path?
+hypothesis: The one-epoch smoke run will give gradients to the student CLS and online attention pooler, keep the teacher backbone and target pooler stopped, update the target pooler by EMA, emit finite direct and visible-pool losses plus noncollapsed target diagnostics, checkpoint, recover, summarize, and notify.
+rejection_condition: Reject the mechanical validation if the run fails, times out, executes more than one patch-predictor forward, uses other than one CLS plus seven registers, gives the direct CLS loss a gradient through student visual tokens or the teacher target, lacks online-pooler gradients or EMA movement, emits a nonfinite metric, lacks recovery artifacts, cannot summarize, or its lifecycle notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint through scientific launch validation. Retain all managed checkpoints unless the user later authorizes deletion. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-global-ema-attention-smoke
+  config: config/pretrain/smoke-cls-packed-adaln-hard-blind-global-ema-attention.yaml
+  hypothesis: A matched online and EMA attention-pooler pair can bootstrap a stopped full-image target while the direct CLS loss remains hard-blind.
+  mechanism: Center and normalize a one-query EMA attention pool of all teacher visual tokens, regress both the student CLS and an online attention pool of visible student tokens to that stopped target, and retain packed hard-blind AdaLN patch prediction.
+  changes:
+    - Preserve one backbone CLS token plus seven register tokens and one patch-predictor forward.
+    - Add direct CLS and visible-pool squared-L2 losses at weight 0.1 each.
+    - Update the target attention pooler with the same EMA momentum as the backbone teacher.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-teacher-global-v2-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: d17ec9e937a61022b9bc6d8676082226bfda7f94
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

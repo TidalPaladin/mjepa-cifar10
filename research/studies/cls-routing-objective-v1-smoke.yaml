@@ -1,0 +1,56 @@
+id: cls-routing-objective-v1-smoke
+question: Can packed dual routing duplicate every spatial query, blind each copy to one source, normalize both source losses, and complete one managed GPU epoch through a single predictor forward?
+hypothesis: The packed full-coverage design will train without source leakage or nonfinite values, preserve gradients through the visual and CLS routes, emit exact-path diagnostics and executed-query benchmark metadata, checkpoint, recover, summarize, and notify.
+rejection_condition: Reject the mechanical validation if the run fails, times out, executes more than one training predictor forward, produces other than two predictions per target, leaks a hidden source, lacks student or predictor gradients, emits nonfinite loss, lacks recovery artifacts, cannot summarize, or its lifecycle notification is not accepted.
+checkpoint_plan: Retain the smoke checkpoint through scientific launch validation. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: cls-joint-context-packed-dual-routed-smoke
+  config: config/pretrain/smoke-cls-joint-context-packed-dual-routed.yaml
+  hypothesis: The one-epoch miniature model exercises the largest query workload and the new route-normalized loss path.
+  mechanism: Duplicate each target query inside one predictor call, expose one copy only to visual context and the other only to the raw CLS token, and sum separately normalized route losses.
+  changes:
+    - Use one CLS token and seven register tokens.
+    - Execute two predictor queries per spatial target in one packed cross-attention call.
+    - Use a JEPA loss coefficient of 1.0 because the two route means are summed explicitly.
+
+variants: []
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-smoke
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-routing-objective-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 09fedcbb63b6959f3ec6db414faccd0c46a865dc
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

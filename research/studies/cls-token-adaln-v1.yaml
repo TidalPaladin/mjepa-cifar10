@@ -1,0 +1,121 @@
+id: cls-token-adaln-v1
+question: Can a single CLS token trained through a visually blinded, shared AdaLN predictor path preserve representation quality while reducing end-to-end and isolated CLS-prediction cost?
+hypothesis: A single CLS token optimized against masked teacher patch targets through a visually blinded AdaLN MLP path will preserve baseline peak validation-probe accuracy within 0.005, reduce active training time at the common final optimizer-step horizon by at least 5 percent, and reduce isolated CLS-path latency.
+rejection_condition: Reject the mechanism if none of the three seed-0 candidates meets an accuracy, convergence, active-time AUC, or preregistered cost promotion route. Do not add fallback variants or replicate an unqualified candidate.
+checkpoint_plan: Retain the fresh four-CLS baseline and any confirmed winner. After terminal results are committed and pushed, delete only rejected managed checkpoint and backbone weights under this study directory. Never delete legacy weights.
+
+baseline:
+  id: four-cls-legacy
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
+  hypothesis: The existing four-CLS, full cross-attention replay path provides the reference representation quality and cost.
+  mechanism: Run the current predictor twice, using student visual tokens for the main pass and all four student CLS tokens for the auxiliary pass.
+  changes: []
+
+variants:
+  - id: single-cls-legacy
+    config: config/pretrain/vit-small-single-cls-legacy.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
+    hypothesis: Reducing only the CLS-token count from four to one will show whether token multiplicity, independent of predictor simplification, affects quality or cost.
+    mechanism: Retain the full auxiliary cross-attention replay while supplying exactly one student CLS token.
+    changes:
+      - Set num_cls_tokens to 1.
+      - Preserve the legacy auxiliary predictor replay and all other training settings.
+  - id: single-cls-adaln-blind
+    config: config/pretrain/vit-small-single-cls-adaln-blind.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
+    hypothesis: A visually blinded CLS-conditioned MLP-only auxiliary path will force the single CLS token to store enough global information to predict masked teacher patch targets while reducing cost.
+    mechanism: Reuse each main predictor block's AdaLN-Zero MLP and output projection for target-position queries, skip all attention and visual tokens in the auxiliary path, and condition the main path on a constant zero embedding.
+    changes:
+      - Set num_cls_tokens to 1.
+      - Replace the auxiliary full predictor replay with the shared visually blinded AdaLN MLP path.
+      - Use a constant zero embedding for main-predictor AdaLN conditioning.
+  - id: single-cls-adaln-shared
+    config: config/pretrain/vit-small-single-cls-adaln-shared.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
+    hypothesis: Sharing the single CLS embedding with both the visually blinded auxiliary path and the main visual-context predictor will improve global conditioning without erasing the auxiliary bottleneck.
+    mechanism: Use the same visually blinded AdaLN MLP auxiliary path as adaln-blind and condition the main predictor's shared AdaLN MLPs on the actual student CLS embedding.
+    changes:
+      - Set num_cls_tokens to 1.
+      - Replace the auxiliary full predictor replay with the shared visually blinded AdaLN MLP path.
+      - Condition the main predictor on the actual single CLS embedding.
+
+methodology:
+  architecture:
+    target: The existing masked teacher visual tokens.
+    auxiliary_loss: The configured JEPA loss with unit weight.
+    target_queries: The existing learned target-position embeddings.
+    adaln_initialization: AdaLN-Zero.
+    shared_parameters: Main predictor block MLPs, MLP layer scales, target positions, and deep output projection.
+    blind_path_exclusions: Student visual tokens, self-attention, cross-attention, and stochastic depth.
+    blind_path_regularization: Preserve the configured MLP dropout.
+    online_probe: Unchanged teacher-feature classifier with teacher features detached under inference mode.
+  validation_diagnostic:
+    batch: The first deterministic validation batch at every validation interval.
+    metrics:
+      - true CLS auxiliary loss
+      - cyclically batch-shuffled CLS auxiliary loss
+      - shuffled-minus-true loss gap
+      - CLS-patch alignment
+      - online-probe validation accuracy
+  isolated_benchmark:
+    autocast_dtype: bfloat16
+    batch_size: 512
+    target_queries: 16
+    warmup_iterations: 20
+    measured_iterations: 100
+    timing: CUDA events, reporting median and p90 milliseconds
+    metadata: Executed-path parameter count, GPU model, memory, compute capability, and all benchmark inputs
+  screening:
+    runs: Fresh baseline and all three candidates at seed 0.
+    ranking: Common-horizon active-time AUC, peak validation accuracy, then active seconds to the fixed 95 percent target.
+    no_fallback_variants: true
+  confirmation:
+    runs: Fresh baseline and selected winner at seeds 1 and 2, for eight total pretraining trials.
+    rule: The three-seed mean must meet the original route and at least two paired seeds must improve in its required direction. Cost confirmation requires joint active-time and isolated-latency improvement in at least two pairs.
+  evaluation:
+    trigger: Confirmed winner only.
+    regimes: Full data, 10 shots per class, and 100 shots per class.
+    seeds: [0, 1, 2]
+    official_test_scope: Confirmed baseline and winner only.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-token-adaln-v1
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: c63b014aacc1860e18b0f45aca65fad88396b95e
+  vit: 67eae23786b8e458334b695be8f8a879d6994a43
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+  cost_gain: 0.05
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

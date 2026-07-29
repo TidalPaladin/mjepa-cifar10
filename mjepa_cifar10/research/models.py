@@ -40,6 +40,7 @@ class VariantSpec:
     hypothesis: str
     mechanism: str = ""
     changes: tuple[str, ...] = ()
+    finetune_config: Path | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> Self:
@@ -49,6 +50,7 @@ class VariantSpec:
             hypothesis=str(value.get("hypothesis", "")),
             mechanism=str(value.get("mechanism", "")),
             changes=tuple(str(change) for change in value.get("changes", ())),
+            finetune_config=Path(value["finetune_config"]) if value.get("finetune_config") else None,
         )
 
 
@@ -105,6 +107,9 @@ class PromotionRules:
     convergence_gain: float = 0.15
     auc_gain: float = 0.10
     maximum_accuracy_loss: float = 0.005
+    cost_gain: float | None = None
+    screening_control_variant: str | None = None
+    screening_control_accuracy_gain: float | None = None
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None) -> Self:
@@ -114,6 +119,15 @@ class PromotionRules:
             convergence_gain=float(value.get("convergence_gain", 0.15)),
             auc_gain=float(value.get("auc_gain", 0.10)),
             maximum_accuracy_loss=float(value.get("maximum_accuracy_loss", 0.005)),
+            cost_gain=float(value["cost_gain"]) if value.get("cost_gain") is not None else None,
+            screening_control_variant=(
+                str(value["screening_control_variant"]) if value.get("screening_control_variant") is not None else None
+            ),
+            screening_control_accuracy_gain=(
+                float(value["screening_control_accuracy_gain"])
+                if value.get("screening_control_accuracy_gain") is not None
+                else None
+            ),
         )
 
 
@@ -184,6 +198,14 @@ class StudySpec:
     @property
     def wandb_online_authorized(self) -> bool:
         return self.wandb_operation_decision("launch", "online").authorized
+
+    def finetune_config_for(self, variant_id: str) -> Path | None:
+        variant_by_id = {variant.id: variant for variant in (self.baseline, *self.variants)}
+        try:
+            variant = variant_by_id[variant_id]
+        except KeyError:
+            raise ValueError(f"unknown study variant {variant_id!r}") from None
+        return variant.finetune_config or self.evaluation.finetune_config
 
     def wandb_operation_decision(self, operation: WandbOperation, requested_mode: str) -> WandbOperationDecision:
         emitted = tuple(sorted(self.wandb_emitted_data_classes[operation]))
@@ -276,6 +298,8 @@ class StudySpec:
             raise ValueError("max_concurrent_jobs exceeds the managed GPU count")
         if self.resources.max_pretraining_trials > DEFAULT_MAX_PRETRAIN_TRIALS:
             raise ValueError(f"pretraining trial limit cannot exceed {DEFAULT_MAX_PRETRAIN_TRIALS}")
+        if self.promotion.cost_gain is not None and not 0 < self.promotion.cost_gain < 1:
+            raise ValueError("promotion cost_gain must be between 0 and 1")
         if not self.seeds or self.seeds[0] != 0:
             raise ValueError("study seeds must begin with screening seed 0")
         expected_manifests = {
@@ -286,6 +310,17 @@ class StudySpec:
         variant_ids = [self.baseline.id, *(variant.id for variant in self.variants)]
         if len(variant_ids) != len(set(variant_ids)):
             raise ValueError("baseline and variant IDs must be unique")
+        screening_control_variant = self.promotion.screening_control_variant
+        screening_control_accuracy_gain = self.promotion.screening_control_accuracy_gain
+        if (screening_control_variant is None) != (screening_control_accuracy_gain is None):
+            raise ValueError("screening control variant and accuracy gain must be configured together")
+        if screening_control_variant is not None:
+            candidate_ids = {variant.id for variant in self.variants}
+            if screening_control_variant not in candidate_ids:
+                raise ValueError("screening control variant must name a configured non-baseline variant")
+            assert screening_control_accuracy_gain is not None
+            if screening_control_accuracy_gain <= 0:
+                raise ValueError("screening control accuracy gain must be positive")
         if self.baseline_reference is not None:
             if len(self.variants) > self.resources.max_pretraining_trials:
                 raise ValueError("reference-baseline candidate count exceeds the pretraining trial limit")
@@ -294,6 +329,19 @@ class StudySpec:
         if require_files:
             root = relative_to or Path.cwd()
             for config in (self.baseline.config, *(variant.config for variant in self.variants)):
+                resolved_config = config if config.is_absolute() else root / config
+                if not resolved_config.is_file():
+                    raise FileNotFoundError(resolved_config)
+            finetune_configs = {
+                config
+                for config in (
+                    self.evaluation.finetune_config,
+                    self.baseline.finetune_config,
+                    *(variant.finetune_config for variant in self.variants),
+                )
+                if config is not None
+            }
+            for config in finetune_configs:
                 resolved_config = config if config.is_absolute() else root / config
                 if not resolved_config.is_file():
                     raise FileNotFoundError(resolved_config)

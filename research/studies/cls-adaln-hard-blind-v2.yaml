@@ -1,0 +1,136 @@
+id: cls-adaln-hard-blind-v2
+question: Can a one-CLS, one-predictor-forward hard-blind AdaLN interface match the accepted independent four-partition baseline's accuracy or convergence while reducing predictor cost?
+hypothesis: Packing full visual and blind target coverage into a hard-separated AdaLN predictor will recover accuracy lost by routed cross-attention; a blind-only low-rank adapter or one-layer token mixer will recover any remaining decoder-interface deficit without exposing student visual tokens to CLS optimization.
+rejection_condition: Reject a candidate if it fails every preregistered promotion route, violates the one-CLS information boundary, executes more than one training predictor forward, gives blind queries a visual-token gradient, has a nonpositive deterministic blind CLS shuffle gap, or fails gradient, latency, checkpoint, recovery, or lifecycle validation. Do not proceed to teacher-global targeting if every candidate collapses or the hard-blind mechanism is not interpretable.
+checkpoint_plan: Retain every checkpoint and backbone because destructive retention is not authorized. Never delete legacy or unmanaged weights.
+
+baseline:
+  id: single-cls-register-partitioned-independent
+  config: config/pretrain/vit-small-single-cls-register-partitioned-independent.yaml
+  finetune_config: config/finetune/vit-small-single-cls.yaml
+  hypothesis: The accepted four-partition single-CLS design provides a fresh quality, convergence, and complete predictor-workload reference under the current code.
+  mechanism: Preserve one CLS plus seven registers, independently lift four disjoint CLS channel partitions, and use separate visual-context and CLS-context predictor forwards.
+  changes: []
+
+variants:
+  - id: single-cls-packed-adaln-hard-blind
+    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: Shared-core hard-blind AdaLN with full two-route target coverage will recover most baseline accuracy while using one predictor forward and one raw CLS embedding.
+    mechanism: Run visual query copies through ordinary cross-attention with null AdaLN conditioning and blind copies through the same predictor MLPs conditioned on one CLS token while exactly skipping blind cross-attention.
+    changes:
+      - Replace the separate four-partition CLS predictor replay with packed visual and blind target copies.
+      - Initialize AdaLN modulation weights at standard deviation 0.001 and its residual gate at 1.0 rather than AdaLN-Zero.
+      - Sum separately normalized visual and blind losses.
+  - id: single-cls-packed-adaln-hard-blind-adapter
+    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind-adapter.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: A blind-only one-quarter-width residual adapter after each shared AdaLN MLP will reduce destructive sharing between visual and CLS prediction without materially increasing cost.
+    mechanism: Preserve the shared hard-blind path and add one RMS-normalized low-rank residual adapter per predictor block only to blind queries.
+    changes:
+      - Add blind-only 384-to-96-to-384 residual adapters after the shared MLP blocks.
+      - Preserve exact visual-token blindness, route coverage, AdaLN initialization, and one predictor forward.
+  - id: single-cls-packed-adaln-hard-blind-mixer
+    config: config/pretrain/vit-small-single-cls-packed-adaln-hard-blind-mixer.yaml
+    finetune_config: config/finetune/vit-small-single-cls.yaml
+    hypothesis: One blind-only self-attention block over target queries will improve spatially coherent decoding from the compressed CLS representation without allowing visual-context leakage.
+    mechanism: Preserve the shared hard-blind path and apply one positional self-attention token-mixing block only to blind target queries before the shared output projection.
+    changes:
+      - Add one blind-only target-query transformer encoder block.
+      - Preserve exact visual-token blindness, route coverage, AdaLN initialization, and one predictor forward.
+
+methodology:
+  source_studies:
+    - cls-token-adaln-v1
+    - cls-global-target-v1
+    - cls-partitioned-slots-v1
+    - cls-context-routing-v1
+    - cls-routing-objective-v1
+  preregistration_operation: cls-adaln-hard-blind-v2-preregistration
+  prior_evidence:
+    - The earlier shared AdaLN main predictor underperformed the visually blinded AdaLN path, so student CLS must not condition visual queries.
+    - Direct raw-MSE matching to the arithmetic teacher-token mean degraded representation quality, so this stage adds no teacher-global target.
+    - One CLS with independent partitioned readout reached 0.8988 peak validation accuracy, establishing that the backbone bottleneck can hold sufficient information.
+    - Stronger CLS influence in jointly routed cross-attention reduced accuracy, motivating separate full-coverage visual and blind query copies.
+  information_boundary:
+    backbone_cls_tokens: 1
+    backbone_register_tokens: 7
+    visual_route_context: Visible final student visual tokens only.
+    blind_route_context: Final student CLS token through AdaLN only.
+    blind_route_exclusions: Student visual tokens, register tokens, masked tokens, cross-attention residuals, teacher features, intermediate features, and other samples.
+    teacher_target: Existing masked EMA-teacher visual tokens with no added global target.
+    probe_input: The only final teacher CLS token.
+  packed_objective:
+    spatial_target_queries: 16
+    executed_target_queries: 32
+    visual_predictions_per_target: 1
+    blind_predictions_per_target: 1
+    loss: Mean visual-route error plus mean blind-route error.
+    target_order: All visual copies followed by all blind copies.
+  adaln_initialization:
+    modulation_weight_std: 0.001
+    shift_bias: 0.0
+    scale_delta_bias: 0.0
+    residual_gate_bias: 1.0
+    rationale: Give the CLS pathway an immediate but mild gradient instead of the two-stage cold start of zero modulation and a zero residual gate.
+  deterministic_diagnostic:
+    batch: First validation batch at every validation interval.
+    metrics:
+      - blind CLS loss
+      - cyclically batch-shuffled blind CLS loss
+      - shuffled-minus-true blind CLS loss gap
+      - visual-only loss
+      - CLS-patch alignment
+      - online-probe validation accuracy
+  stage_gate:
+    rule: Finish this interface screen before adding any teacher-global target. Proceed to centered normalized teacher pooling only if at least one hard-blind run is mechanically valid and the relative shared, adapter, and mixer results distinguish an interface limitation from general collapse.
+  selection:
+    rule: A promoted candidate must use one training predictor forward, exactly one CLS token, and have a positive deterministic blind CLS shuffle gap. Rank qualifiers by peak accuracy, active-time AUC, time to the 95-percent target, then isolated latency; prefer shared core, then adapter, then mixer on a complete tie.
+  goal_budget:
+    stage_one_seed_zero_runs: 4
+    stage_one_maximum_confirmation_runs: 4
+    stage_one_maximum_scientific_trials: 8
+    stage_one_smoke_runs_excluded: 1
+    stage_two_status: Conditional linked study requiring a separately committed specification after stage-one interpretation.
+    rule: Launch a fresh baseline and all three candidates at seed 0. If one qualifies, launch fresh paired baseline and winner at seeds 1 and 2. Do not add stage-one variants after observing results.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: cls-adaln-hard-blind-v2
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: d17ec9e937a61022b9bc6d8676082226bfda7f94
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+  cost_gain: 0.05
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

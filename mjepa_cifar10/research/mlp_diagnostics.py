@@ -370,6 +370,8 @@ def load_checkpoint_model(
         jepa_config.predictor_depth,
         device=device,
         attention_mode=jepa_config.predictor_attention_mode,
+        cls_prediction_mode=jepa_config.cls_prediction_mode,
+        cls_context_tokens=jepa_config.cls_context_tokens,
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     jepa = CIFAR10MJEPA(jepa_config, backbone, predictor, autocast_dtype=torch.float32)
