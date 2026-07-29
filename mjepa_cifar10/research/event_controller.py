@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Final
 
 from .codex_notifications import (
-    NOTIFICATION_FILENAME,
+    notification_namespace,
     queue_notification_from_lifecycle,
     queue_notification_from_terminal,
     validate_notification_root,
@@ -99,6 +99,8 @@ def reconcile_managed_root(
     queued = 0
     active_pids: list[int] = []
     problems: list[str] = []
+    events_root = notification_namespace(managed_root) / "events"
+    known_event_ids = {path.parent.name for path in events_root.glob("*/notification.json")}
     for run_dir in _managed_run_directories(managed_root):
         try:
             for event in reconcile_run_safety_events(
@@ -111,25 +113,27 @@ def reconcile_managed_root(
         except (OSError, ValueError) as error:
             problems.append(f"{run_dir}: {type(error).__name__}: {error}")
         terminal_path = run_dir / TERMINAL_FILENAME
-        terminal_notification_path = run_dir / NOTIFICATION_FILENAME
-        if terminal_path.is_file() and not terminal_notification_path.exists():
+        if terminal_path.is_file():
             try:
-                queue_notification_from_terminal(
+                event = queue_notification_from_terminal(
                     terminal_path,
                     managed_root,
                     study_id=run_dir.parent.parent.name,
                     run_id=run_dir.name,
                 )
-                queued += 1
+                if event.event_id not in known_event_ids:
+                    queued += 1
+                    known_event_ids.add(event.event_id)
             except (OSError, ValueError) as error:
                 problems.append(f"{terminal_path}: {type(error).__name__}: {error}")
         for event_filename in sorted(LIFECYCLE_FILENAMES):
             event_path = run_dir / event_filename
-            notification_path = run_dir / f"{event_path.stem}.notification.json"
-            if event_path.is_file() and not notification_path.exists():
+            if event_path.is_file():
                 try:
-                    queue_notification_from_lifecycle(event_path, managed_root)
-                    queued += 1
+                    event = queue_notification_from_lifecycle(event_path, managed_root)
+                    if event.event_id not in known_event_ids:
+                        queued += 1
+                        known_event_ids.add(event.event_id)
                 except (OSError, ValueError) as error:
                     problems.append(f"{event_path}: {type(error).__name__}: {error}")
         if (pid := _running_supervisor_pid(run_dir)) is not None and pid_is_alive(pid):

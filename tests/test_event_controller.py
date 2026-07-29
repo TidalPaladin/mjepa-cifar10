@@ -11,11 +11,15 @@ from mjepa_cifar10.research.cli import resolve_event_controller_socket
 from mjepa_cifar10.research.codex_notifications import (
     initialize_notification_root,
     next_notification_attempt_at,
+    notification_path_for_event,
     read_notification_event,
     write_notification_event,
 )
 from mjepa_cifar10.research.event_controller import is_controller_source, reconcile_managed_root, serve_controller
-from mjepa_cifar10.research.lifecycle_events import persist_first_cycle_event
+from mjepa_cifar10.research.lifecycle_events import (
+    lifecycle_event_id,
+    persist_first_cycle_event,
+)
 
 
 NOW = datetime(2026, 7, 22, 14, 0, tzinfo=UTC)
@@ -31,12 +35,16 @@ def make_root(tmp_path: Path) -> tuple[Path, Path]:
     return root, run_dir
 
 
-def test_controller_discovers_unix_daemon_socket_for_direct_delivery() -> None:
-    output = json.dumps({"status": "running", "socketPath": str(DAEMON_SOCKET)})
+def test_controller_discovers_unix_daemon_socket_for_direct_delivery(mocker) -> None:
+    discover = mocker.patch(
+        "mjepa_cifar10.research.cli.discover_daemon_socket",
+        return_value=DAEMON_SOCKET,
+    )
 
-    resolved = resolve_event_controller_socket(None, daemon_version=lambda: output)
+    resolved = resolve_event_controller_socket(None)
 
     assert resolved == DAEMON_SOCKET
+    discover.assert_called_once_with()
 
 
 def test_controller_sources_exclude_notification_retry_writes() -> None:
@@ -80,7 +88,8 @@ def test_reconcile_queues_existing_lifecycle_event_once(tmp_path: Path) -> None:
 
     assert first.queued == 1
     assert second.queued == 0
-    notification = read_notification_event(run_dir / "first-cycle.notification.json", root)
+    event_id = lifecycle_event_id("study-a", "run-a", 1, "first_cycle_completed")
+    notification = read_notification_event(notification_path_for_event(root, event_id), root)
     assert notification.event_kind == "first_cycle_completed"
 
 
@@ -106,7 +115,8 @@ def test_notification_retry_deadline_is_scoped_to_selected_studies(tmp_path: Pat
         progress_timeout=timedelta(minutes=30),
         pid_is_alive=lambda _pid: True,
     )
-    notification_path = run_dir / "first-cycle.notification.json"
+    event_id = lifecycle_event_id("study-a", "run-a", 1, "first_cycle_completed")
+    notification_path = notification_path_for_event(root, event_id)
     notification = read_notification_event(notification_path, root)
     retry_at = NOW + timedelta(seconds=5)
     write_notification_event(
@@ -218,7 +228,7 @@ def test_new_lifecycle_event_is_delivered_while_another_notification_backs_off(
     assert deliveries == 2
 
 
-def test_reconcile_isolates_malformed_legacy_terminal_state(tmp_path: Path) -> None:
+def test_reconcile_rejects_legacy_terminal_state(tmp_path: Path) -> None:
     root, run_dir = make_root(tmp_path)
     (run_dir / "terminal.json").write_text(
         json.dumps(
@@ -247,8 +257,8 @@ def test_reconcile_isolates_malformed_legacy_terminal_state(tmp_path: Path) -> N
 
     assert result.queued == 0
     assert len(result.problems) == 1
-    assert "event_id must be a UUID string" in result.problems[0]
-    assert not (run_dir / "notification.json").exists()
+    assert "unsupported notify-wake contract; cutover required" in result.problems[0]
+    assert not tuple((root / ".notify-wake" / "v2" / "events").glob("*.json"))
 
 
 def test_reconcile_queues_supervisor_loss_without_changing_terminal_truth(tmp_path: Path) -> None:
@@ -277,5 +287,6 @@ def test_reconcile_queues_supervisor_loss_without_changing_terminal_truth(tmp_pa
     assert result.created_kinds == ("supervisor_lost",)
     assert result.queued == 1
     assert not (run_dir / "terminal.json").exists()
-    notification = read_notification_event(run_dir / "supervisor-lost.notification.json", root)
+    event_id = lifecycle_event_id("study-a", "run-a", 1, "supervisor_lost")
+    notification = read_notification_event(notification_path_for_event(root, event_id), root)
     assert notification.event_kind == "supervisor_lost"

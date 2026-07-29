@@ -11,7 +11,9 @@ import subprocess
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Mapping, Sequence, TextIO
+from typing import Any, Mapping, Sequence, TextIO
+
+from notify_wake import discover_daemon_socket
 
 from .codex_notifications import (
     UnixWebSocketTransport,
@@ -436,36 +438,11 @@ def command_notify_worker(args: argparse.Namespace) -> int:
     return result.exit_code
 
 
-def _daemon_version_output() -> str:
-    result = subprocess.run(
-        ("codex", "app-server", "daemon", "version"),
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr.strip() or "could not inspect the Codex app-server daemon")
-    return result.stdout
-
-
-def resolve_event_controller_socket(
-    explicit_socket: Path | None,
-    *,
-    daemon_version: Callable[[], str] = _daemon_version_output,
-) -> Path:
+def resolve_event_controller_socket(explicit_socket: Path | None) -> Path:
     """Resolve the control socket used for transport readiness events."""
     if explicit_socket is not None:
         return explicit_socket.expanduser().resolve(strict=False)
-    try:
-        payload = json.loads(daemon_version())
-    except json.JSONDecodeError as error:
-        raise RuntimeError("Codex daemon version output is not valid JSON") from error
-    socket_path = (
-        payload.get("socketPath") if isinstance(payload, dict) and payload.get("status") == "running" else None
-    )
-    if not isinstance(socket_path, str) or not socket_path or not Path(socket_path).is_absolute():
-        raise RuntimeError("Codex app-server daemon did not report an absolute running socket path")
-    return Path(socket_path).resolve(strict=False)
+    return discover_daemon_socket()
 
 
 def capture_launch_wake_context() -> WakeContext:

@@ -14,7 +14,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from .runtime import atomic_write_json
 
 
-LIFECYCLE_SCHEMA_VERSION: Final[int] = 1
+LIFECYCLE_SCHEMA_VERSION: Final[int] = 2
 PROGRESS_FILENAME: Final[str] = "progress.json"
 FIRST_CYCLE_FILENAME: Final[str] = "first-cycle.json"
 SUPERVISOR_LOST_FILENAME: Final[str] = "supervisor-lost.json"
@@ -28,7 +28,10 @@ EVENT_FILENAME_BY_KIND: Final[dict[str, str]] = {
     "progress_stalled": PROGRESS_STALLED_FILENAME,
 }
 KIND_BY_EVENT_FILENAME: Final[dict[str, str]] = {value: key for key, value in EVENT_FILENAME_BY_KIND.items()}
-LIFECYCLE_EVENT_NAMESPACE: Final[UUID] = uuid5(NAMESPACE_URL, "openai.com/autoresearch/lifecycle-event/v1")
+LIFECYCLE_EVENT_NAMESPACE: Final[UUID] = uuid5(
+    NAMESPACE_URL,
+    "openai.com/autoresearch/lifecycle-event/v2",
+)
 
 LifecycleKind = Literal["first_cycle_completed", "supervisor_lost", "progress_stalled"]
 ProgressPhase = Literal["training", "validation", "checkpointing", "checkpointed"]
