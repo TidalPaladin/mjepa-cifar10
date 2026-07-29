@@ -1332,6 +1332,31 @@ def _notification_paths(root: Path, study_ids: frozenset[str] | None = None) -> 
     )
 
 
+def next_notification_attempt_at(
+    root: Path,
+    *,
+    study_ids: frozenset[str] | None = None,
+) -> datetime | None:
+    """Return the earliest scheduled retry for the selected managed notifications."""
+
+    requested_root = root.expanduser()
+    if not requested_root.exists() and not requested_root.is_symlink():
+        return None
+    managed_root = validate_notification_root(requested_root)
+    selected_study_ids = (
+        None if study_ids is None else frozenset(_validate_identifier(study_id, "study id") for study_id in study_ids)
+    )
+    retry_deadlines: list[datetime] = []
+    for path in _notification_paths(managed_root, selected_study_ids):
+        try:
+            event = read_notification_event(path, managed_root)
+        except (OSError, NotificationStateError):
+            continue
+        if event.state == "pending" and event.next_attempt_at is not None:
+            retry_deadlines.append(event.next_attempt_at)
+    return min(retry_deadlines) if retry_deadlines else None
+
+
 async def sweep_notifications(
     root: Path,
     *,

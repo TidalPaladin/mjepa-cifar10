@@ -221,7 +221,9 @@ def serve_controller(
     root: Path,
     *,
     progress_timeout: timedelta,
-    deliver: Callable[[], bool],
+    deliver: Callable[[], None],
+    next_delivery_at: Callable[[], datetime | None] = lambda: None,
+    clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     socket_path: Path | None = None,
     defer_until_socket_replaced: bool = False,
 ) -> None:
@@ -232,7 +234,7 @@ def serve_controller(
     selector.register(source.fd, selectors.EVENT_READ, ("inotify", None))
     registered_pidfds: dict[int, int] = {}
     reported_problems: set[str] = set()
-    transport_ready = not defer_until_socket_replaced
+    delivery_deferred = defer_until_socket_replaced
 
     def report_new_problems(problems: tuple[str, ...]) -> None:
         for problem in problems:
@@ -261,13 +263,25 @@ def serve_controller(
         reconciliation = reconcile_managed_root(managed_root, progress_timeout=progress_timeout)
         report_new_problems(reconciliation.problems)
         refresh_pidfds(reconciliation.active_pids)
-        if transport_ready:
-            transport_ready = deliver()
+        if not delivery_deferred:
+            deliver()
         while True:
-            now = datetime.now(UTC)
-            timeout = _next_progress_deadline(managed_root, progress_timeout, now)
+            now = clock().astimezone(UTC)
+            progress_wait = _next_progress_deadline(managed_root, progress_timeout, now)
+            delivery_deadline = None if delivery_deferred else next_delivery_at()
+            delivery_wait = (
+                None
+                if delivery_deadline is None
+                else max(0.0, (delivery_deadline.astimezone(UTC) - now).total_seconds())
+            )
+            waits = tuple(wait for wait in (progress_wait, delivery_wait) if wait is not None)
+            timeout = min(waits) if waits else None
             ready = selector.select(timeout)
-            reconcile = not ready
+            deadline_due = delivery_deadline is not None and delivery_deadline <= clock().astimezone(UTC)
+            progress_due = (
+                not ready and progress_wait is not None and (delivery_wait is None or progress_wait <= delivery_wait)
+            )
+            reconcile = progress_due
             delivery_trigger = False
             socket_replaced = False
             for key, _mask in ready:
@@ -282,14 +296,17 @@ def serve_controller(
                     if is_controller_source(path.name):
                         reconcile = True
                         delivery_trigger = delivery_trigger or path.name in DELIVERY_SOURCE_FILENAMES
-            if not reconcile and not socket_replaced:
+            if not reconcile and not socket_replaced and not deadline_due:
                 continue
-            reconciliation = reconcile_managed_root(managed_root, progress_timeout=progress_timeout)
-            report_new_problems(reconciliation.problems)
-            refresh_pidfds(reconciliation.active_pids)
-            delivery_trigger = delivery_trigger or bool(reconciliation.created_kinds or reconciliation.queued)
-            if socket_replaced or (delivery_trigger and transport_ready):
-                transport_ready = deliver()
+            if reconcile:
+                reconciliation = reconcile_managed_root(managed_root, progress_timeout=progress_timeout)
+                report_new_problems(reconciliation.problems)
+                refresh_pidfds(reconciliation.active_pids)
+                delivery_trigger = delivery_trigger or bool(reconciliation.created_kinds or reconciliation.queued)
+            if socket_replaced:
+                delivery_deferred = False
+            if not delivery_deferred and (socket_replaced or delivery_trigger or deadline_due):
+                deliver()
     finally:
         for pidfd in registered_pidfds.values():
             os.close(pidfd)
