@@ -1,4 +1,4 @@
-# Single-CLS fine-tuning config for confirmed CLS-token candidates.
+# Single-CLS fine-tuning config for one-CLS, seven-register candidates.
 trainer: !!python/object:mjepa.TrainerConfig
   batch_size: 512
   num_workers: 24
@@ -20,7 +20,7 @@ backbone: !!python/object:vit.ViTConfig
   attention_dropout: 0.1
   hidden_dropout: 0.1
   drop_path_rate: 0.1
-  num_register_tokens: 4
+  num_register_tokens: 7
   num_cls_tokens: 1
   pos_enc: "rope"
   rope_base: 100

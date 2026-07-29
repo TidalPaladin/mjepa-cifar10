@@ -6,7 +6,7 @@ checkpoint_plan: Retain full and backbone weights for the baseline and confirmed
 
 baseline:
   id: adamw-baseline
-  config: config/pretrain/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
   hypothesis: The formal AdamW configuration reproduces the reference pretraining curve under the paired study environment.
   mechanism: Apply AdamW to all trainable student, predictor, and classifier-head parameters.
   changes: []
@@ -97,7 +97,7 @@ promotion:
   maximum_accuracy_loss: 0.005
 
 evaluation:
-  finetune_config: config/finetune/vit-small.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
   shots_per_class: [null, 10, 100]
   seeds: [0, 1, 2]
   official_test_roles: [baseline, winner]

@@ -6,7 +6,7 @@ checkpoint_plan: Retain the full resume checkpoint and backbone because this run
 
 baseline:
   id: baseline
-  config: config/pretrain/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
   hypothesis: The current ViT-S/4 MJEPA configuration provides a reproducible reference curve for later ablations.
   mechanism: Predict teacher targets from masked student context with Gram anchoring and SigReg enabled by the current configuration.
   changes: []
@@ -53,7 +53,7 @@ promotion:
   maximum_accuracy_loss: 0.005
 
 evaluation:
-  finetune_config: config/finetune/vit-small.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
   shots_per_class: [null, 10, 100]
   seeds: [0, 1, 2]
   official_test_roles: [baseline, winner]

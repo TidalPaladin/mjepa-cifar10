@@ -1,8 +1,7 @@
-# Default ViT-S/4 baseline: one CLS readout, seven registers, and four independent predictor partitions.
-# Assumes 2xGPUs
+# Historical ViT-S/4 baseline retained for reproducibility of completed studies.
 trainer: !!python/object:mjepa.TrainerConfig
   batch_size: 512
-  num_workers: 24 
+  num_workers: 24
   num_epochs: 400
   check_val_every_n_epoch: 10
   accumulate_grad_batches: 2
@@ -21,8 +20,8 @@ backbone: !!python/object:vit.ViTConfig
   attention_dropout: 0.1
   hidden_dropout: 0.1
   drop_path_rate: 0.1
-  num_register_tokens: 7
-  num_cls_tokens: 1
+  num_register_tokens: 4
+  num_cls_tokens: 4
   pos_enc: "rope"
   rope_base: 100
   rope_rescale_coords: 2.0
@@ -42,8 +41,7 @@ jepa: !!python/object:mjepa.JEPAConfig
   momentum: 0.98
   predictor_depth: 4
   predictor_attention_mode: cross_attention
-  cls_prediction_mode: partitioned_independent_cross_attention
-  cls_context_tokens: 4
+  cls_prediction_mode: legacy_cross_attention
   context_ratio: 0.5
   target_ratio: 0.25
   scale: 2

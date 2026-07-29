@@ -6,7 +6,7 @@ checkpoint_plan: Retain the baseline full checkpoint and backbone. Retain all la
 
 baseline:
   id: swiglu-baseline
-  config: config/pretrain/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
   hypothesis: The current SwiGLU configuration provides the paired environment and fixed convergence targets for the SReLU study.
   mechanism: Use the existing gated SwiGLU MLP at width 1536 with the unchanged attention stack, optimizer, and training protocol.
   changes: []

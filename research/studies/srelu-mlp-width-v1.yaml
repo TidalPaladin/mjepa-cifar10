@@ -6,7 +6,7 @@ checkpoint_plan: Retain the baseline reference outside managed retention. Retain
 
 baseline:
   id: swiglu-fixed-v1
-  config: config/pretrain/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
   hypothesis: The completed seed-0 SwiGLU curve remains the immutable comparator for the linked SReLU width and tuning screens.
   mechanism: Reuse the exact validation curve from srelu-mlp-baseline-v1 without scheduling another baseline run.
   changes: []

@@ -1305,3 +1305,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Pooler interpretation: Convex EMA attention produced only a `+0.0036` peak-accuracy gain over fixed mean while costing more active time and latency. Its final normalized attention entropy was `0.850361` and maximum token weight was `0.067447`, so it remained broadly distributed rather than isolating a small set of globally useful patches. The learned weighting did not change the scientific conclusion.
 - Recovery note: The convex run's first managed attempt stopped before W&B initialization or any optimizer step because its config-derived tag exceeded W&B's 64-character limit. The bounded-tag repair and immutable-authority retry repair were regression-tested and pushed before attempt 2 reused the same W&B ID and original wake context. This infrastructure-only retry did not alter the scientific configuration.
 - Decision: Reject centered normalized full-teacher pooling as the next route for closing the independent-partition gap at the tested weights and interfaces. Do not launch confirmation or supervised evaluation. Retain all four checkpoints and the archived failed-attempt artifacts.
+
+<!-- autoresearch-operation:{"operation_id":"cls-token-line-closeout-default-adoption-v1"} -->
+## 2026-07-29 closeout: adopt four independent CLS partitions
+
+- Scope: close the CLS-token experiment line and select the repository default. This is an engineering adoption decision authorized by the user, not a retrospective claim that the candidate passed the preregistered strict four-CLS promotion gate.
+- Selected architecture: one backbone CLS token, seven register tokens, `partitioned_independent_cross_attention`, and four 96-to-384 independent lifts from disjoint CLS channel partitions. The visual-context and blinded CLS-context predictor passes remain separate.
+- Selection evidence:
+
+  | Design | Peak accuracy | Step to 95% target | Step AUC | Active-time AUC | Decision |
+  |---|---:|---:|---:|---:|---|
+  | Four backbone CLS tokens, fixed reference | 0.910000 | 7,830 | 0.801230 | 0.796583 | Historical reference |
+  | Two independent partitions | 0.896200 | 11,745 | 0.781475 | 0.780721 | Reject |
+  | Four independent partitions | 0.898000 | 10,005 | 0.787907 | 0.787593 | Adopt as default |
+  | Eight independent partitions | 0.842600 | censored | 0.734497 | 0.734240 | Reject |
+
+- Robustness evidence: fresh four-partition controls in the routing, hard-blind AdaLN, and teacher-global follow-ups reached `0.898800` peak and `0.898200` final accuracy. Their step-to-95 value was `7,830`; common-step active time ranged from `11,143.876` to `11,180.176` seconds. These repeated seed-0 controls support the practical stability of the selected design but do not replace paired multi-seed confirmation.
+- Rationale: four partitions preserve most of the four-CLS quality while simplifying the backbone to the standard single-CLS layout. Two partitions retained endpoint quality but converged more slowly, and eight partitions over-fragmented the embedding. Every tested one-forward routed or AdaLN alternative lost substantially more accuracy.
+- Configuration migration: `config/pretrain/vit-small.yaml` and `config/finetune/vit-small.yaml` now select the one-CLS, seven-register layout. Completed studies retain the former defaults through explicit `vit-small-four-cls-legacy.yaml` configs.
+- Limitations: all architecture selection evidence is seed 0, the selected design did not pass the original strict equivalence thresholds, and no new supervised or official-test evaluation was run for this closeout.
+- Retention: preserve all previously retained checkpoints and backbones. No artifact deletion is authorized by this closeout.

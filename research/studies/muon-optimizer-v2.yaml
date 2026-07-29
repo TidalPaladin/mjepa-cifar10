@@ -5,7 +5,7 @@ rejection_condition: Reject the hypothesis if none of the six Muon seed-0 varian
 
 baseline:
   id: adamw-fixed-v1
-  config: config/pretrain/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
   hypothesis: The formal AdamW seed-0 result from muon-optimizer-v1 remains the fixed comparator without a new AdamW launch.
   mechanism: Reuse the committed validation curve from the completed formal baseline to preserve its exact 90% and 95% convergence targets.
   changes: []

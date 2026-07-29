@@ -6,8 +6,8 @@ checkpoint_plan: Retain all candidate checkpoints and backbones because destruct
 
 baseline:
   id: four-cls-legacy
-  config: config/pretrain/vit-small.yaml
-  finetune_config: config/finetune/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
   hypothesis: Four backbone CLS tokens and four registers provide the fixed quality and convergence reference.
   mechanism: Use four CLS tokens as the auxiliary legacy predictor context and mean them for the online probe.
   changes: []

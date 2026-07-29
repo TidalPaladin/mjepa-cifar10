@@ -6,8 +6,8 @@ checkpoint_plan: Retain all managed checkpoints and backbones because destructiv
 
 baseline:
   id: four-cls-legacy
-  config: config/pretrain/vit-small.yaml
-  finetune_config: config/finetune/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
   hypothesis: The existing four-CLS predictor replay supplies the fresh representation-quality and cost reference.
   mechanism: Run the current predictor twice, using student visual tokens for the main pass and four student CLS tokens for the auxiliary pass.
   changes: []
@@ -15,7 +15,7 @@ baseline:
 variants:
   - id: single-cls-adaln-blind-control
     config: config/pretrain/vit-small-single-cls-adaln-blind.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
     hypothesis: Repeating blinded AdaLN without the global loss estimates the paired seed-0 control for accuracy recovery.
     mechanism: Predict masked teacher patches from one CLS-conditioned, attention-free AdaLN MLP path while keeping the main predictor conditioned on zero.
     changes:
@@ -24,7 +24,7 @@ variants:
       - Do not add a direct CLS global-target loss.
   - id: cls-global-mse-w0p1
     config: config/pretrain/vit-small-single-cls-adaln-blind-global-w0p1.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
     hypothesis: A 0.1-weight direct global loss will improve the CLS representation without dominating the two unit-weight JEPA prediction losses.
     mechanism: Add projector-free MSE from the single student CLS token to the arithmetic mean of all full-image teacher visual tokens, while retaining the blinded patch-target objective.
     changes:
@@ -32,7 +32,7 @@ variants:
       - Add cls_global_target_loss_weight 0.1.
   - id: cls-global-mse-w0p5
     config: config/pretrain/vit-small-single-cls-adaln-blind-global-w0p5.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
     hypothesis: A 0.5-weight direct global loss will provide a stronger global target if weight 0.1 undertrains the CLS token.
     mechanism: Add the same projector-free CLS-to-pooled-teacher MSE at five times the lower candidate weight, with no other training change.
     changes:

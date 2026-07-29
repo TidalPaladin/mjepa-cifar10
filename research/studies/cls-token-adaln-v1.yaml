@@ -6,8 +6,8 @@ checkpoint_plan: Retain the fresh four-CLS baseline and any confirmed winner. Af
 
 baseline:
   id: four-cls-legacy
-  config: config/pretrain/vit-small.yaml
-  finetune_config: config/finetune/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
   hypothesis: The existing four-CLS, full cross-attention replay path provides the reference representation quality and cost.
   mechanism: Run the current predictor twice, using student visual tokens for the main pass and all four student CLS tokens for the auxiliary pass.
   changes: []
@@ -15,7 +15,7 @@ baseline:
 variants:
   - id: single-cls-legacy
     config: config/pretrain/vit-small-single-cls-legacy.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
     hypothesis: Reducing only the CLS-token count from four to one will show whether token multiplicity, independent of predictor simplification, affects quality or cost.
     mechanism: Retain the full auxiliary cross-attention replay while supplying exactly one student CLS token.
     changes:
@@ -23,7 +23,7 @@ variants:
       - Preserve the legacy auxiliary predictor replay and all other training settings.
   - id: single-cls-adaln-blind
     config: config/pretrain/vit-small-single-cls-adaln-blind.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
     hypothesis: A visually blinded CLS-conditioned MLP-only auxiliary path will force the single CLS token to store enough global information to predict masked teacher patch targets while reducing cost.
     mechanism: Reuse each main predictor block's AdaLN-Zero MLP and output projection for target-position queries, skip all attention and visual tokens in the auxiliary path, and condition the main path on a constant zero embedding.
     changes:
@@ -32,7 +32,7 @@ variants:
       - Use a constant zero embedding for main-predictor AdaLN conditioning.
   - id: single-cls-adaln-shared
     config: config/pretrain/vit-small-single-cls-adaln-shared.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
     hypothesis: Sharing the single CLS embedding with both the visually blinded auxiliary path and the main visual-context predictor will improve global conditioning without erasing the auxiliary bottleneck.
     mechanism: Use the same visually blinded AdaLN MLP auxiliary path as adaln-blind and condition the main predictor's shared AdaLN MLPs on the actual student CLS embedding.
     changes:

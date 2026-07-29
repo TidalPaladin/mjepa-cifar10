@@ -12,8 +12,32 @@ from vit import ViTConfig
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PRETRAIN_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "vit-small.yaml"
+DEFAULT_FINETUNE_CONFIG_PATH = REPO_ROOT / "config" / "finetune" / "vit-small.yaml"
+LEGACY_PRETRAIN_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "vit-small-four-cls-legacy.yaml"
+LEGACY_FINETUNE_CONFIG_PATH = REPO_ROOT / "config" / "finetune" / "vit-small-four-cls-legacy.yaml"
+LEGACY_SINGLE_CLS_FINETUNE_CONFIG_PATH = REPO_ROOT / "config" / "finetune" / "vit-small-single-cls-four-registers.yaml"
+SELECTED_NUM_CLS_TOKENS = 1
+SELECTED_NUM_REGISTER_TOKENS = 7
+SELECTED_CLS_CONTEXT_TOKENS = 4
+SELECTED_CLS_PREDICTION_MODE = "partitioned_independent_cross_attention"
+HISTORICAL_FOUR_CLS_STUDY_IDS = (
+    "cls-global-target-v1",
+    "cls-partition-count-v1",
+    "cls-partitioned-slots-v1",
+    "cls-register-residual-v1",
+    "cls-register-slots-v1",
+    "cls-token-adaln-v1",
+    "cls-up-project-v1",
+    "muon-optimizer-v1",
+    "muon-optimizer-v2",
+    "srelu-mlp-baseline-v1",
+    "srelu-mlp-bias-v1",
+    "srelu-mlp-width-v1",
+    "vit-small-baseline-v1",
+)
 PRETRAIN_CONFIG_PATHS = (
-    REPO_ROOT / "config" / "pretrain" / "vit-small.yaml",
+    DEFAULT_PRETRAIN_CONFIG_PATH,
     REPO_ROOT / "config" / "pretrain" / "vit-tiny.yaml",
 )
 SRELU_WIDTH_CONFIGS = {
@@ -151,9 +175,38 @@ def test_pretrain_configs_preserve_gram_anchoring_and_predictor_mode(config_path
     assert jepa_config.predictor_attention_mode == "cross_attention"
 
 
+def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:
+    pretrain_config = yaml.full_load(DEFAULT_PRETRAIN_CONFIG_PATH.read_text())
+    finetune_config = yaml.full_load(DEFAULT_FINETUNE_CONFIG_PATH.read_text())
+    selected_pretrain_config = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent.yaml").read_text()
+    )
+    selected_finetune_config = yaml.full_load(
+        (REPO_ROOT / "config" / "finetune" / "vit-small-single-cls.yaml").read_text()
+    )
+
+    assert pretrain_config["backbone"].num_cls_tokens == SELECTED_NUM_CLS_TOKENS
+    assert pretrain_config["backbone"].num_register_tokens == SELECTED_NUM_REGISTER_TOKENS
+    assert pretrain_config["jepa"].cls_context_tokens == SELECTED_CLS_CONTEXT_TOKENS
+    assert pretrain_config["jepa"].cls_prediction_mode == SELECTED_CLS_PREDICTION_MODE
+    assert finetune_config["backbone"].num_cls_tokens == SELECTED_NUM_CLS_TOKENS
+    assert finetune_config["backbone"].num_register_tokens == SELECTED_NUM_REGISTER_TOKENS
+    assert pretrain_config == selected_pretrain_config
+    assert finetune_config == selected_finetune_config
+
+
+@pytest.mark.parametrize("study_id", HISTORICAL_FOUR_CLS_STUDY_IDS)
+def test_completed_studies_pin_the_historical_four_cls_baseline(study_id: str) -> None:
+    spec = yaml.safe_load((REPO_ROOT / "research" / "studies" / f"{study_id}.yaml").read_text())
+
+    assert spec["baseline"]["config"] == "config/pretrain/vit-small-four-cls-legacy.yaml"
+    if spec["baseline"].get("finetune_config") is not None:
+        assert spec["baseline"]["finetune_config"] == "config/finetune/vit-small-four-cls-legacy.yaml"
+
+
 @pytest.mark.parametrize(("config_path", "expected_width"), SRELU_WIDTH_CONFIGS.items())
 def test_srelu_width_configs_change_only_mlp_fields(config_path: Path, expected_width: int) -> None:
-    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    baseline = yaml.full_load(LEGACY_PRETRAIN_CONFIG_PATH.read_text())
     candidate = yaml.full_load(config_path.read_text())
     baseline_backbone = baseline["backbone"]
     candidate_backbone = candidate["backbone"]
@@ -192,7 +245,7 @@ def test_cls_configs_change_only_cls_count_and_prediction_mode(
     config_path: Path,
     cls_prediction_mode: str,
 ) -> None:
-    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    baseline = yaml.full_load(LEGACY_PRETRAIN_CONFIG_PATH.read_text())
     candidate = yaml.full_load(config_path.read_text())
 
     assert candidate["backbone"].num_cls_tokens == 1
@@ -212,7 +265,7 @@ def test_cls_register_configs_reclassify_three_cls_tokens_and_change_only_predic
     config_path: Path,
     cls_prediction_mode: str,
 ) -> None:
-    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    baseline = yaml.full_load(LEGACY_PRETRAIN_CONFIG_PATH.read_text())
     candidate = yaml.full_load(config_path.read_text())
 
     assert candidate["backbone"].num_cls_tokens == 1
@@ -342,7 +395,7 @@ def test_cls_global_target_configs_change_only_global_loss_weight(
 
 def test_cls_global_target_configuration_requires_blinded_single_cls_model() -> None:
     pretrain_script = load_pretrain_script_module()
-    baseline = yaml.full_load(PRETRAIN_CONFIG_PATHS[0].read_text())
+    baseline = yaml.full_load(LEGACY_PRETRAIN_CONFIG_PATH.read_text())
     blinded = yaml.full_load((REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml").read_text())
 
     pretrain_script.validate_cls_global_target_configuration(blinded["backbone"], blinded["jepa"], 0.1)
@@ -431,11 +484,11 @@ def test_cls_teacher_global_configuration_requires_online_loss_for_ema_pooler() 
         )
 
 
-def test_single_cls_finetune_config_changes_only_cls_count() -> None:
-    baseline = yaml.full_load((REPO_ROOT / "config" / "finetune" / "vit-small.yaml").read_text())
-    single_cls = yaml.full_load((REPO_ROOT / "config" / "finetune" / "vit-small-single-cls.yaml").read_text())
+def test_historical_single_cls_finetune_config_changes_only_cls_count() -> None:
+    baseline = yaml.full_load(LEGACY_FINETUNE_CONFIG_PATH.read_text())
+    single_cls = yaml.full_load(LEGACY_SINGLE_CLS_FINETUNE_CONFIG_PATH.read_text())
 
-    assert single_cls["backbone"].num_cls_tokens == 1
+    assert single_cls["backbone"].num_cls_tokens == SELECTED_NUM_CLS_TOKENS
     for field in fields(ViTConfig):
         if field.name != "num_cls_tokens":
             assert getattr(single_cls["backbone"], field.name) == getattr(baseline["backbone"], field.name)

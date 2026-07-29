@@ -26,6 +26,11 @@ Use `make update` after changing a dependency pin. This upgrades `uv.lock` and s
 
 ## Training
 
+The default ViT-S/4 configuration uses one backbone CLS token, seven register
+tokens, and four independently lifted channel partitions as the auxiliary CLS
+predictor context. Completed studies that used the former four-CLS baseline
+refer to the explicit `vit-small-four-cls-legacy.yaml` configs.
+
 To run model training:
 
 1. Create your training configuration:

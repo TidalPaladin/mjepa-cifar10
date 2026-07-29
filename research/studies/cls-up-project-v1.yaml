@@ -6,8 +6,8 @@ checkpoint_plan: Retain the candidate checkpoint and backbone because destructiv
 
 baseline:
   id: four-cls-legacy
-  config: config/pretrain/vit-small.yaml
-  finetune_config: config/finetune/vit-small.yaml
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  finetune_config: config/finetune/vit-small-four-cls-legacy.yaml
   hypothesis: Four independently learned backbone CLS tokens provide the strong fixed quality reference.
   mechanism: Run the predictor twice, using student visual tokens for the main pass and four student CLS tokens for the auxiliary legacy cross-attention pass.
   changes: []
@@ -21,7 +21,7 @@ baseline_reference:
 variants:
   - id: single-cls-projected
     config: config/pretrain/vit-small-single-cls-projected.yaml
-    finetune_config: config/finetune/vit-small-single-cls.yaml
+    finetune_config: config/finetune/vit-small-single-cls-four-registers.yaml
     hypothesis: Four learned affine views of one compressed global embedding will supply enough context diversity for the unchanged legacy predictor to recover the four-CLS quality floor.
     mechanism: Encode one student CLS token, apply one trainable affine map from D to 4D, reshape it to four D-dimensional context tokens, and use those tokens only in the auxiliary legacy cross-attention predictor pass.
     changes:
