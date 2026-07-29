@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import math
@@ -61,6 +62,8 @@ from mjepa_cifar10.research.runtime import (
 
 
 SEED: Final = 0
+WANDB_TAG_MAX_LENGTH: Final = 64
+WANDB_TAG_HASH_LENGTH: Final = 12
 
 
 class ResumeState(NamedTuple):
@@ -68,6 +71,17 @@ class ResumeState(NamedTuple):
     epoch: int
     elapsed_seconds: float
     wandb_run_id: str | None
+
+
+def wandb_config_tag(config_path: Path) -> str:
+    """Return a deterministic W&B tag that satisfies the SDK length limit."""
+    config_stem = config_path.stem
+    if len(config_stem) <= WANDB_TAG_MAX_LENGTH:
+        return config_stem
+
+    digest = hashlib.sha256(config_stem.encode()).hexdigest()[:WANDB_TAG_HASH_LENGTH]
+    prefix_length = WANDB_TAG_MAX_LENGTH - WANDB_TAG_HASH_LENGTH - 1
+    return f"{config_stem[:prefix_length]}-{digest}"
 
 
 def ddp_setup() -> None:
@@ -407,7 +421,7 @@ def main(args: Namespace) -> None:
                 "cls_global_pool_consistency_loss_weight": cls_global_pool_consistency_loss_weight,
                 **provenance_config,
             },
-            tags=("pretrain", config_path.stem),
+            tags=("pretrain", wandb_config_tag(config_path)),
             group=args.wandb_group,
         )
         write_run_metadata(

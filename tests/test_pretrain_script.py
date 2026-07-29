@@ -125,6 +125,22 @@ def load_pretrain_script_module() -> ModuleType:
     return module
 
 
+def test_wandb_config_tag_bounds_long_config_stems_without_collisions() -> None:
+    module = load_pretrain_script_module()
+    first_stem = "vit-small-single-cls-packed-adaln-hard-blind-global-ema-attention-convex"
+    second_stem = f"{first_stem}-alternate"
+
+    first_tag = module.wandb_config_tag(Path(f"{first_stem}.yaml"))
+    second_tag = module.wandb_config_tag(Path(f"{second_stem}.yaml"))
+
+    assert len(first_stem) > module.WANDB_TAG_MAX_LENGTH
+    assert len(first_tag) <= module.WANDB_TAG_MAX_LENGTH
+    assert len(second_tag) <= module.WANDB_TAG_MAX_LENGTH
+    assert first_tag == module.wandb_config_tag(Path(f"{first_stem}.yaml"))
+    assert first_tag != second_tag
+    assert module.wandb_config_tag(Path("vit-small.yaml")) == "vit-small"
+
+
 @pytest.mark.parametrize("config_path", PRETRAIN_CONFIG_PATHS)
 def test_pretrain_configs_preserve_gram_anchoring_and_predictor_mode(config_path: Path) -> None:
     config = yaml.full_load(config_path.read_text())
