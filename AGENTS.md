@@ -57,6 +57,7 @@
 
 - Pin direct registry dependencies exactly in `pyproject.toml` and commit `uv.lock`.
 - Pin Git dependencies by full commit SHA under `[tool.uv.sources]`.
+- For a clean unpushed tandem commit, locate the existing `uv` Git cache clone that contains the prior pinned SHA, fetch the new exact commit from the local tandem checkout into that cache, then run `uv lock --offline` and `uv sync --all-groups --offline`. Verify the installed source SHA; do not hardcode a cache key or edit `uv.lock` by hand.
 - Use `make update` for planned dependency refreshes, then run `make check`, `make test-ci`, and the dependency audit.
 - The default PyTorch wheels use CUDA 13 and require a Turing-generation or newer NVIDIA GPU.
 

@@ -77,6 +77,33 @@ LEJEPA_CONFIGS = {
         (2048, 2048, 64),
     ),
 }
+LEJEPA_MASKED_OPTIMIZATION_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-clspatch-smoke.yaml": (
+        0.20,
+        False,
+        True,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-clspatch-both-l005-aux-100e.yaml": (
+        0.05,
+        True,
+        False,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-clspatch-both-l005-noaux-100e.yaml": (
+        0.05,
+        False,
+        False,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-clspatch-both-l020-noaux-100e.yaml": (
+        0.20,
+        False,
+        False,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-clspatch-both-l020-noaux-deterministic-100e.yaml": (
+        0.20,
+        False,
+        True,
+    ),
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -221,6 +248,36 @@ def test_lejepa_configs_preserve_shared_target_ablation_boundaries(
     assert not jepa_config.use_gram_anchoring
     assert jepa_config.gram_start_epoch is None
     assert jepa_config.cls_prediction_mode == SELECTED_CLS_PREDICTION_MODE
+
+
+@pytest.mark.parametrize(("config_path", "expected"), LEJEPA_MASKED_OPTIMIZATION_CONFIGS.items())
+def test_lejepa_masked_optimization_configs_change_one_mechanism_at_a_time(
+    config_path: Path,
+    expected: tuple[float, bool, bool],
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    backbone_config = config["backbone"]
+    jepa_config = config["jepa"]
+    expected_lambda, expected_cls_prediction, expected_deterministic = expected
+
+    assert isinstance(backbone_config, ViTConfig)
+    assert isinstance(jepa_config, JEPAConfig)
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.lejepa_lambda == expected_lambda
+    assert jepa_config.sigreg_views == "both"
+    assert jepa_config.sigreg_features == "cls_patch_mean"
+    assert jepa_config.sigreg_projector_dims == ()
+    assert jepa_config.sigreg_loss_weight == 0
+    assert jepa_config.enable_cls_prediction is expected_cls_prediction
+    assert jepa_config.cls_prediction_mode == (
+        SELECTED_CLS_PREDICTION_MODE if expected_cls_prediction else "legacy_cross_attention"
+    )
+    stochastic_rates = (
+        backbone_config.attention_dropout,
+        backbone_config.hidden_dropout,
+        backbone_config.drop_path_rate,
+    )
+    assert stochastic_rates == ((0.0, 0.0, 0.0) if expected_deterministic else (0.1, 0.1, 0.1))
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:

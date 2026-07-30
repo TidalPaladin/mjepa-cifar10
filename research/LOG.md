@@ -1380,3 +1380,14 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Projector interpretation: Neither projected variant regularized its own output distribution successfully. Target-only projected SigREG had last-three minima of `0.005462` projected standard deviation and `0.067955` effective-rank fraction, with maximum top-eigenvalue fraction `0.612090`; both-view projected SigREG reached only `0.002841`, `0.074182`, and `0.424788`. The required values were standard deviation in `[0.50, 1.50]`, effective-rank fraction at least `0.50`, and top-eigenvalue fraction at most `0.20`. Both raw patch representations remained nearly sample-independent, and neither run exceeded `0.1068` probe accuracy.
 - Mechanism decision: Reject CLS-only SigREG at lambda `0.05`, with or without the tested `384-2048-2048-64` projector. The masked predictor can minimize its objective while full-view patch means and CLS embeddings become nearly constant, so regularizing only CLS views does not close the shortcut. The next masked-only screen will target visual-token or pooled-patch distributions directly, test stronger SigREG weights, and remove the auxiliary CLS-prediction pressure in selected variants. Local/global crops remain deferred because untested masked-only mechanisms remain within the authorized budget.
 - Retention: Keep all four checkpoints and backbones. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"3c055d010e9208d85212e700fd262888fa2223fc86faf139568d4148a22a37b6","operation_id":"lejepa-masked-collapse-v1-patch-screen-protocol-v1"} -->
+
+## 2026-07-30 protocol: LeJEPA masked patch-aware collapse screen
+
+- Study: `lejepa-masked-collapse-v1-patch-screen`.
+- Question: Can direct SigREG on both CLS and per-image patch means prevent deterministic evaluation collapse while keeping the shared-student masked image modeling task?
+- Fixed ladder: add patch-mean SigREG at lambda `0.05`; remove auxiliary CLS prediction; raise lambda to `0.20`; then remove attention dropout, hidden dropout, and stochastic depth.
+- Eligibility: every one of the last three validation records must satisfy the preregistered CLS, patch-mean, visual-shuffle, finite-value, and `0.50` peak-probe thresholds in the committed study specification.
+- Allocation: four seed-0 runs now; two masked-tuning runs remain; six paired-confirmation and six crop-fallback runs remain from the user-authorized 22-run program. No crop views are introduced in this screen.
+- Provenance: parent commit is resolved at launch; `mjepa=d024b0caced600d059f22eec146339aeec600ff5`; `vit=bf15705454975f04912538cdc790d399eea69e67`; fixed CIFAR-10 45,000/5,000 split; W&B destination `tidalpaladin/mjepa-cifar10`.
+- Retention: preserve every checkpoint and backbone. Destructive retention remains unauthorized.

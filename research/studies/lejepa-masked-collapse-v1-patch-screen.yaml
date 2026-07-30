@@ -1,0 +1,114 @@
+id: lejepa-masked-collapse-v1-patch-screen
+question: Which direct CLS-plus-patch-mean SigREG repair prevents deterministic evaluation collapse while preserving masked image prediction and a shared student target?
+hypothesis: Applying SigREG directly to both CLS and pooled visual features will close the patch-collapse shortcut; removing auxiliary CLS prediction, increasing lambda, or removing stochastic regularizers will identify the remaining source of collapse one mechanism at a time.
+
+baseline:
+  id: clspatch-both-l005-aux
+  config: config/pretrain/vit-small-lejepa-clspatch-both-l005-aux-100e.yaml
+  hypothesis: Adding pooled-patch SigREG to the failed direct CLS-only design is sufficient without changing its auxiliary task, lambda, or stochastic regularizers.
+  mechanism: Apply direct SigREG to context and target CLS embeddings and patch means at lambda 0.05.
+  changes:
+    - Add the mean visual-token embedding from each masked and full student view to SigREG.
+    - Preserve the four-partition auxiliary CLS prediction task.
+    - Preserve the feasibility screen's stochastic regularizers and lambda.
+
+variants:
+  - id: clspatch-both-l005-noaux
+    config: config/pretrain/vit-small-lejepa-clspatch-both-l005-noaux-100e.yaml
+    hypothesis: The symmetric auxiliary CLS prediction task drives the shared target toward a low-information shortcut.
+    mechanism: Remove auxiliary CLS prediction while retaining masked visual prediction and direct CLS-plus-patch SigREG at lambda 0.05.
+    changes:
+      - Disable the auxiliary CLS predictor and its loss.
+  - id: clspatch-both-l020-noaux
+    config: config/pretrain/vit-small-lejepa-clspatch-both-l020-noaux-100e.yaml
+    hypothesis: Patch-aware SigREG requires more weight relative to the rapidly shrinking masked prediction loss.
+    mechanism: Raise the convex SigREG weight from 0.05 to 0.20 after removing auxiliary CLS prediction.
+    changes:
+      - Change only LeJEPA lambda from 0.05 to 0.20.
+  - id: clspatch-both-l020-noaux-deterministic
+    config: config/pretrain/vit-small-lejepa-clspatch-both-l020-noaux-deterministic-100e.yaml
+    hypothesis: Training-time dropout and stochastic depth let SigREG optimize random variation that disappears in evaluation mode.
+    mechanism: Remove attention dropout, hidden dropout, and stochastic depth from the stronger no-auxiliary design.
+    changes:
+      - Set backbone and inherited predictor attention dropout, hidden dropout, and drop-path rate to zero.
+
+methodology:
+  linked_program: lejepa-masked-v1
+  scientific_run_allocation:
+    total_authorized: 22
+    prior_feasibility_used: 4
+    this_patch_screen: 4
+    masked_tuning_remaining: 2
+    paired_confirmation_reserved: 6
+    crop_fallback_reserved: 6
+    mechanical_smoke_excluded: true
+  controls:
+    seed: 0
+    epochs: 100
+    validation_interval_epochs: 10
+    augmentation: Existing CIFAR-10 train augmentation with no local or global crop dependency.
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2.
+    projector: None; direct features avoid the observed batch-normalization shortcut.
+    probe_boundary: Full-view student CLS features remain detached before the online classifier.
+  last_three_validation_collapse_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+    peak_probe_accuracy_minimum: 0.50
+  selection:
+    eligibility: Every threshold must pass on each of the last three validation records.
+    ranking: Probe step AUC, peak accuracy, visual-target shuffle improvement, then simplicity.
+    simplicity_order: patch-aware source only, remove auxiliary task, raise lambda, remove stochastic regularizers.
+    no_automatic_promotion: This screen identifies a noncollapsed mechanism manually; harness promotion thresholds are intentionally unreachable.
+  stopping:
+    - If any run passes the complete collapse gate, use the two remaining masked-tuning trials around the simplest passing mechanism.
+    - If no run passes, use the two remaining masked-tuning trials only after recording a protocol amendment based on these fixed diagnostics.
+    - Do not introduce crop views until the masked-tuning allocation is exhausted without a feasible mechanism.
+  retention: Retain all checkpoints and backbones because destructive retention is not authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-masked-collapse-v1-patch-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: d024b0caced600d059f22eec146339aeec600ff5
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 4
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
