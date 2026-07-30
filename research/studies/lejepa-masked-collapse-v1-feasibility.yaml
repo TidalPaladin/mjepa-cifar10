@@ -1,0 +1,113 @@
+id: lejepa-masked-collapse-v1-feasibility
+question: Which masked-image shared-target SigREG design prevents collapse without an EMA teacher or self-supervised stop-gradient?
+hypothesis: SigREG on a low-dimensional projector will keep both CLS and patch representations noncollapsed while the masked prediction task preserves image-specific structure.
+
+baseline:
+  id: shared-nosigreg
+  config: config/pretrain/vit-small-lejepa-shared-nosigreg-100e.yaml
+  hypothesis: Removing both the teacher and SigREG exposes the collapse shortcut and calibrates the diagnostics.
+  mechanism: Use the shared full-view student target with masked visual and auxiliary CLS prediction, but no explicit distribution regularizer.
+  changes:
+    - Remove the EMA teacher and Gram anchoring.
+    - Preserve masked image modeling and four independent CLS predictor partitions.
+    - Set SigREG weight to zero.
+
+variants:
+  - id: direct-both-l005
+    config: config/pretrain/vit-small-lejepa-direct-both-l005-100e.yaml
+    hypothesis: Direct SigREG on the backbone CLS embeddings from both masked and full student views is sufficient to prevent collapse.
+    mechanism: Apply the convex LeJEPA objective with lambda 0.05 directly to both CLS views.
+    changes:
+      - Add direct SIGReg to masked-context and full-target CLS embeddings.
+      - Keep the auxiliary partitioned CLS prediction task.
+  - id: proj64-both-l005
+    config: config/pretrain/vit-small-lejepa-proj64-both-l005-100e.yaml
+    hypothesis: A 64-dimensional projector gives SigREG a tractable Gaussian target while preserving useful non-Gaussian backbone structure.
+    mechanism: Project both masked-context and full-target CLS embeddings through 384-2048-2048-64 before SigREG.
+    changes:
+      - Add a trainable three-layer SigREG projector.
+      - Apply SIGReg to both projected views with lambda 0.05.
+  - id: proj64-target-l005
+    config: config/pretrain/vit-small-lejepa-proj64-target-l005-100e.yaml
+    hypothesis: Regularizing only the full-view projected CLS is simpler and avoids constraining the distribution of aggressively masked contexts.
+    mechanism: Apply projected SigREG only to the full-view student CLS with lambda 0.05.
+    changes:
+      - Retain the 384-2048-2048-64 projector.
+      - Remove the masked-context CLS from SIGReg.
+
+methodology:
+  linked_program: lejepa-masked-v1
+  scientific_run_allocation:
+    total_authorized: 22
+    this_feasibility_screen: 4
+    masked_optimization_and_confirmation_reserved: 12
+    crop_fallback_reserved: 6
+    mechanical_smoke_excluded: true
+  controls:
+    seed: 0
+    epochs: 100
+    validation_interval_epochs: 10
+    augmentation: Existing CIFAR-10 train augmentation with no local or global crop dependency.
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2.
+    auxiliary_prediction: Four independent channel partitions from one CLS token.
+  last_three_validation_collapse_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+    peak_probe_accuracy_minimum: 0.50
+    projected_std_mean_range: [0.50, 1.50]
+    projected_effective_rank_fraction_minimum: 0.50
+    projected_top_eigenvalue_fraction_maximum: 0.20
+  selection:
+    eligibility: Every threshold must pass on each of the last three validation records.
+    ranking: Probe step AUC, peak accuracy, visual-target shuffle improvement, then simplicity.
+    simplicity_order: direct SigREG, target-only projected SigREG, both-view projected SigREG.
+    no_automatic_promotion: This screen selects a feasible mechanism manually; its harness promotion thresholds are intentionally unreachable.
+  retention: Retain all checkpoints and backbones because destructive retention is not authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-masked-collapse-v1-feasibility
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: e0bb8c22feb40eb284abdd14b65006c1a09e2af2
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 4
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

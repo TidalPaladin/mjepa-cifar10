@@ -15,8 +15,16 @@ def flatten_classifier_logits(logits: Tensor) -> Tensor:
     raise ValueError(f"probe head must return a single embedding per sample, got shape={tuple(logits.shape)}")
 
 
-def forward_classifier(backbone: ViT, features: ViTFeatures, head_name: str = CLASSIFIER_HEAD_NAME) -> Tensor:
+def forward_classifier(
+    backbone: ViT,
+    features: ViTFeatures,
+    head_name: str = CLASSIFIER_HEAD_NAME,
+    *,
+    detach_features: bool = False,
+) -> Tensor:
     probe_tokens = features.cls_tokens if features.num_cls_tokens > 0 else features.visual_tokens
+    if detach_features:
+        probe_tokens = probe_tokens.detach()
     probe_input = probe_tokens.mean(1) if features.num_cls_tokens > 0 else probe_tokens
     logits = backbone.get_head(head_name)(probe_input)
     return flatten_classifier_logits(logits)

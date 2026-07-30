@@ -380,7 +380,13 @@ def load_checkpoint_model(
         raise TypeError("checkpoint must contain a mapping")
     jepa.student.load_state_dict(data["backbone"])
     jepa.predictor.load_state_dict(data["predictor"])
-    jepa.teacher.load_state_dict(data["teacher"])
+    teacher_state = data.get("teacher")
+    if jepa.teacher is not None:
+        if not isinstance(teacher_state, Mapping):
+            raise TypeError("EMA checkpoint must contain a teacher state mapping")
+        jepa.teacher.load_state_dict(teacher_state)
+    elif teacher_state is not None:
+        raise ValueError("shared-target configuration cannot load an EMA teacher state")
     return jepa, data
 
 

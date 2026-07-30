@@ -42,7 +42,7 @@ class ConvergenceSummary:
 @dataclass(frozen=True)
 class PromotionDecision:
     promoted: bool
-    criterion: Literal["accuracy", "time_to_95", "time_auc", "cost"] | None
+    criterion: Literal["accuracy", "time_to_95", "time_auc", "cost", "equivalence"] | None
     reasons: tuple[str, ...]
 
 
@@ -213,6 +213,10 @@ def promotion_decision(
             "without excessive peak-accuracy loss"
         )
 
+    equivalence_qualifies = _equivalence_qualifies(baseline, candidate, rules)
+    if equivalence_qualifies:
+        reasons.append("accuracy, convergence, and AUC met every configured equivalence threshold")
+
     criterion = None
     if accuracy_qualifies:
         criterion = "accuracy"
@@ -222,6 +226,8 @@ def promotion_decision(
         criterion = "time_auc"
     elif cost_qualifies:
         criterion = "cost"
+    elif equivalence_qualifies:
+        criterion = "equivalence"
     if criterion is None:
         reasons.append("candidate did not meet any promotion threshold")
     return PromotionDecision(criterion is not None, criterion, tuple(reasons))
@@ -245,7 +251,7 @@ def rank_promoted_candidates(
 def confirmation_decision(
     baseline_by_seed: Sequence[ConvergenceSummary],
     candidate_by_seed: Sequence[ConvergenceSummary],
-    criterion: Literal["accuracy", "time_to_95", "time_auc", "cost"],
+    criterion: Literal["accuracy", "time_to_95", "time_auc", "cost", "equivalence"],
     rules: PromotionRules | None = None,
 ) -> ConfirmationDecision:
     if len(baseline_by_seed) != 3 or len(candidate_by_seed) != 3:
@@ -254,6 +260,9 @@ def confirmation_decision(
     if criterion == "cost":
         baseline_values = [summary.active_seconds_at_step_horizon for summary in baseline_by_seed]
         candidate_values = [summary.active_seconds_at_step_horizon for summary in candidate_by_seed]
+    elif criterion == "equivalence":
+        baseline_values = [summary.active_time_auc for summary in baseline_by_seed]
+        candidate_values = [summary.active_time_auc for summary in candidate_by_seed]
     else:
         baseline_values, candidate_values = _criterion_values(baseline_by_seed, candidate_by_seed, criterion)
     baseline_mean = statistics.mean(baseline_values)
@@ -287,6 +296,47 @@ def confirmation_decision(
         )
         differences = [
             baseline - candidate for baseline, candidate in zip(baseline_values, candidate_values, strict=True)
+        ]
+    elif criterion == "equivalence":
+        convergence_ratio = rules.equivalence_convergence_ratio
+        auc_loss = rules.equivalence_auc_loss
+        if convergence_ratio is None or auc_loss is None:
+            raise ValueError("equivalence confirmation requires configured equivalence thresholds")
+        baseline_final_mean = statistics.mean(summary.final_accuracy for summary in baseline_by_seed)
+        candidate_final_mean = statistics.mean(summary.final_accuracy for summary in candidate_by_seed)
+        baseline_step_values = [summary.step_to_95 for summary in baseline_by_seed]
+        candidate_step_values = [summary.step_to_95 for summary in candidate_by_seed]
+        baseline_time_values = [summary.active_seconds_to_95 for summary in baseline_by_seed]
+        candidate_time_values = [summary.active_seconds_to_95 for summary in candidate_by_seed]
+        if any(
+            value is None
+            for value in (
+                *baseline_step_values,
+                *candidate_step_values,
+                *baseline_time_values,
+                *candidate_time_values,
+            )
+        ):
+            raise ValueError("equivalence confirmation requires uncensored time-to-95 for every run")
+        present_baseline_steps = [value for value in baseline_step_values if value is not None]
+        present_candidate_steps = [value for value in candidate_step_values if value is not None]
+        present_baseline_times = [value for value in baseline_time_values if value is not None]
+        present_candidate_times = [value for value in candidate_time_values if value is not None]
+        threshold_met = (
+            accuracy_constraint_met
+            and candidate_final_mean >= baseline_final_mean - rules.maximum_accuracy_loss
+            and statistics.mean(present_candidate_steps) <= statistics.mean(present_baseline_steps) * convergence_ratio
+            and statistics.mean(present_candidate_times) <= statistics.mean(present_baseline_times) * convergence_ratio
+            and statistics.mean(summary.step_auc for summary in candidate_by_seed)
+            >= statistics.mean(summary.step_auc for summary in baseline_by_seed) - auc_loss
+            and candidate_mean >= baseline_mean - auc_loss
+        )
+        paired = sum(
+            _equivalence_qualifies(baseline, candidate, rules)
+            for baseline, candidate in zip(baseline_by_seed, candidate_by_seed, strict=True)
+        )
+        differences = [
+            candidate - baseline for baseline, candidate in zip(baseline_values, candidate_values, strict=True)
         ]
     elif criterion == "accuracy":
         threshold_met = candidate_mean >= baseline_mean + rules.accuracy_gain
@@ -327,6 +377,32 @@ def confirmation_decision(
         candidate_std=statistics.stdev(candidate_values),
         mean_paired_difference=statistics.mean(differences),
         reasons=reasons,
+    )
+
+
+def _equivalence_qualifies(
+    baseline: ConvergenceSummary,
+    candidate: ConvergenceSummary,
+    rules: PromotionRules,
+) -> bool:
+    convergence_ratio = rules.equivalence_convergence_ratio
+    auc_loss = rules.equivalence_auc_loss
+    if convergence_ratio is None or auc_loss is None:
+        return False
+    if (
+        baseline.step_to_95 is None
+        or candidate.step_to_95 is None
+        or baseline.active_seconds_to_95 is None
+        or candidate.active_seconds_to_95 is None
+    ):
+        return False
+    return bool(
+        candidate.peak_accuracy >= baseline.peak_accuracy - rules.maximum_accuracy_loss
+        and candidate.final_accuracy >= baseline.final_accuracy - rules.maximum_accuracy_loss
+        and candidate.step_to_95 <= baseline.step_to_95 * convergence_ratio
+        and candidate.active_seconds_to_95 <= baseline.active_seconds_to_95 * convergence_ratio
+        and candidate.step_auc >= baseline.step_auc - auc_loss
+        and candidate.active_time_auc >= baseline.active_time_auc - auc_loss
     )
 
 

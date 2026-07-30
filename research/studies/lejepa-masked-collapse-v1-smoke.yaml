@@ -1,0 +1,57 @@
+id: lejepa-masked-collapse-v1-smoke
+question: Does the shared-student masked-target LeJEPA path complete one full train-validation-checkpoint cycle with SigREG, its projector, and a stopped online probe?
+hypothesis: The shared full-view target will remain differentiable for the masked prediction and SigREG losses while the detached probe updates only its classifier head.
+
+baseline:
+  id: projected-both-smoke
+  config: config/pretrain/vit-small-lejepa-smoke.yaml
+  hypothesis: One epoch is sufficient to mechanically exercise the complete shared-target training and lifecycle path.
+  mechanism: Remove the EMA teacher, regularize projected masked and full CLS views with SigREG, retain masked image modeling and the auxiliary partitioned CLS predictor, and detach probe inputs.
+  changes:
+    - Use the student for both masked context and full-view target encoding.
+    - Apply the convex LeJEPA objective with lambda 0.05 and a 2048-2048-64 projector.
+    - Stop probe gradients at the full-view student CLS token.
+
+variants: []
+
+methodology:
+  scientific_run: false
+  exclusion: This one-epoch mechanical run is excluded from the scientific pretraining budget.
+  success:
+    - Finite losses and collapse diagnostics.
+    - Student, predictor, SigREG projector, and probe gradients satisfy their declared boundaries.
+    - Validation metrics, checkpoint, backbone, lifecycle event, and online W&B provenance are durable.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-masked-collapse-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: e0bb8c22feb40eb284abdd14b65006c1a09e2af2
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 86400
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

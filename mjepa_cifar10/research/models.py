@@ -108,6 +108,8 @@ class PromotionRules:
     auc_gain: float = 0.10
     maximum_accuracy_loss: float = 0.005
     cost_gain: float | None = None
+    equivalence_convergence_ratio: float | None = None
+    equivalence_auc_loss: float | None = None
     screening_control_variant: str | None = None
     screening_control_accuracy_gain: float | None = None
 
@@ -120,6 +122,14 @@ class PromotionRules:
             auc_gain=float(value.get("auc_gain", 0.10)),
             maximum_accuracy_loss=float(value.get("maximum_accuracy_loss", 0.005)),
             cost_gain=float(value["cost_gain"]) if value.get("cost_gain") is not None else None,
+            equivalence_convergence_ratio=(
+                float(value["equivalence_convergence_ratio"])
+                if value.get("equivalence_convergence_ratio") is not None
+                else None
+            ),
+            equivalence_auc_loss=(
+                float(value["equivalence_auc_loss"]) if value.get("equivalence_auc_loss") is not None else None
+            ),
             screening_control_variant=(
                 str(value["screening_control_variant"]) if value.get("screening_control_variant") is not None else None
             ),
@@ -300,6 +310,17 @@ class StudySpec:
             raise ValueError(f"pretraining trial limit cannot exceed {DEFAULT_MAX_PRETRAIN_TRIALS}")
         if self.promotion.cost_gain is not None and not 0 < self.promotion.cost_gain < 1:
             raise ValueError("promotion cost_gain must be between 0 and 1")
+        if (self.promotion.equivalence_convergence_ratio is None) != (self.promotion.equivalence_auc_loss is None):
+            raise ValueError(
+                "promotion equivalence_convergence_ratio and equivalence_auc_loss must be configured together"
+            )
+        if (
+            self.promotion.equivalence_convergence_ratio is not None
+            and self.promotion.equivalence_convergence_ratio < 1
+        ):
+            raise ValueError("promotion equivalence_convergence_ratio must be at least 1")
+        if self.promotion.equivalence_auc_loss is not None and self.promotion.equivalence_auc_loss < 0:
+            raise ValueError("promotion equivalence_auc_loss must be non-negative")
         if not self.seeds or self.seeds[0] != 0:
             raise ValueError("study seeds must begin with screening seed 0")
         expected_manifests = {

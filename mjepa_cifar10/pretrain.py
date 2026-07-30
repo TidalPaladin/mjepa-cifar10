@@ -50,6 +50,7 @@ from vit import ViT, ViTFeatures
 import wandb
 
 from .classification import forward_classifier
+from .collapse import EmbeddingCollapseMetric, compute_and_reset_collapse_metrics
 from .experiment import append_metric_record, save_safetensors_atomic
 from .train_utils import (
     OptimizerStepResult,
@@ -66,6 +67,7 @@ NUM_CLASSES: Final[int] = 10
 WINDOW: Final[int] = 5
 LOG_INTERVAL: Final[int] = 50
 VALIDATION_DIAGNOSTIC_SEED: Final[int] = 0
+LOSS_DENOMINATOR_EPSILON: Final[float] = 1e-12
 DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT: Final[float] = 0.0
 DEFAULT_CLS_GLOBAL_POOL_CONSISTENCY_LOSS_WEIGHT: Final[float] = 0.0
 RAW_MEAN_CLS_GLOBAL_TARGET_POOLING: Final[str] = "raw_mean"
@@ -106,6 +108,7 @@ __all__ = [
     "compute_cls_global_target_diagnostic",
     "compute_cls_global_target_loss",
     "compute_cls_global_target_objective",
+    "compute_visual_target_shuffle_diagnostic",
     "get_gradient_norm_stats",
     "get_gradient_sync_context",
     "get_scheduler_last_lr",
@@ -241,7 +244,7 @@ class CIFAR10MJEPA(MJEPA):
         return cast(CLSGlobalTargetPoolers | None, module)
 
     def forward_probe(self, features: ViTFeatures) -> dict[str, Tensor]:
-        return {"cls": forward_classifier(self.student, features)}
+        return {"cls": forward_classifier(self.student, features, detach_features=True)}
 
     def update_teacher(self, step: int, total_steps: int) -> None:
         super().update_teacher(step, total_steps)
@@ -465,6 +468,29 @@ def compute_cls_aux_shuffle_diagnostic(jepa: MJEPA, output: MJEPAPredictions) ->
         "pretrain/validation_cls_aux_loss": true_loss,
         "pretrain/validation_cls_aux_loss_shuffled": shuffled_loss,
         "pretrain/validation_cls_aux_shuffle_gap": shuffled_loss - true_loss,
+    }
+
+
+def compute_visual_target_shuffle_diagnostic(
+    jepa: CIFAR10MJEPA,
+    output: MJEPAPredictions,
+) -> dict[str, float]:
+    """Compare masked predictions with their matched and cross-sample targets."""
+    target = jepa._masked_target(output.target_mask, output.teacher_output.visual_tokens)
+    shuffled_target = torch.roll(target, shifts=1, dims=0)
+    true_loss = compute_jepa_prediction_loss(output.pred, target, kind=jepa.config.jepa_loss_kind).item()
+    shuffled_loss = compute_jepa_prediction_loss(
+        output.pred,
+        shuffled_target,
+        kind=jepa.config.jepa_loss_kind,
+    ).item()
+    gap = shuffled_loss - true_loss
+    relative_improvement = gap / max(abs(shuffled_loss), LOSS_DENOMINATOR_EPSILON)
+    return {
+        "pretrain/validation_visual_target_loss": true_loss,
+        "pretrain/validation_visual_target_loss_shuffled": shuffled_loss,
+        "pretrain/validation_visual_target_shuffle_gap": gap,
+        "pretrain/validation_visual_target_relative_improvement": relative_improvement,
     }
 
 
@@ -713,6 +739,16 @@ def train(
     val_acc = tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES).cuda()
     train_cpa = CLSPatchAlignmentMetric().cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
     val_cpa = CLSPatchAlignmentMetric().cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
+    embedding_dim = unwrapped_jepa.student.config.hidden_size
+    val_target_cls_collapse = (
+        EmbeddingCollapseMetric(embedding_dim).cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
+    )
+    val_target_patch_collapse = EmbeddingCollapseMetric(embedding_dim).cuda()
+    val_projected_target_collapse = (
+        EmbeddingCollapseMetric(unwrapped_jepa.config.sigreg_projector_dims[-1]).cuda()
+        if unwrapped_jepa.config.sigreg_projector_dims
+        else None
+    )
 
     img: Tensor
     label: Tensor
@@ -806,7 +842,11 @@ def train(
 
             # Optimizer update and teacher update
             if should_step:
-                update_teacher = partial(unwrapped_jepa.update_teacher, step, total_steps)
+                update_teacher = (
+                    partial(unwrapped_jepa.update_teacher, step, total_steps)
+                    if unwrapped_jepa.teacher is not None
+                    else None
+                )
                 optimizer_step_result = run_optimizer_step(
                     optimizer,
                     scheduler,
@@ -874,9 +914,15 @@ def train(
             val_acc.reset()
             if val_cpa is not None:
                 val_cpa.reset()
+            if val_target_cls_collapse is not None:
+                val_target_cls_collapse.reset()
+            val_target_patch_collapse.reset()
+            if val_projected_target_collapse is not None:
+                val_projected_target_collapse.reset()
 
             cls_aux_diagnostics: dict[str, float] = {}
             cls_global_target_diagnostics: dict[str, float] = {}
+            visual_target_diagnostics: dict[str, float] = {}
             for batch_index, (img, label) in enumerate(
                 tqdm(val_dataloader, desc="Validating: ", disable=not is_rank_zero(), leave=False)
             ):
@@ -894,16 +940,26 @@ def train(
                             unwrapped_jepa,
                             diagnostic_output,
                         )
+                        visual_target_diagnostics = compute_visual_target_shuffle_diagnostic(
+                            unwrapped_jepa,
+                            diagnostic_output,
+                        )
                         if diagnostic_output.student_output.num_cls_tokens == 1:
                             cls_global_target_diagnostics = compute_cls_global_target_diagnostic(
                                 diagnostic_output,
                                 unwrapped_jepa,
                             )
                     else:
-                        output = unwrapped_jepa.forward_teacher(img)
+                        output = unwrapped_jepa.forward_target(img)
                         probe_pred = unwrapped_jepa.forward_probe(output)["cls"].view(B, -1)
                     val_acc.update(probe_pred, label)
                     update_cls_patch_alignment_metric(val_cpa, output)
+                    if val_target_cls_collapse is not None:
+                        target_cls = output.cls_tokens[:, 0]
+                        val_target_cls_collapse.update(target_cls)
+                        if val_projected_target_collapse is not None:
+                            val_projected_target_collapse.update(unwrapped_jepa.project_sigreg_embeddings(target_cls))
+                    val_target_patch_collapse.update(output.visual_tokens.mean(dim=1))
 
             # Validation epoch end
             val_acc_value = val_acc.compute()
@@ -917,8 +973,29 @@ def train(
             }
             if val_cpa is not None:
                 log_dict.update(compute_and_reset_cpa_metrics(val_cpa, prefix="pretrain/validation"))
+            if val_target_cls_collapse is not None:
+                log_dict.update(
+                    compute_and_reset_collapse_metrics(
+                        val_target_cls_collapse,
+                        prefix="pretrain/collapse/target_cls",
+                    )
+                )
+            log_dict.update(
+                compute_and_reset_collapse_metrics(
+                    val_target_patch_collapse,
+                    prefix="pretrain/collapse/target_patch_mean",
+                )
+            )
+            if val_projected_target_collapse is not None:
+                log_dict.update(
+                    compute_and_reset_collapse_metrics(
+                        val_projected_target_collapse,
+                        prefix="pretrain/collapse/projected_target_cls",
+                    )
+                )
             log_dict.update(cls_aux_diagnostics)
             log_dict.update(cls_global_target_diagnostics)
+            log_dict.update(visual_target_diagnostics)
 
             # Add histogram logging
             if is_rank_zero():
@@ -972,8 +1049,8 @@ def train(
             img = img.cuda()
             label = label.cuda()
             with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                teacher_output = unwrapped_jepa.forward_teacher(img)
-                probe_pred = unwrapped_jepa.forward_probe(teacher_output)["cls"].view(batch_size, -1)
+                target_output = unwrapped_jepa.forward_target(img)
+                probe_pred = unwrapped_jepa.forward_probe(target_output)["cls"].view(batch_size, -1)
                 test_acc.update(probe_pred, label)
         if is_rank_zero():
             test_log_dict = {

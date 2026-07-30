@@ -44,6 +44,7 @@ from mjepa_cifar10.pretrain import (
     compute_cls_global_target_diagnostic,
     compute_cls_global_target_loss,
     compute_cls_global_target_objective,
+    compute_visual_target_shuffle_diagnostic,
     did_gradient_clip,
     get_gradient_norm_stats,
     get_gradient_sync_context,
@@ -641,6 +642,27 @@ def make_features(*, num_cls_tokens: int) -> ViTFeatures:
     return ViTFeatures(dense_features, NUM_REGISTER_TOKENS, cls_count, tokenized_size=(2, 2))
 
 
+def test_visual_target_shuffle_diagnostic_measures_cross_sample_matching() -> None:
+    model = make_model(num_cls_tokens=1)
+    target_output = make_features(num_cls_tokens=1)
+    target_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    target = target_output.visual_tokens
+    predictions = MJEPAPredictions(
+        pred=target.clone(),
+        pred_with_cls=None,
+        student_output=make_features(num_cls_tokens=1),
+        teacher_output=target_output,
+        context_mask=torch.zeros_like(target_mask),
+        target_mask=target_mask,
+    )
+
+    metrics = compute_visual_target_shuffle_diagnostic(model, predictions)
+
+    assert metrics["pretrain/validation_visual_target_loss"] == pytest.approx(0.0)
+    assert metrics["pretrain/validation_visual_target_loss_shuffled"] > 0
+    assert metrics["pretrain/validation_visual_target_relative_improvement"] == pytest.approx(1.0)
+
+
 @pytest.mark.parametrize(
     ("cls_prediction_mode", "num_cls_tokens"),
     (
@@ -1126,6 +1148,22 @@ def test_forward_probe_pools_cls_tokens_before_linear_head(mocker) -> None:
     assert output["cls"].shape == (BATCH_SIZE, 3)
 
 
+def test_forward_probe_stops_gradients_at_target_features() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        head_config=HeadConfig(out_features=10),
+    )
+    features = make_features(num_cls_tokens=1)
+    features.dense_features.requires_grad_()
+    labels = torch.tensor([0, 1])
+
+    logits = model.forward_probe(features)["cls"]
+    torch.nn.functional.cross_entropy(logits, labels).backward()
+
+    assert features.dense_features.grad is None
+    assert all(parameter.grad is not None for parameter in model.student.get_head("cls").parameters())
+
+
 def test_forward_probe_uses_attentive_pooling_for_visual_tokens_without_cls() -> None:
     model = make_model(
         num_cls_tokens=0,
@@ -1171,5 +1209,6 @@ def test_probe_loss_updates_only_classifier_head() -> None:
             assert parameter.grad is not None
         else:
             assert parameter.grad is None
+    assert model.teacher is not None
     assert all(parameter.grad is None for parameter in model.teacher.parameters())
     assert all(parameter.grad is None for parameter in model.predictor.parameters())

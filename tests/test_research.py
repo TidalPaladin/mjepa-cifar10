@@ -82,17 +82,20 @@ def make_summary(
     peak: float,
     time_to_95: float | None,
     time_auc: float,
+    final: float | None = None,
+    step_to_95: int | None = 20,
+    step_auc: float | None = None,
     active_seconds_at_horizon: float = 500.0,
     cls_latency_ms: float | None = None,
 ) -> ConvergenceSummary:
     return ConvergenceSummary(
         peak_accuracy=peak,
-        final_accuracy=peak - 0.01,
+        final_accuracy=peak - 0.01 if final is None else final,
         step_to_90=10,
-        step_to_95=20 if time_to_95 is not None else None,
+        step_to_95=step_to_95 if time_to_95 is not None else None,
         active_seconds_to_90=50.0,
         active_seconds_to_95=time_to_95,
-        step_auc=time_auc,
+        step_auc=time_auc if step_auc is None else step_auc,
         active_time_auc=time_auc,
         step_horizon=100,
         active_time_horizon=500.0,
@@ -245,6 +248,65 @@ def test_opt_in_cost_promotion_requires_end_to_end_and_isolated_latency_gains() 
     assert decision.criterion == "cost"
 
 
+def test_opt_in_equivalence_promotion_accepts_all_relaxed_thresholds() -> None:
+    rules = PromotionRules(
+        equivalence_convergence_ratio=1.10,
+        equivalence_auc_loss=0.005,
+    )
+    baseline = make_summary(peak=0.80, final=0.79, time_to_95=100, time_auc=0.50, step_to_95=20)
+    candidate = make_summary(
+        peak=0.796,
+        final=0.786,
+        time_to_95=110,
+        time_auc=0.495,
+        step_to_95=22,
+        step_auc=0.495,
+    )
+
+    decision = promotion_decision(baseline, candidate, rules)
+
+    assert decision.promoted
+    assert decision.criterion == "equivalence"
+
+
+@pytest.mark.parametrize(
+    "candidate",
+    (
+        make_summary(peak=0.794, final=0.79, time_to_95=100, time_auc=0.50, step_to_95=20),
+        make_summary(peak=0.80, final=0.784, time_to_95=100, time_auc=0.50, step_to_95=20),
+        make_summary(peak=0.80, final=0.79, time_to_95=111, time_auc=0.50, step_to_95=20),
+        make_summary(peak=0.80, final=0.79, time_to_95=100, time_auc=0.50, step_to_95=23),
+        make_summary(
+            peak=0.80,
+            final=0.79,
+            time_to_95=100,
+            time_auc=0.494,
+            step_to_95=20,
+            step_auc=0.50,
+        ),
+        make_summary(
+            peak=0.80,
+            final=0.79,
+            time_to_95=100,
+            time_auc=0.50,
+            step_to_95=20,
+            step_auc=0.494,
+        ),
+    ),
+)
+def test_equivalence_promotion_rejects_any_failed_threshold(candidate: ConvergenceSummary) -> None:
+    rules = PromotionRules(
+        accuracy_gain=1.0,
+        convergence_gain=0.99,
+        auc_gain=1.0,
+        equivalence_convergence_ratio=1.10,
+        equivalence_auc_loss=0.005,
+    )
+    baseline = make_summary(peak=0.80, final=0.79, time_to_95=100, time_auc=0.50, step_to_95=20)
+
+    assert promotion_decision(baseline, candidate, rules).criterion is None
+
+
 @pytest.mark.parametrize(
     ("active_seconds_at_horizon", "cls_latency_ms"),
     ((480.0, 2.0), (470.0, 4.0), (470.0, None)),
@@ -311,6 +373,24 @@ def test_cost_confirmation_requires_two_joint_paired_improvements() -> None:
     ]
 
     decision = confirmation_decision(baseline, candidate, "cost", rules)
+
+    assert decision.confirmed
+    assert decision.paired_improvements == 2
+
+
+def test_equivalence_confirmation_requires_mean_gate_and_two_paired_passes() -> None:
+    rules = PromotionRules(
+        equivalence_convergence_ratio=1.10,
+        equivalence_auc_loss=0.005,
+    )
+    baseline = [make_summary(peak=0.80, final=0.79, time_to_95=100, time_auc=0.50, step_to_95=20) for _ in range(3)]
+    candidate = [
+        make_summary(peak=0.80, final=0.79, time_to_95=105, time_auc=0.50, step_to_95=21),
+        make_summary(peak=0.798, final=0.788, time_to_95=108, time_auc=0.497, step_to_95=22),
+        make_summary(peak=0.794, final=0.784, time_to_95=111, time_auc=0.494, step_to_95=23),
+    ]
+
+    decision = confirmation_decision(baseline, candidate, "equivalence", rules)
 
     assert decision.confirmed
     assert decision.paired_improvements == 2

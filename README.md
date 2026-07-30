@@ -97,6 +97,14 @@ seed-0 candidate, and reports a qualifying result as `reference-promotion`.
 That phase is a fixed-reference screen, not paired three-seed confirmation, and
 does not trigger supervised evaluation.
 
+Studies that need a strict equivalence result instead of an improvement can opt
+in with both `promotion.equivalence_convergence_ratio` and
+`promotion.equivalence_auc_loss`. That route requires peak and final accuracy
+within `maximum_accuracy_loss`, optimizer steps and active seconds to the fixed
+95% target within the configured ratio, and both step and active-time AUC within
+the configured absolute loss. Three-seed confirmation applies the same mean
+gate and requires at least two paired seeds to pass every equivalence threshold.
+
 Managed trainers write `progress.json` locally and create `first-cycle.json` only
 after the first train, validation, and recoverable checkpoint cycle completes.
 The controller creates `supervisor-lost.json` when a supervisor exits without
@@ -198,6 +206,6 @@ mode, effective mode, destination, manifest, standing authorization, and gate
 decision before each launch, summary, or backfill write. Offline mode remains
 available only for an explicitly scoped fallback test or a recorded outage.
 
-The fixed CIFAR-10 evaluation protocol uses 45,000 training examples and a stratified 5,000-example validation set with 500 examples per class. The official test set is reserved for the confirmed baseline and winner. The online probe applies the classifier head to teacher features computed under `torch.inference_mode()`, so isolated probe loss updates only the head.
+The fixed CIFAR-10 evaluation protocol uses 45,000 training examples and a stratified 5,000-example validation set with 500 examples per class. The official test set is reserved for the confirmed baseline and winner. The online probe detaches full-view target features before applying the classifier head, so isolated probe loss updates only the head. EMA targets are also computed under `torch.inference_mode()`; shared-student targets remain differentiable for the self-supervised objective.
 
 See [.agents/skills/run-jepa-research/SKILL.md](.agents/skills/run-jepa-research/SKILL.md) for the workflow and [research/LOG.md](research/LOG.md) for the append-only result record. Existing weights under `logs/` are legacy artifacts and are not eligible for automatic retention.

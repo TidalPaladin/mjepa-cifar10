@@ -50,6 +50,33 @@ SRELU_BIAS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p1.yaml": 0.1,
     REPO_ROOT / "config" / "pretrain" / "vit-small-srelu-h1536-bias0p2.yaml": 0.2,
 }
+LEJEPA_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-shared-nosigreg-100e.yaml": (
+        None,
+        "context",
+        (),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-direct-both-l005-100e.yaml": (
+        0.05,
+        "both",
+        (),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-proj64-both-l005-100e.yaml": (
+        0.05,
+        "both",
+        (2048, 2048, 64),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-proj64-target-l005-100e.yaml": (
+        0.05,
+        "target",
+        (2048, 2048, 64),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-smoke.yaml": (
+        0.05,
+        "both",
+        (2048, 2048, 64),
+    ),
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -173,6 +200,27 @@ def test_pretrain_configs_preserve_gram_anchoring_and_predictor_mode(config_path
     assert isinstance(jepa_config, JEPAConfig)
     assert jepa_config.use_gram_anchoring is True
     assert jepa_config.predictor_attention_mode == "cross_attention"
+
+
+@pytest.mark.parametrize(("config_path", "expected"), LEJEPA_CONFIGS.items())
+def test_lejepa_configs_preserve_shared_target_ablation_boundaries(
+    config_path: Path,
+    expected: tuple[float | None, str, tuple[int, ...]],
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    jepa_config = config["jepa"]
+    expected_lambda, expected_views, expected_projector_dims = expected
+
+    assert isinstance(jepa_config, JEPAConfig)
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.enable_cls_prediction
+    assert jepa_config.lejepa_lambda == expected_lambda
+    assert jepa_config.sigreg_views == expected_views
+    assert jepa_config.sigreg_projector_dims == expected_projector_dims
+    assert jepa_config.sigreg_loss_weight == 0
+    assert not jepa_config.use_gram_anchoring
+    assert jepa_config.gram_start_epoch is None
+    assert jepa_config.cls_prediction_mode == SELECTED_CLS_PREDICTION_MODE
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:

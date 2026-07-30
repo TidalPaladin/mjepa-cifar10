@@ -242,6 +242,7 @@ def test_load_checkpoint_model_restores_all_jepa_weights(tmp_path: Path) -> None
         disable_predictor_regularizers=jepa_config.disable_predictor_regularizers,
     )
     source = CIFAR10MJEPA(jepa_config, backbone, predictor, autocast_dtype=torch.float32)
+    assert source.teacher is not None
     checkpoint = tmp_path / "checkpoint.pt"
     torch.save(
         {
