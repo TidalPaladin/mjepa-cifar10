@@ -185,18 +185,28 @@ def append_locked_text(path: Path, entry: str, operation_id: str, *, initial_tex
                 metadata = json.loads(serialized_metadata)
             except json.JSONDecodeError as error:
                 raise ValueError("research log contains invalid operation metadata") from error
-            if not isinstance(metadata, dict) or set(metadata) != {"content_sha256", "operation_id"}:
+            if not isinstance(metadata, dict) or set(metadata) not in (
+                {"operation_id"},
+                {"content_sha256", "operation_id"},
+            ):
                 raise ValueError("research log contains invalid operation metadata")
-            stored_digest = metadata["content_sha256"]
             stored_operation_id = metadata["operation_id"]
+            if (
+                not isinstance(stored_operation_id, str)
+                or not stored_operation_id
+                or stored_operation_id.strip() != stored_operation_id
+                or any(character in stored_operation_id for character in "\r\n<>")
+            ):
+                raise ValueError("research log contains invalid operation metadata")
+            if set(metadata) == {"operation_id"}:
+                if stored_operation_id == operation_id:
+                    return False
+                continue
+            stored_digest = metadata["content_sha256"]
             if (
                 not isinstance(stored_digest, str)
                 or len(stored_digest) != 64
                 or any(character not in "0123456789abcdef" for character in stored_digest)
-                or not isinstance(stored_operation_id, str)
-                or not stored_operation_id
-                or stored_operation_id.strip() != stored_operation_id
-                or any(character in stored_operation_id for character in "\r\n<>")
             ):
                 raise ValueError("research log contains invalid operation metadata")
             if stored_operation_id != operation_id:

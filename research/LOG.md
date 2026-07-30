@@ -1325,3 +1325,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Configuration migration: `config/pretrain/vit-small.yaml` and `config/finetune/vit-small.yaml` now select the one-CLS, seven-register layout. Completed studies retain the former defaults through explicit `vit-small-four-cls-legacy.yaml` configs.
 - Limitations: all architecture selection evidence is seed 0, the selected design did not pass the original strict equivalence thresholds, and no new supervised or official-test evaluation was run for this closeout.
 - Retention: preserve all previously retained checkpoints and backbones. No artifact deletion is authorized by this closeout.
+<!-- autoresearch-operation:{"content_sha256":"940c18db9a2c982ef085406c9bc40ddb7944e028bc801b6173e521c5063e13c7","operation_id":"6b1cc5fa99ade5f88ed4c44ce142f72b"} -->
+
+<!-- study:lejepa-masked-collapse-v1-smoke:phase:no-promotion -->
+## lejepa-masked-collapse-v1-smoke
+
+- Question: Does the shared-student masked-target LeJEPA path complete one full train-validation-checkpoint cycle with SigREG, its projector, and a stopped online probe?
+- Hypothesis: The shared full-view target will remain differentiable for the masked prediction and SigREG losses while the detached probe updates only its classifier head.
+- Mechanisms and exact changes:
+  - `projected-both-smoke`: Mechanism: Remove the EMA teacher, regularize projected masked and full CLS views with SigREG, retain masked image modeling and the auxiliary partitioned CLS predictor, and detach probe inputs. Changes: Use the student for both masked context and full-view target encoding.; Apply the convex LeJEPA objective with lambda 0.05 and a 2048-2048-64 projector.; Stop probe gradients at the full-view student CLS token.
+- Launch code provenance:
+  - `pretrain-projected-both-smoke-seed0`: parent=`d4d577c0780dc01c0e509576deb5f5ae858329c1` (`codex/research/lejepa-masked-collapse-v1`), mjepa=`e0bb8c22feb40eb284abdd14b65006c1a09e2af2` (`codex/research/lejepa-masked-collapse-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-projected-both-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-30T14:44:16.725726+00:00; finished=2026-07-30T14:46:14.234738+00:00; terminal_event=cca984b9-68c1-408f-9b91-ada6382a4c90; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-smoke/runs/pretrain-projected-both-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/5d88497e); checkpoint=retained; metrics=peak_accuracy=0.167600, final_accuracy=0.167600, step_to_90=44, step_to_95=44, active_seconds_to_90=69.738, active_seconds_to_95=69.738, step_auc=0.167600, active_time_auc=0.167600, active_seconds_at_step_horizon=69.738, cls_path_latency_median_ms=31.474688, cls_path_latency_p90_ms=31.978497; error=none

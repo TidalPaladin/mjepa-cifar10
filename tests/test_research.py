@@ -71,6 +71,7 @@ from mjepa_cifar10.research.runtime import (
 from mjepa_cifar10.research.summary import (
     advance_study,
     append_research_log,
+    calculate_pretraining_aggregates,
     calculate_study_summaries,
     publish_summaries_to_wandb,
 )
@@ -206,6 +207,31 @@ def test_convergence_summary_reports_censoring_and_common_horizon_auc() -> None:
     assert summary.step_auc == pytest.approx(accuracy_auc(points, "step", 25))
     assert summary.active_time_auc == pytest.approx(accuracy_auc(points, "active_seconds", 250))
     assert summary.active_seconds_at_step_horizon == pytest.approx(250.0)
+
+
+def test_pretraining_aggregates_report_zero_spread_for_single_seed(tmp_path: Path) -> None:
+    spec = replace(make_spec(tmp_path, variants=0), seeds=(0,))
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.id: RunState(run, status="completed") for run in spec.initial_runs()},
+    )
+    summary = make_summary(peak=0.80, time_to_95=100, time_auc=0.50, cls_latency_ms=4.0)
+
+    aggregates = calculate_pretraining_aggregates(
+        state,
+        spec,
+        {f"pretrain-{spec.baseline.id}-seed0": summary},
+    )
+
+    assert aggregates[spec.baseline.id]["peak_accuracy_std"] == 0.0
+    assert aggregates[spec.baseline.id]["active_time_auc_std"] == 0.0
+    assert aggregates[spec.baseline.id]["active_seconds_to_95_std"] == 0.0
+    assert aggregates[spec.baseline.id]["active_seconds_at_step_horizon_std"] == 0.0
+    assert aggregates[spec.baseline.id]["cls_path_latency_median_ms_std"] == 0.0
 
 
 @pytest.mark.parametrize(
@@ -893,6 +919,19 @@ def test_research_log_rejects_operation_collisions_and_metadata_injection(tmp_pa
     )
     with pytest.raises(ValueError, match="invalid operation metadata"):
         append_locked_text(malformed_path, "entry\n", "operation-2")
+
+
+def test_research_log_accepts_legacy_json_operation_metadata(tmp_path: Path) -> None:
+    log_path = tmp_path / "research" / "LOG.md"
+    log_path.parent.mkdir()
+    log_path.write_text(
+        '<!-- autoresearch-operation:{"operation_id":"legacy-operation"} -->\nlegacy entry\n',
+        encoding="utf-8",
+    )
+
+    assert not append_locked_text(log_path, "ignored duplicate\n", "legacy-operation")
+    assert append_locked_text(log_path, "new entry\n", "new-operation")
+    assert log_path.read_text(encoding="utf-8").endswith("new entry\n")
 
 
 def test_concurrent_first_research_log_writes_create_one_header(tmp_path: Path) -> None:

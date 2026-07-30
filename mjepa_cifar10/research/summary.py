@@ -6,7 +6,7 @@ import os
 import statistics
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from .metrics import (
     ConvergenceSummary,
@@ -26,6 +26,10 @@ from .runtime import (
     study_directory,
     utc_now,
 )
+
+
+def _sample_std(values: Sequence[float]) -> float:
+    return statistics.stdev(values) if len(values) > 1 else 0.0
 
 
 def load_metric_points_file(
@@ -163,9 +167,9 @@ def calculate_sft_summaries(state: StudyState, spec: StudySpec) -> dict[str, Any
             present_test_values = [float(value) for value in test_values if value is not None]
             aggregates[f"{variant}/{shot_name}"] = {
                 "validation_peak_mean": statistics.mean(peak_values),
-                "validation_peak_std": statistics.stdev(peak_values),
+                "validation_peak_std": _sample_std(peak_values),
                 "test_mean": statistics.mean(present_test_values),
-                "test_std": statistics.stdev(present_test_values),
+                "test_std": _sample_std(present_test_values),
             }
         baseline_key = f"{spec.baseline.id}/{shot_name}"
         winner_key = f"{state.winner}/{shot_name}"
@@ -210,19 +214,19 @@ def calculate_pretraining_aggregates(
         all_reached_95 = len(present_times) == len(times)
         aggregates[variant] = {
             "peak_accuracy_mean": statistics.mean(peaks),
-            "peak_accuracy_std": statistics.stdev(peaks),
+            "peak_accuracy_std": _sample_std(peaks),
             "active_time_auc_mean": statistics.mean(aucs),
-            "active_time_auc_std": statistics.stdev(aucs),
+            "active_time_auc_std": _sample_std(aucs),
             "active_seconds_to_95_mean": (statistics.mean(present_times) if all_reached_95 else None),
-            "active_seconds_to_95_std": (statistics.stdev(present_times) if all_reached_95 else None),
+            "active_seconds_to_95_std": (_sample_std(present_times) if all_reached_95 else None),
             "censored_95_count": sum(value is None for value in times),
             "active_seconds_at_step_horizon_mean": statistics.mean(final_active_times),
-            "active_seconds_at_step_horizon_std": statistics.stdev(final_active_times),
+            "active_seconds_at_step_horizon_std": _sample_std(final_active_times),
             "cls_path_latency_median_ms_mean": (
                 statistics.mean(present_cls_latencies) if len(present_cls_latencies) == len(cls_latencies) else None
             ),
             "cls_path_latency_median_ms_std": (
-                statistics.stdev(present_cls_latencies) if len(present_cls_latencies) == len(cls_latencies) else None
+                _sample_std(present_cls_latencies) if len(present_cls_latencies) == len(cls_latencies) else None
             ),
         }
     if state.winner is not None and spec.baseline.id in summaries_by_variant and state.winner in summaries_by_variant:
