@@ -103,6 +103,16 @@ LEJEPA_MASKED_OPTIMIZATION_CONFIGS = {
         False,
         True,
     ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-clspatch-both-l010-aux-deterministic-100e.yaml": (
+        0.10,
+        True,
+        True,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-clspatch-both-l020-aux-deterministic-100e.yaml": (
+        0.20,
+        True,
+        True,
+    ),
 }
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",

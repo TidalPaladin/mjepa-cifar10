@@ -1,0 +1,113 @@
+id: lejepa-masked-collapse-v1-masked-tuning
+question: Can auxiliary CLS prediction and deterministic training recover semantic probe quality from the noncollapsed patch-aware shared-student mechanism without introducing local or global crops?
+hypothesis: Combining the two independently favorable screen choices will improve probe accuracy over 0.3084, while lambda 0.10 will preserve the collapse margin and allocate more weight to masked visual and auxiliary CLS prediction than lambda 0.20.
+
+baseline:
+  id: clspatch-both-l010-aux-deterministic
+  config: config/pretrain/vit-small-lejepa-clspatch-both-l010-aux-deterministic-100e.yaml
+  hypothesis: Lambda 0.10 is sufficient to preserve the direct CLS-plus-patch collapse margin after removing stochastic regularizers, while the auxiliary CLS task improves semantic structure.
+  mechanism: Apply direct CLS-plus-patch-mean SigREG to both masked and full views at lambda 0.10 with auxiliary CLS prediction and deterministic encoder/predictor paths.
+  changes:
+    - Restore four-partition auxiliary CLS prediction to the deterministic patch-aware mechanism.
+    - Use the midpoint lambda 0.10 to balance masked prediction and SigREG.
+    - Keep attention dropout, hidden dropout, and stochastic depth at zero.
+
+variants:
+  - id: clspatch-both-l020-aux-deterministic
+    config: config/pretrain/vit-small-lejepa-clspatch-both-l020-aux-deterministic-100e.yaml
+    hypothesis: The full lambda 0.20 collapse margin is more important than the additional masked-prediction weight available at lambda 0.10.
+    mechanism: Apply the same deterministic auxiliary design at lambda 0.20.
+    changes:
+      - Change only LeJEPA lambda from 0.10 to 0.20.
+
+methodology:
+  linked_program: lejepa-masked-v1
+  protocol_amendment:
+    trigger: No patch-screen run passed the complete gate because peak probe accuracy remained below 0.50.
+    fixed_evidence:
+      - Lambda 0.20 prevented representation collapse with and without stochastic regularizers.
+      - The deterministic lambda 0.20 run reached 0.3084 peak probe accuracy versus 0.2866 with stochastic regularizers.
+      - At lambda 0.05, auxiliary CLS prediction reached 0.3056 peak accuracy versus 0.2590 without it.
+      - Lambda 0.05 with auxiliary prediction ended just below the patch-rank gate, while both lambda 0.20 runs passed every representation threshold.
+    decision: Combine auxiliary CLS prediction and deterministic training, then sweep lambda 0.10 and 0.20 without changing masks or adding crop views.
+  scientific_run_allocation:
+    total_authorized: 22
+    prior_feasibility_used: 4
+    prior_patch_screen_used: 4
+    this_masked_tuning: 2
+    paired_confirmation_reserved: 6
+    crop_fallback_reserved: 6
+    mechanical_smoke_excluded: true
+  controls:
+    seed: 0
+    epochs: 100
+    validation_interval_epochs: 10
+    augmentation: Existing CIFAR-10 train augmentation with no local or global crop dependency.
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2.
+    projector: None.
+    sigreg_views: Both masked context and full target.
+    sigreg_features: Direct CLS and per-image mean visual-token embeddings.
+    auxiliary_prediction: Four independent channel partitions from one CLS token.
+    stochastic_regularizers: Attention dropout, hidden dropout, and stochastic depth are zero.
+    probe_boundary: Full-view student CLS features remain detached before the online classifier.
+  last_three_validation_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+    peak_probe_accuracy_minimum: 0.50
+  selection:
+    eligibility: Every threshold must pass on each of the last three validation records.
+    ranking: Probe step AUC, peak accuracy, visual-target shuffle improvement, then lower lambda.
+    no_automatic_promotion: This targeted amendment selects a masked-only winner manually; harness promotion thresholds remain intentionally unreachable.
+  stopping:
+    - If either run passes the complete gate, select the eligible run by the fixed ranking and proceed to fresh paired confirmation.
+    - If neither run passes, masked-only optimization is exhausted and the six-run crop fallback becomes eligible.
+    - Do not add another masked-only variant after observing these results.
+  retention: Retain all checkpoints and backbones because destructive retention is not authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-masked-collapse-v1-masked-tuning
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: d024b0caced600d059f22eec146339aeec600ff5
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
