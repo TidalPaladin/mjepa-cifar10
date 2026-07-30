@@ -17,6 +17,8 @@ from mjepa_cifar10.research.codex_notifications import (
     MANAGED_ROOT_MARKER_FILENAME,
     SweepResult,
     initialize_notification_root,
+    notification_namespace,
+    notification_path_for_event,
     queue_notification_from_terminal,
     write_notification_event,
 )
@@ -594,7 +596,7 @@ def test_prepare_retryable_runs_reconciles_terminal_state_first(tmp_path: Path) 
                 "started_at": "2026-01-01T00:00:00+00:00",
                 "finished_at": "2026-01-01T00:01:00+00:00",
                 "attempt": 1,
-                "terminal_event_id": "terminal-event",
+                "terminal_event_id": "12345678-1234-5678-9234-567812345678",
             }
         )
     )
@@ -628,6 +630,7 @@ def test_managed_launch_persists_immutable_wake_context_before_spawn(
         permission_profile=":danger-full-access",
         approval_policy="never",
         captured_at=datetime(2026, 7, 23, tzinfo=UTC),
+        goal_snapshot=None,
     )
     mocker.patch("mjepa_cifar10.research.runtime.assert_storage_available")
     mocker.patch(
@@ -636,7 +639,13 @@ def test_managed_launch_persists_immutable_wake_context_before_spawn(
     )
 
     def spawn(*_args, **_kwargs):
-        context_path = tmp_path / "logs" / spec.id / "runs" / spec.initial_runs()[0].id / WAKE_CONTEXT_FILENAME
+        context_path = (
+            notification_namespace(tmp_path / "logs")
+            / "contexts"
+            / spec.id
+            / spec.initial_runs()[0].id
+            / WAKE_CONTEXT_FILENAME
+        )
         assert context_path.is_file()
         return SimpleNamespace(pid=1234)
 
@@ -905,6 +914,7 @@ def test_state_recovers_terminal_worker_file(tmp_path: Path) -> None:
 def test_state_recovers_accepted_notification_metadata(tmp_path: Path) -> None:
     spec = make_spec(tmp_path)
     study_dir = tmp_path / "logs" / spec.id
+    initialize_notification_root(study_dir.parent)
     run = RunState(spec.initial_runs()[0], status="running")
     run_dir = study_dir / "runs" / run.spec.id
     run_dir.mkdir(parents=True)
@@ -921,6 +931,7 @@ def test_state_recovers_accepted_notification_metadata(tmp_path: Path) -> None:
                 "attempt": 1,
                 "terminal_event_id": "12345678-1234-5678-9234-567812345678",
                 "originating_thread_id": "thread-1",
+                "notify_wake_contract_version": 2,
             }
         )
     )
@@ -929,6 +940,13 @@ def test_state_recovers_accepted_notification_metadata(tmp_path: Path) -> None:
         study_dir.parent,
         study_id=spec.id,
         run_id=run.spec.id,
+    )
+    event = replace(
+        event,
+        delivery=event.delivery.mark_in_flight(
+            datetime(2026, 7, 20, 12, 0, tzinfo=UTC),
+            rpc_method="turn/start",
+        ),
     ).with_acceptance(
         accepted_at=datetime(2026, 7, 20, 12, 1, tzinfo=UTC),
         rpc_method="turn/start",
@@ -972,7 +990,10 @@ def test_terminal_result_survives_notification_queue_failure(mocker, tmp_path: P
 
     assert json.loads(terminal_path.read_text())["status"] == "completed"
     assert "app-server queue unavailable" in (notification_error or "")
-    assert not terminal_path.with_name("notification.json").exists()
+    assert not notification_path_for_event(
+        tmp_path / "logs",
+        terminal["terminal_event_id"],
+    ).exists()
 
 
 def test_notify_worker_defaults_to_direct_daemon_socket(mocker, tmp_path: Path, capsys) -> None:

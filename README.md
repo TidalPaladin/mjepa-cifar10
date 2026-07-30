@@ -101,29 +101,36 @@ Managed trainers write `progress.json` locally and create `first-cycle.json` onl
 after the first train, validation, and recoverable checkpoint cycle completes.
 The controller creates `supervisor-lost.json` when a supervisor exits without
 terminal state and `progress-stalled.json` when trainer progress exceeds its
-deadline. Terminal workers write `terminal.json` before queueing
-`notification.json`.
-Launch registers the exact notification root with `.mjepa-research-root.json`.
-Use `register-root` once for an existing root; it is idempotent and migrates the
-legacy marker. The marker binds its canonical `root_path`, so the one-shot
-worker rejects missing, mismatched, symlinked, repository, home, and broad roots
-before scanning. It connects to an existing local Codex app-server daemon,
-resumes the originating task, and uses `turn/start` for an idle task or
-`turn/steer` for its newest in-progress turn. The steer includes the expected
-turn ID so app-server rejects a race. It retries with bounded jitter, serializes
-delivery per task, and records acceptance only after app-server accepts the RPC.
-Before delivering a wake, it reactivates a goal whose status is `blocked` via
-the app-server goal API; explicitly paused, completed, and usage-limited goals
-remain untouched.
-Training never waits for Codex, and delivery failure cannot alter terminal run
-status.
+deadline. Terminal workers write `terminal.json` before queueing under
+`logs/research/.notify-wake/v2/`.
+
+Launch registers the exact research root with `.mjepa-research-root.json` and
+the v2 notification namespace. `register-root` is idempotent but does not
+migrate old state. Version-1 contexts, queues, ledgers, and response shapes are
+inert audit history. A contract mismatch fails with `unsupported notify-wake
+contract; cutover required`.
+
+The installable `notify-wake-runtime` package from `$notify-wake` owns socket
+discovery, app-server transport, authority capture, delivery, reconciliation,
+serialization, and goal waits. Its default `research_compatibility` policy
+starts an idle root turn or steers the exact active turn. The runtime never
+includes `model` or `effort` in root `turn/start`. Training never waits for
+Codex, and notification failure cannot alter terminal run status.
 
 After a launch returns, verify the supervisor PID, GPU, run directory, tracker
-identity, and durable startup state for every dispatched run, then return the
-goal to its notification-wait state immediately when the surface permits it.
-After a nonterminal lifecycle event, do the same when no immediate mutation
-remains. This prevents active-goal continuations from repeatedly checking a run
-that is already covered by the event controller.
+identity, durable startup state, and armed controller for every dispatched run.
+If the goal is active, no implementation, analysis, transition, or other
+immediate work remains, and the goal API permits blocking, enter the owned
+notify-wait lifecycle. Do the same after a nonterminal event when no immediate
+mutation remains.
+
+Only an exact blocked goal revision with an acknowledged owned lease may be
+reactivated. A blocked goal with no matching lease, changed metadata, or an
+uncertain lease is treated as manually blocked and remains untouched. Codex
+0.146.0 has no compare-and-set goal update or atomic idle-turn start, so a user
+or another client can still race between the notifier's read and write. The
+lease and `updatedAt` checks detect changes before and after that window but
+cannot close it.
 
 Run `event-controller` as the primary local event source. It uses Linux inotify
 for durable state, pidfds for supervisor exits, and a local progress-deadline
@@ -140,12 +147,14 @@ Never keep a Codex turn open to sleep or poll. Use a same-task scheduled
 follow-up only as a sparse fallback: check at 10 and 20 minutes to catch startup
 failures, then every 30 minutes, with no more than five routine checks. Pin that
 read-only follow-up to GPT-5.6 Luna with medium reasoning in the scheduled-task
-settings instead of inheriting the chat default.
-For an idle event wake, the app-server notifier starts the turn with GPT-5.6
-Luna and medium reasoning. Steering an active turn inherits that turn's model.
-The primary goal agent keeps responsibility for launches, promotion decisions,
-code and Git changes, and checkpoint deletion. Automated tests use fake
-app-server transports and must never wake a real task.
+settings instead of inheriting the chat default. Luna with medium reasoning may
+also run a dedicated relay task or model-selectable subagent that validates
+durable evidence and sends a concise event summary to the root model. Never
+change the model used by the active root conversation. The root model keeps
+goal changes, launches, recovery, scientific decisions, code and Git changes,
+and checkpoint deletion. Codex 0.146.0 agent-mail wakeups may optimize relay
+delivery, but direct root delivery remains the correctness path. Automated
+tests use fake app-server transports and must never wake a real task.
 
 Start the controller with:
 

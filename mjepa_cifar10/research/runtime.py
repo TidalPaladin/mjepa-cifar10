@@ -28,6 +28,7 @@ ACTIVE_STATUSES: Final = frozenset(("launching", "running"))
 TERMINAL_FILENAME: Final[str] = "terminal.json"
 HEARTBEAT_FILENAME: Final[str] = "worker.json"
 NOTIFICATION_FILENAME: Final[str] = "notification.json"
+NOTIFY_WAKE_CONTRACT_VERSION: Final[int] = 2
 RETENTION_LOG_FILENAME: Final[str] = "retention.jsonl"
 WANDB_SERVICE_ENVIRONMENT_VARIABLE: Final[str] = "WANDB_SERVICE"
 LIFECYCLE_STUDY_ENVIRONMENT_VARIABLE: Final[str] = "MJEPA_RESEARCH_STUDY_ID"
@@ -124,7 +125,13 @@ def persist_terminal_and_queue_notification(
     run_id: str,
 ) -> str | None:
     """Persist terminal truth before queueing a recoverable Codex notification."""
-    atomic_write_json(terminal_path, terminal)
+    atomic_write_json(
+        terminal_path,
+        {
+            **terminal,
+            "notify_wake_contract_version": NOTIFY_WAKE_CONTRACT_VERSION,
+        },
+    )
     try:
         from .codex_notifications import queue_notification_from_terminal
 
@@ -792,37 +799,46 @@ def reconcile_state(state: StudyState) -> bool:
                 run.wandb_url = metadata.get("wandb_url", run.wandb_url)
             run.decision = "retryable" if run.status in ("failed", "timed_out") else run.decision
             changed = True
-        notification_path = Path(run.run_dir) / NOTIFICATION_FILENAME
-        if notification_path.is_file():
-            from .codex_notifications import NotificationStateError, read_notification_event
+        if run.terminal_event_id is not None:
+            from .codex_notifications import (
+                NotificationStateError,
+                notification_path_for_event,
+                read_notification_event,
+            )
 
-            try:
-                event = read_notification_event(notification_path, Path(run.run_dir).resolve().parents[2])
-            except (OSError, NotificationStateError) as error:
-                notification_error = f"{type(error).__name__}: {error}"
-                if run.notification_state != "failed" or run.notification_last_error != notification_error:
-                    run.notification_state = "failed"
-                    run.notification_last_error = notification_error
-                    changed = True
-            else:
-                notification_values = {
-                    "terminal_event_id": event.event_id,
-                    "notification_state": event.state,
-                    "notification_attempts": event.attempt_count,
-                    "notification_last_error": event.last_error,
-                    "notification_next_attempt_at": (
-                        event.next_attempt_at.isoformat() if event.next_attempt_at is not None else None
-                    ),
-                    "notification_accepted_at": (
-                        event.accepted_at.isoformat() if event.accepted_at is not None else None
-                    ),
-                    "notification_accepted_rpc_method": event.accepted_rpc_method,
-                    "notification_accepted_turn_id": event.accepted_turn_id,
-                }
-                for field_name, value in notification_values.items():
-                    if getattr(run, field_name) != value:
-                        setattr(run, field_name, value)
+            managed_root = Path(run.run_dir).resolve().parents[2]
+            notification_path = notification_path_for_event(
+                managed_root,
+                run.terminal_event_id,
+            )
+            if notification_path.is_file():
+                try:
+                    event = read_notification_event(notification_path, managed_root)
+                except (OSError, NotificationStateError) as error:
+                    notification_error = f"{type(error).__name__}: {error}"
+                    if run.notification_state != "blocked" or run.notification_last_error != notification_error:
+                        run.notification_state = "blocked"
+                        run.notification_last_error = notification_error
                         changed = True
+                else:
+                    notification_values = {
+                        "terminal_event_id": event.event_id,
+                        "notification_state": event.state,
+                        "notification_attempts": event.attempt_count,
+                        "notification_last_error": event.last_error,
+                        "notification_next_attempt_at": (
+                            event.next_attempt_at.isoformat() if event.next_attempt_at is not None else None
+                        ),
+                        "notification_accepted_at": (
+                            event.accepted_at.isoformat() if event.accepted_at is not None else None
+                        ),
+                        "notification_accepted_rpc_method": event.accepted_rpc_method,
+                        "notification_accepted_turn_id": event.accepted_turn_id,
+                    }
+                    for field_name, value in notification_values.items():
+                        if getattr(run, field_name) != value:
+                            setattr(run, field_name, value)
+                            changed = True
         heartbeat_path = Path(run.run_dir) / HEARTBEAT_FILENAME
         if heartbeat_path.is_file():
             heartbeat = json.loads(heartbeat_path.read_text())
