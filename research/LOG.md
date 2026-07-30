@@ -1391,3 +1391,29 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Allocation: four seed-0 runs now; two masked-tuning runs remain; six paired-confirmation and six crop-fallback runs remain from the user-authorized 22-run program. No crop views are introduced in this screen.
 - Provenance: parent commit is resolved at launch; `mjepa=d024b0caced600d059f22eec146339aeec600ff5`; `vit=bf15705454975f04912538cdc790d399eea69e67`; fixed CIFAR-10 45,000/5,000 split; W&B destination `tidalpaladin/mjepa-cifar10`.
 - Retention: preserve every checkpoint and backbone. Destructive retention remains unauthorized.
+<!-- autoresearch-operation:{"content_sha256":"768aa7fccc616af3e19541d652f1053db6a455e0cb4c0e64e179cb4121d39110","operation_id":"d927958cfb7fcd8a1f799025a983a022"} -->
+
+<!-- study:lejepa-masked-collapse-v1-patch-smoke:phase:no-promotion -->
+## lejepa-masked-collapse-v1-patch-smoke
+
+- Question: Does direct CLS-plus-patch-mean SigREG complete one deterministic shared-target masked train-validation-checkpoint cycle?
+- Hypothesis: The patch-aware loss will preserve shared-target gradients, update the predictor and student, keep the probe boundary detached, and emit finite collapse diagnostics.
+- Mechanisms and exact changes:
+  - `clspatch-deterministic-smoke`: Mechanism: Apply direct SigREG to context and target CLS embeddings and patch means at lambda 0.20 without auxiliary CLS prediction or stochastic regularizers. Changes: Add pooled visual features to the SigREG input.; Disable auxiliary CLS prediction.; Remove attention dropout, hidden dropout, and stochastic depth.
+- Launch code provenance:
+  - `pretrain-clspatch-deterministic-smoke-seed0`: parent=`1f1494b2ad070ce75b650827ef3c28eb799e4325` (`codex/research/lejepa-masked-collapse-v1`), mjepa=`d024b0caced600d059f22eec146339aeec600ff5` (`codex/research/lejepa-masked-collapse-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-patch-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-clspatch-deterministic-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-30T20:21:14.577107+00:00; finished=2026-07-30T20:22:54.549269+00:00; terminal_event=275a4d96-5cb2-4e15-bb9f-914294ed0584; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-patch-smoke/runs/pretrain-clspatch-deterministic-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/050cd14c); checkpoint=retained; metrics=peak_accuracy=0.204200, final_accuracy=0.204200, step_to_90=44, step_to_95=44, active_seconds_to_90=74.678, active_seconds_to_95=74.678, step_auc=0.204200, active_time_auc=0.204200, active_seconds_at_step_horizon=74.678, cls_path_latency_median_ms=31.202816, cls_path_latency_p90_ms=31.998976; error=none
+<!-- autoresearch-operation:{"content_sha256":"39350344dfafdebdc3b5333101af30f49117a6c7bc9e8fc9e058c76461980461","operation_id":"lejepa-masked-collapse-v1-patch-smoke-interpretation-v1"} -->
+
+- Mechanical interpretation: The patch-aware deterministic shared-target path passed its one-epoch contract. Training, validation, checkpointing, online W&B tracking, first-cycle delivery, terminal delivery, and retained artifact recovery completed with finite metrics and exit code `0`.
+- Representation evidence: At step `44`, target CLS and patch-mean standard deviations were `0.782529` and `0.632348`; mean pairwise cosines were `0.020554` and `0.021325`; top-eigenvalue fractions were `0.222952` and `0.266698`; visual-target shuffled relative improvement was `0.413107`; and validation probe accuracy was `0.204200`. These are not promotion evidence, but they reject immediate scalar and directional collapse seen in the CLS-only feasibility screen.
+- Limitation and decision: One epoch cannot establish the preregistered last-three-validation effective-rank or `0.50` probe gates; effective-rank fractions were only `0.022786` for CLS and `0.016760` for patch means. Approve the committed four-run 100-epoch patch-aware screen without changing its hypotheses, metrics, or masks.
+- Retention: Keep the checkpoint and backbone. No destructive retention was applied.
