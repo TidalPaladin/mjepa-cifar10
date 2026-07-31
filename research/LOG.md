@@ -1487,3 +1487,30 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Promotion discipline: A run must remain noncollapsed and reach at least `0.85` peak, `0.84` final, and `0.75` step AUC before using the six reserved paired-confirmation trials. If none qualifies, stop the pretraining program without downstream evaluation.
 - Allocation: Sixteen of 22 authorized scientific pretraining runs are committed after this screen: four feasibility, four patch screen, two masked tuning, and six multiview screen. Six fresh paired-confirmation runs remain reserved. Mechanical smokes remain excluded.
 - Retention: Keep both masked-tuning checkpoints and backbones. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"20ca71feec0e3bc04850331bb3e28ac0d669a08fc49fc4cf25b4a87c8519e04c","operation_id":"1e046e8a8b809167b93bd40774cb982a"} -->
+
+<!-- study:lejepa-masked-collapse-v1-multiview-smoke:phase:no-promotion -->
+## lejepa-masked-collapse-v1-multiview-smoke
+
+- Question: Does masked JEPA plus same-image LeJEPA invariance complete one global/local train-validation-checkpoint cycle?
+- Hypothesis: The multiview branch will preserve gradients through every student view, add finite invariance and SigREG losses, retain the detached probe boundary, and leave masked prediction operational.
+- Mechanisms and exact changes:
+  - `multiview-g2l2-direct-smoke`: Mechanism: Combine the existing masked visual and auxiliary CLS objectives with direct CLS-plus-patch invariance across two global and two moderate local views. Changes: Keep one global view as the masked image-modeling anchor.; Add one independently augmented global view and two moderate local views.; Apply same-image invariance and SigREG without teacher, stop-gradient, or projector.
+- Launch code provenance:
+  - `pretrain-multiview-g2l2-direct-smoke-seed0`: parent=`085ea49458be9a37230a1af7a3ecb67d1c0069e9` (`codex/research/lejepa-masked-collapse-v1`), mjepa=`8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6` (`codex/research/lejepa-masked-collapse-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-multiview-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-multiview-g2l2-direct-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-31T00:04:49.215023+00:00; finished=2026-07-31T00:08:38.671089+00:00; terminal_event=f3a8ecef-5639-41f3-a764-45b82aab5a6e; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-multiview-smoke/runs/pretrain-multiview-g2l2-direct-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/10e9bc2d); checkpoint=retained; metrics=peak_accuracy=0.218000, final_accuracy=0.218000, step_to_90=44, step_to_95=44, active_seconds_to_90=209.861, active_seconds_to_95=209.861, step_auc=0.218000, active_time_auc=0.218000, active_seconds_at_step_horizon=209.861, cls_path_latency_median_ms=31.455744, cls_path_latency_p90_ms=32.092159; error=none
+
+## 2026-07-31 interpretation: LeJEPA multiview smoke
+
+- Mechanical result: The four-view global/local path completed its train, validation, checkpoint, W&B, and lifecycle cycle with exit code `0`. Losses remained finite, gradient assertions passed, peak allocated GPU memory stayed near `5.6 GiB`, and the run did not exhaust memory.
+- Representation evidence: At step `44`, CLS and patch mean standard deviations were `0.759590` and `0.721350`, mean pairwise cosines were `0.013630` and `0.006020`, and top-eigenvalue fractions were `0.327880` and `0.370350`. Visual-target shuffled relative improvement was `0.783316`.
+- Limitation and decision: Effective-rank fractions of `0.015080` for CLS and `0.011160` for patches after one epoch are not promotion evidence. The smoke validates mechanics only, so proceed with the committed six-run screen unchanged and evaluate collapse and semantic quality over the full 100 epochs.
+- Retention: Keep the smoke checkpoint and backbone. No destructive retention was applied.
