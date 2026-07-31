@@ -21,6 +21,7 @@ SELECTED_NUM_CLS_TOKENS = 1
 SELECTED_NUM_REGISTER_TOKENS = 7
 SELECTED_CLS_CONTEXT_TOKENS = 4
 SELECTED_CLS_PREDICTION_MODE = "partitioned_independent_cross_attention"
+MULTIVIEW_EFFECTIVE_BATCH_SIZE = 1024
 HISTORICAL_FOUR_CLS_STUDY_IDS = (
     "cls-global-target-v1",
     "cls-partition-count-v1",
@@ -112,6 +113,50 @@ LEJEPA_MASKED_OPTIMIZATION_CONFIGS = {
         0.20,
         True,
         True,
+    ),
+}
+LEJEPA_MULTIVIEW_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-multiview-g2-direct-l010-w1-100e.yaml": (
+        2,
+        0,
+        0.10,
+        1.0,
+        (),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-multiview-g4-direct-l010-w1-100e.yaml": (
+        4,
+        0,
+        0.10,
+        1.0,
+        (),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-multiview-g2l2-direct-l010-w1-100e.yaml": (
+        2,
+        2,
+        0.10,
+        1.0,
+        (),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-multiview-g2l2-proj64-l010-w1-100e.yaml": (
+        2,
+        2,
+        0.10,
+        1.0,
+        (2048, 2048, 64),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-multiview-g2l2-direct-l005-w1-100e.yaml": (
+        2,
+        2,
+        0.05,
+        1.0,
+        (),
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-multiview-g2l2-direct-l010-w2-100e.yaml": (
+        2,
+        2,
+        0.10,
+        2.0,
+        (),
     ),
 }
 CLS_CONFIGS = {
@@ -288,6 +333,45 @@ def test_lejepa_masked_optimization_configs_change_one_mechanism_at_a_time(
         backbone_config.drop_path_rate,
     )
     assert stochastic_rates == ((0.0, 0.0, 0.0) if expected_deterministic else (0.1, 0.1, 0.1))
+
+
+@pytest.mark.parametrize(("config_path", "expected"), LEJEPA_MULTIVIEW_CONFIGS.items())
+def test_lejepa_multiview_configs_preserve_masked_task_and_preregistered_ladder(
+    config_path: Path,
+    expected: tuple[int, int, float, float, tuple[int, ...]],
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    trainer_config = config["trainer"]
+    backbone_config = config["backbone"]
+    jepa_config = config["jepa"]
+    multi_crop = config["multi_crop"]
+    expected_global_views, expected_local_views, expected_lambda, expected_weight, expected_projector = expected
+
+    assert isinstance(backbone_config, ViTConfig)
+    assert isinstance(jepa_config, JEPAConfig)
+    assert trainer_config.batch_size * trainer_config.accumulate_grad_batches == MULTIVIEW_EFFECTIVE_BATCH_SIZE
+    assert trainer_config.num_epochs == 100
+    assert multi_crop["global_views"] == expected_global_views
+    assert multi_crop["local_views"] == expected_local_views
+    assert multi_crop["global_scale"] == [0.75, 1.0]
+    assert multi_crop["local_scale"] == [0.30, 0.75]
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.enable_cls_prediction
+    assert jepa_config.cls_prediction_mode == SELECTED_CLS_PREDICTION_MODE
+    assert jepa_config.context_ratio == 0.5
+    assert jepa_config.target_ratio == 0.25
+    assert jepa_config.scale == 2
+    assert jepa_config.sigreg_views == "both"
+    assert jepa_config.sigreg_features == "cls_patch_mean"
+    assert jepa_config.lejepa_lambda == expected_lambda
+    assert jepa_config.invariance_loss_weight == expected_weight
+    assert jepa_config.sigreg_projector_dims == expected_projector
+    assert not jepa_config.use_gram_anchoring
+    assert (backbone_config.attention_dropout, backbone_config.hidden_dropout, backbone_config.drop_path_rate) == (
+        0.0,
+        0.0,
+        0.0,
+    )
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:

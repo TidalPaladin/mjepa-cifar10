@@ -1,0 +1,60 @@
+id: lejepa-masked-collapse-v1-multiview-smoke
+question: Does masked JEPA plus same-image LeJEPA invariance complete one global/local train-validation-checkpoint cycle?
+hypothesis: The multiview branch will preserve gradients through every student view, add finite invariance and SigREG losses, retain the detached probe boundary, and leave masked prediction operational.
+
+baseline:
+  id: multiview-g2l2-direct-smoke
+  config: config/pretrain/vit-small-lejepa-multiview-g2l2-direct-l010-w1-smoke.yaml
+  hypothesis: One epoch is sufficient to mechanically exercise global/local view generation and the shared-student multiview loss before scientific trials.
+  mechanism: Combine the existing masked visual and auxiliary CLS objectives with direct CLS-plus-patch invariance across two global and two moderate local views.
+  changes:
+    - Keep one global view as the masked image-modeling anchor.
+    - Add one independently augmented global view and two moderate local views.
+    - Apply same-image invariance and SigREG without teacher, stop-gradient, or projector.
+
+variants: []
+
+methodology:
+  linked_program: lejepa-masked-v1
+  scientific_run: false
+  exclusion: This one-epoch mechanical run is excluded from the user-authorized 22 scientific pretraining runs.
+  success:
+    - Finite masked prediction, auxiliary CLS prediction, invariance, SigREG, total, probe, and collapse metrics.
+    - Student and predictor gradients satisfy their declared boundaries.
+    - Every full crop view retains gradients for self-supervision while the online probe sees detached anchor CLS features.
+    - Validation metrics, checkpoint, backbone, first-cycle event, terminal event, and online W&B provenance are durable.
+  retention: Retain checkpoint and backbone; destructive retention is not authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-masked-collapse-v1-multiview-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 86400
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

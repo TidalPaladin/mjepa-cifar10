@@ -1,4 +1,5 @@
 import hashlib
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final, Sequence, cast
@@ -31,12 +32,70 @@ NUM_CLASSES: Final[int] = 10
 SPLIT_SEED: Final[int] = 0
 VALIDATION_PER_CLASS: Final[int] = 500
 SPLIT_VERSION: Final[str] = "cifar10-stratified-sha256-v1"
+DEFAULT_GLOBAL_CROP_SCALE: Final[tuple[float, float]] = (0.75, 1.0)
+DEFAULT_LOCAL_CROP_SCALE: Final[tuple[float, float]] = (0.30, 0.75)
+TRAIN_CROP_RATIO: Final[tuple[float, float]] = (0.75, 1.33)
 
 
 @dataclass(frozen=True)
 class StratifiedSplit:
     train_indices: tuple[int, ...]
     validation_indices: tuple[int, ...]
+
+
+def _validate_crop_scale(name: str, scale: tuple[float, float]) -> None:
+    if len(scale) != 2 or not all(math.isfinite(value) for value in scale):
+        raise ValueError(f"{name} must contain two finite values")
+    minimum, maximum = scale
+    if not 0 < minimum <= maximum <= 1:
+        raise ValueError(f"{name} must satisfy 0 < minimum <= maximum <= 1")
+
+
+@dataclass(frozen=True)
+class MultiCropConfig:
+    """Training-only independently augmented views at one model input resolution."""
+
+    global_views: int = 1
+    local_views: int = 0
+    global_scale: tuple[float, float] = DEFAULT_GLOBAL_CROP_SCALE
+    local_scale: tuple[float, float] = DEFAULT_LOCAL_CROP_SCALE
+
+    def __post_init__(self) -> None:
+        if isinstance(self.global_views, bool) or not isinstance(self.global_views, int) or self.global_views <= 0:
+            raise ValueError("global_views must be a positive integer")
+        if isinstance(self.local_views, bool) or not isinstance(self.local_views, int) or self.local_views < 0:
+            raise ValueError("local_views must be a non-negative integer")
+        object.__setattr__(self, "global_scale", tuple(float(value) for value in self.global_scale))
+        object.__setattr__(self, "local_scale", tuple(float(value) for value in self.local_scale))
+        _validate_crop_scale("global_scale", self.global_scale)
+        _validate_crop_scale("local_scale", self.local_scale)
+
+    @property
+    def total_views(self) -> int:
+        return self.global_views + self.local_views
+
+    @property
+    def enabled(self) -> bool:
+        return self.total_views > 1
+
+
+class MultiCropTransform:
+    """Apply independent global and local augmentations and stack their results."""
+
+    def __init__(
+        self,
+        global_transform: Compose,
+        local_transform: Compose,
+        config: MultiCropConfig,
+    ) -> None:
+        self.global_transform = global_transform
+        self.local_transform = local_transform
+        self.config = config
+
+    def __call__(self, image: Any) -> torch.Tensor:
+        views = [self.global_transform(image) for _ in range(self.config.global_views)]
+        views.extend(self.local_transform(image) for _ in range(self.config.local_views))
+        return torch.stack(views)
 
 
 def _stable_index_key(index: int, split_seed: int) -> bytes:
@@ -119,13 +178,13 @@ def restrict_dataset_to_few_shot(
     return Subset(dataset, sorted(selected_indices))
 
 
-def get_train_transforms(size: Sequence[int]) -> Compose:
+def _get_train_view_transform(size: Sequence[int], crop_scale: tuple[float, float]) -> Compose:
     return Compose(
         [
             RandomHorizontalFlip(p=0.5),
             RandomVerticalFlip(p=0.5),
             RandomInvert(p=0.1),
-            RandomResizedCrop(size=size, scale=(0.75, 1.0), ratio=(0.75, 1.33)),
+            RandomResizedCrop(size=size, scale=crop_scale, ratio=TRAIN_CROP_RATIO),
             RandomApply([RandomRotation(degrees=cast(Any, 15))], p=0.25),
             ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
             RandomGrayscale(p=0.1),
@@ -134,6 +193,18 @@ def get_train_transforms(size: Sequence[int]) -> Compose:
             Normalize(mean=MEAN, std=STD),
         ]
     )
+
+
+def get_train_transforms(
+    size: Sequence[int],
+    multi_crop_config: MultiCropConfig | None = None,
+) -> Compose | MultiCropTransform:
+    selected_config = multi_crop_config or MultiCropConfig()
+    global_transform = _get_train_view_transform(size, selected_config.global_scale)
+    if not selected_config.enabled:
+        return global_transform
+    local_transform = _get_train_view_transform(size, selected_config.local_scale)
+    return MultiCropTransform(global_transform, local_transform, selected_config)
 
 
 def get_val_transforms(size: Sequence[int]) -> Compose:
@@ -156,8 +227,9 @@ def get_train_dataloader(
     world_size: int,
     shots_per_class: int | None = None,
     subset_seed: int = SPLIT_SEED,
+    multi_crop_config: MultiCropConfig | None = None,
 ) -> DataLoader:
-    transforms = get_train_transforms(size)
+    transforms = get_train_transforms(size, multi_crop_config=multi_crop_config)
     persistent_workers = num_workers > 0
     # Only rank 0 downloads to avoid race conditions
     if world_size > 1:

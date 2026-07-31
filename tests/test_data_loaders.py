@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import torch
 from torch.utils.data import Subset
 
 import mjepa_cifar10.data as data
@@ -195,3 +196,34 @@ def test_get_train_dataloader_keeps_small_few_shot_subset_nonempty(mocker) -> No
     subset = dataloader_mock.call_args.args[0]
     assert len(subset) == 100
     assert dataloader_mock.call_args.kwargs["drop_last"] is False
+
+
+def test_multicrop_transform_returns_independent_global_and_local_views() -> None:
+    config = data.MultiCropConfig(
+        global_views=2,
+        local_views=2,
+        global_scale=(0.75, 1.0),
+        local_scale=(0.30, 0.75),
+    )
+    transform = data.get_train_transforms(IMG_SIZE, multi_crop_config=config)
+    image = torch.randint(0, 256, (3, *IMG_SIZE), dtype=torch.uint8)
+
+    views = transform(image)
+
+    assert views.shape == (4, 3, *IMG_SIZE)
+    assert views.dtype == torch.float32
+    assert not torch.equal(views[0], views[1])
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"global_views": 0},
+        {"global_views": 1, "local_views": -1},
+        {"global_views": 2, "global_scale": (0.0, 1.0)},
+        {"global_views": 2, "local_views": 1, "local_scale": (0.8, 0.4)},
+    ],
+)
+def test_multicrop_config_rejects_invalid_view_counts_and_scales(kwargs) -> None:
+    with pytest.raises(ValueError):
+        data.MultiCropConfig(**kwargs)

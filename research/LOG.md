@@ -1455,3 +1455,35 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Protocol amendment: Use the final two masked-only trials to combine auxiliary CLS prediction with deterministic training and compare lambda `0.10` against `0.20`. This holds masks, augmentations, direct feature sources, optimizer, shared-student target, and detached probe boundary fixed. If neither run passes the complete gate, masked-only optimization is exhausted and the reserved crop fallback becomes eligible.
 - Allocation: Ten of 22 authorized scientific pretraining runs will be used after this two-run amendment: four feasibility, four patch screen, and two masked tuning. Six paired-confirmation and six crop-fallback runs remain reserved. Mechanical smokes remain excluded.
 - Retention: Keep all four patch-screen checkpoints and backbones. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"8da18d2aeffd5f203830af1fe332de6a774c210c29ab04438ce426347eda10d8","operation_id":"09a0be7d7444ce2d54bbe3af311d0867"} -->
+
+<!-- study:lejepa-masked-collapse-v1-masked-tuning:phase:no-promotion -->
+## lejepa-masked-collapse-v1-masked-tuning
+
+- Question: Can auxiliary CLS prediction and deterministic training recover semantic probe quality from the noncollapsed patch-aware shared-student mechanism without introducing local or global crops?
+- Hypothesis: Combining the two independently favorable screen choices will improve probe accuracy over 0.3084, while lambda 0.10 will preserve the collapse margin and allocate more weight to masked visual and auxiliary CLS prediction than lambda 0.20.
+- Mechanisms and exact changes:
+  - `clspatch-both-l010-aux-deterministic`: Mechanism: Apply direct CLS-plus-patch-mean SigREG to both masked and full views at lambda 0.10 with auxiliary CLS prediction and deterministic encoder/predictor paths. Changes: Restore four-partition auxiliary CLS prediction to the deterministic patch-aware mechanism.; Use the midpoint lambda 0.10 to balance masked prediction and SigREG.; Keep attention dropout, hidden dropout, and stochastic depth at zero.
+  - `clspatch-both-l020-aux-deterministic`: Mechanism: Apply the same deterministic auxiliary design at lambda 0.20. Changes: Change only LeJEPA lambda from 0.10 to 0.20.
+- Launch code provenance:
+  - `pretrain-clspatch-both-l010-aux-deterministic-seed0`: parent=`07f1aff5ff963e6611d53ba91b8d0393ce1d15bf` (`codex/research/lejepa-masked-collapse-v1`), mjepa=`d024b0caced600d059f22eec146339aeec600ff5` (`codex/research/lejepa-masked-collapse-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+  - `pretrain-clspatch-both-l020-aux-deterministic-seed0`: parent=`07f1aff5ff963e6611d53ba91b8d0393ce1d15bf` (`codex/research/lejepa-masked-collapse-v1`), mjepa=`d024b0caced600d059f22eec146339aeec600ff5` (`codex/research/lejepa-masked-collapse-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-masked-tuning/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-clspatch-both-l010-aux-deterministic-seed0`: attempt=1; status=completed; decision=baseline; started=2026-07-30T22:40:09.020100+00:00; finished=2026-07-30T23:45:03.862392+00:00; terminal_event=54892a51-7f2c-4d58-8784-5d144ea7fe6f; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-masked-tuning/runs/pretrain-clspatch-both-l010-aux-deterministic-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/15d51cb3); checkpoint=retained; metrics=peak_accuracy=0.320400, final_accuracy=0.320400, step_to_90=1740, step_to_95=3480, active_seconds_to_90=1562.162, active_seconds_to_95=3102.901, step_auc=0.279780, active_time_auc=0.278983, active_seconds_at_step_horizon=3874.822, cls_path_latency_median_ms=31.504384, cls_path_latency_p90_ms=32.321537; error=none
+- `pretrain-clspatch-both-l020-aux-deterministic-seed0`: attempt=1; status=completed; decision=rejected; started=2026-07-30T22:40:09.094591+00:00; finished=2026-07-30T23:44:29.938169+00:00; terminal_event=a01e8a83-d0c8-4e3d-a1a1-68e93b890a9b; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-masked-collapse-v1-masked-tuning/runs/pretrain-clspatch-both-l020-aux-deterministic-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/5e41be71); checkpoint=retained; metrics=peak_accuracy=0.297600, final_accuracy=0.297600, step_to_90=4350, step_to_95=censored, active_seconds_to_90=3840.627, active_seconds_to_95=censored, step_auc=0.257950, active_time_auc=0.257816, active_seconds_at_step_horizon=3840.627, cls_path_latency_median_ms=30.977535, cls_path_latency_p90_ms=31.719423; error=none
+
+## 2026-07-30 interpretation and amendment: LeJEPA multiview fallback
+
+- Masked-only outcome: Lambda `0.10` was the final masked-only winner at `0.3204` peak and final probe accuracy, versus `0.2976` for lambda `0.20`. The winner passed every fixed representation threshold on all three final validations and ended with CLS and patch effective-rank fractions `0.193975` and `0.187840`.
+- Diagnosis: The winner's visual-target shuffled relative improvement reached `0.915939`, so masked prediction remained strongly input-dependent, but the detached CLS probe stayed `0.5854` below the accepted `0.9058` seed-0 baseline. SigREG prevented collapse but did not impose same-image invariance across independent augmentations.
+- Protocol amendment: Preserve the masked visual and auxiliary CLS tasks and add the invariance term from the official LeJEPA minimal objective. Screen two global views, four global views, two global plus two moderate local views, an official-style projector, lambda `0.05`, and invariance weight `2.0`. The first global view remains the masked-task anchor; every full crop view retains student gradients; only the probe boundary detaches.
+- Promotion discipline: A run must remain noncollapsed and reach at least `0.85` peak, `0.84` final, and `0.75` step AUC before using the six reserved paired-confirmation trials. If none qualifies, stop the pretraining program without downstream evaluation.
+- Allocation: Sixteen of 22 authorized scientific pretraining runs are committed after this screen: four feasibility, four patch screen, two masked tuning, and six multiview screen. Six fresh paired-confirmation runs remain reserved. Mechanical smokes remain excluded.
+- Retention: Keep both masked-tuning checkpoints and backbones. No destructive retention was applied.

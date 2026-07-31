@@ -114,9 +114,19 @@ __all__ = [
     "get_scheduler_last_lr",
     "run_optimizer_step",
     "report_checkpoint_lifecycle",
+    "split_training_views",
     "train",
     "update_cls_patch_alignment_metric",
 ]
+
+
+def split_training_views(images: Tensor) -> tuple[Tensor, Tensor | None]:
+    """Separate the masked-task anchor from optional independently augmented views."""
+    if images.ndim == 4:
+        return images, None
+    if images.ndim == 5 and images.shape[1] > 1:
+        return images[:, 0], images[:, 1:]
+    raise ValueError("training images must have shape (B,C,H,W) or (B,V,C,H,W) with V > 1")
 
 
 def report_checkpoint_lifecycle(
@@ -730,9 +740,11 @@ def train(
     train_loss_cls_global = tm.RunningMean(window=WINDOW).cuda()
     train_loss_cls_global_pool = tm.RunningMean(window=WINDOW).cuda()
     train_loss_sigreg = tm.RunningMean(window=WINDOW).cuda()
+    train_loss_invariance = tm.RunningMean(window=WINDOW).cuda()
     train_loss_gram = tm.RunningMean(window=WINDOW).cuda()
     has_jepa_loss_cls = False
     has_sigreg_loss = False
+    has_invariance_loss = False
     has_gram_loss = False
     train_acc = Running(tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES), window=WINDOW).cuda()
     train_grad_clip_trigger_pct = tm.MeanMetric().cuda() if max_grad_norm is not None else None
@@ -779,10 +791,11 @@ def train(
         for img, label in pbar:
             B = img.shape[0]
             img = img.cuda()
+            img, additional_views = split_training_views(img)
             label = label.cuda()
             should_step = should_step_optimizer(microbatch + 1, accumulate_grad_batches)
             with get_gradient_sync_context(jepa.no_sync if isinstance(jepa, DDP) else None, should_step):
-                output = jepa(img, jepa_scale, epoch)
+                output = jepa(img, jepa_scale, epoch, additional_views=additional_views)
                 assert isinstance(output, MJEPAPredictions)
                 ssl_losses = unwrapped_jepa.compute_losses(output, step, epoch)
                 train_loss_jepa.update(ssl_losses.jepa_loss)
@@ -796,6 +809,11 @@ def train(
                 if sigreg_loss is not None:
                     train_loss_sigreg.update(sigreg_loss)
                     has_sigreg_loss = True
+
+                invariance_loss = getattr(ssl_losses, "invariance_loss", None)
+                if isinstance(invariance_loss, Tensor):
+                    train_loss_invariance.update(invariance_loss)
+                    has_invariance_loss = True
 
                 gram_loss = getattr(ssl_losses, "gram_loss", None)
                 if gram_loss is not None:
@@ -893,6 +911,8 @@ def train(
                     )
                 if has_sigreg_loss:
                     log_dict["pretrain/loss_sigreg"] = train_loss_sigreg.compute().item()
+                if has_invariance_loss:
+                    log_dict["pretrain/loss_invariance"] = train_loss_invariance.compute().item()
                 if has_gram_loss:
                     log_dict["pretrain/loss_gram"] = train_loss_gram.compute().item()
                 if train_cpa is not None:

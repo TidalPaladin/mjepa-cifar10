@@ -76,6 +76,7 @@
 - Invoke `$run-jepa-research` for autonomous JEPA studies and read its protocol before launch.
 - Keep experiment adapters here and reusable JEPA primitives in the sibling `mjepa` repository.
 - Preserve the online probe invariant: classifier-head gradients are allowed, while full-view target features are detached at the classifier boundary. EMA targets also remain under `torch.inference_mode()`; shared-student targets must retain gradients for the self-supervised objective.
+- For LeJEPA multiview experiments, keep the first global view as the masked-prediction anchor. Additional global/local views feed only same-image invariance and SigREG, retain shared-student gradients, and never replace the fixed single-view validation/probe path. Enable `multi_crop` only with a positive `invariance_loss_weight`.
 - Use the fixed 45,000/5,000 stratified training split. Reserve the official test set for the confirmed baseline and winner.
 - Do not exceed eight pretraining trials per managed study, two concurrent jobs, physical GPUs 1 and 2, or 24 hours per job.
 - The user-authorized SReLU MLP program may use at most 16 scientific pretraining runs across linked study specifications, with no more than eight runs in any one study. Its one-epoch mechanical smoke run is excluded. Reuse a committed, hash-verified seed-0 baseline only for the width and directional-tuning screens; paired confirmation must launch fresh baseline and winner runs at seeds 0, 1, and 2.

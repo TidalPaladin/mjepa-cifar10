@@ -8,7 +8,7 @@ import socket
 import sys
 from argparse import ArgumentParser, Namespace
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import asdict, replace
 from functools import partial
 from pathlib import Path
 from typing import Final, NamedTuple
@@ -39,7 +39,13 @@ from tqdm import tqdm
 from vit import ViTConfig
 
 import wandb
-from mjepa_cifar10.data import cifar10_split_fingerprint, get_test_dataloader, get_train_dataloader, get_val_dataloader
+from mjepa_cifar10.data import (
+    MultiCropConfig,
+    cifar10_split_fingerprint,
+    get_test_dataloader,
+    get_train_dataloader,
+    get_val_dataloader,
+)
 from mjepa_cifar10.experiment import append_metric_record, write_run_metadata
 from mjepa_cifar10.pretrain import (
     CENTERED_NORMALIZED_EMA_ATTENTION_CLS_GLOBAL_TARGET_POOLING,
@@ -270,6 +276,14 @@ def main(args: Namespace) -> None:
     assert isinstance(jepa_config, JEPAConfig)
     assert isinstance(optimizer_config, OptimizerConfig)
     assert isinstance(trainer_config, TrainerConfig)
+    multi_crop_values = config.get("multi_crop", {})
+    if not isinstance(multi_crop_values, Mapping):
+        raise TypeError("multi_crop must be a mapping")
+    multi_crop_config = MultiCropConfig(**multi_crop_values)
+    if jepa_config.invariance_loss_weight > 0 and not multi_crop_config.enabled:
+        raise ValueError("Configured multiview invariance requires more than one training view")
+    if jepa_config.invariance_loss_weight == 0 and multi_crop_config.enabled:
+        raise ValueError("Multiple training views require a positive invariance_loss_weight")
     cls_global_target_loss_weight = float(
         config.get("cls_global_target_loss_weight", DEFAULT_CLS_GLOBAL_TARGET_LOSS_WEIGHT)
     )
@@ -347,6 +361,7 @@ def main(args: Namespace) -> None:
         num_workers=trainer_config.num_workers,
         local_rank=local_rank,
         world_size=world_size,
+        multi_crop_config=multi_crop_config,
     )
     val_dataloader_fn = partial(
         get_val_dataloader,
@@ -416,6 +431,7 @@ def main(args: Namespace) -> None:
                 "jepa": jepa_config.__dict__,
                 "optimizer": optimizer_config.__dict__,
                 "trainer": trainer_config.__dict__,
+                "multi_crop": asdict(multi_crop_config),
                 "cls_global_target_loss_weight": cls_global_target_loss_weight,
                 "cls_global_target_pooling": cls_global_target_pooling,
                 "cls_global_pool_consistency_loss_weight": cls_global_pool_consistency_loss_weight,

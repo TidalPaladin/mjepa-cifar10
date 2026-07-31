@@ -1,0 +1,141 @@
+id: lejepa-masked-collapse-v1-multiview-screen
+question: Which LeJEPA same-image view design restores semantic probe quality while retaining masked prediction and noncollapsed shared-student features?
+hypothesis: Same-image invariance across independent augmented views will supply the semantic signal missing from masked-only SigREG; global-view count, moderate local crops, projection, lambda, and invariance weight determine whether that signal approaches the accepted 0.9058 probe baseline.
+
+baseline:
+  id: multiview-g2-direct-l010-w1
+  config: config/pretrain/vit-small-lejepa-multiview-g2-direct-l010-w1-100e.yaml
+  hypothesis: One additional global view and direct same-image invariance are sufficient to improve semantic structure over the 0.3204 masked-only winner.
+  mechanism: Add LeJEPA invariance between two independently augmented full student views while retaining masked visual prediction, auxiliary CLS prediction, and direct CLS-plus-patch SigREG.
+  changes:
+    - Keep one global view as the masked prediction anchor.
+    - Add one independent global view with the existing crop scale.
+    - Apply invariance to direct CLS and patch-mean features with weight 1.0.
+
+variants:
+  - id: multiview-g4-direct-l010-w1
+    config: config/pretrain/vit-small-lejepa-multiview-g4-direct-l010-w1-100e.yaml
+    hypothesis: Four global views provide enough augmentation diversity for invariance to become semantic rather than image-specific.
+    mechanism: Increase the direct invariance branch from two to four global views.
+    changes:
+      - Add two more independent global views without changing crop scale, loss weights, or feature source.
+  - id: multiview-g2l2-direct-l010-w1
+    config: config/pretrain/vit-small-lejepa-multiview-g2l2-direct-l010-w1-100e.yaml
+    hypothesis: Replacing two of four global views with moderate local crops improves object-level invariance without making CIFAR-10 crops label-ambiguous.
+    mechanism: Use two global views at scale 0.75-1.00 and two local views at scale 0.30-0.75.
+    changes:
+      - Replace two additional global views with local crop views while holding total view count and losses fixed.
+  - id: multiview-g2l2-proj64-l010-w1
+    config: config/pretrain/vit-small-lejepa-multiview-g2l2-proj64-l010-w1-100e.yaml
+    hypothesis: The official LeJEPA-style nonlinear projection isolates augmentation invariance from the raw representation while the raw collapse gates prevent a projector-only shortcut.
+    mechanism: Apply the four-view invariance and SigREG objectives after a 384-2048-2048-64 projector.
+    changes:
+      - Add the pretraining-only SigREG/invariance projector; preserve all crop and loss settings.
+  - id: multiview-g2l2-direct-l005-w1
+    config: config/pretrain/vit-small-lejepa-multiview-g2l2-direct-l005-w1-100e.yaml
+    hypothesis: Four full student views let lambda 0.05 preserve collapse resistance while allocating more weight to masked and invariant prediction.
+    mechanism: Lower the direct four-view convex SigREG weight from 0.10 to 0.05.
+    changes:
+      - Change only LeJEPA lambda.
+  - id: multiview-g2l2-direct-l010-w2
+    config: config/pretrain/vit-small-lejepa-multiview-g2l2-direct-l010-w2-100e.yaml
+    hypothesis: The masked objective otherwise dominates the new semantic signal, so doubling invariance weight improves probe convergence.
+    mechanism: Double direct four-view invariance weight from 1.0 to 2.0.
+    changes:
+      - Change only invariance loss weight.
+
+methodology:
+  linked_program: lejepa-masked-v1
+  protocol_amendment:
+    trigger: Both final masked-only tuning runs preserved feature diversity but failed the 0.50 probe gate; the best reached 0.3204.
+    fixed_evidence:
+      - Direct CLS-plus-patch SigREG at lambda 0.10 ended with CLS and patch effective-rank fractions 0.193975 and 0.187840.
+      - The same run reached 0.915939 visual-target shuffled relative improvement but only 0.3204 peak probe accuracy.
+      - The official LeJEPA minimal objective adds same-image invariance across augmented views, and its documented full recipe uses global and local multi-crop views.
+    decision: Preserve masked prediction and add the missing same-image invariance branch; use the six reserved crop-fallback trials for the fixed ladder below.
+    primary_reference: https://github.com/galilai-group/lejepa/blob/main/MINIMAL.md
+  scientific_run_allocation:
+    total_authorized: 22
+    prior_feasibility_used: 4
+    prior_patch_screen_used: 4
+    prior_masked_tuning_used: 2
+    this_multiview_screen: 6
+    paired_confirmation_reserved: 6
+    mechanical_smokes_excluded: true
+  controls:
+    seed: 0
+    epochs: 100
+    validation_interval_epochs: 10
+    effective_batch_size: 1024
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the first global view.
+    masked_task: Preserve visual-token prediction and four-partition auxiliary CLS prediction.
+    optimization: Preserve AdamW learning rate 0.002, weight decay 0.2, deterministic encoder and predictor paths, and no schedule.
+    probe_boundary: The online classifier receives detached full-view anchor CLS features.
+    gradient_boundary: Every shared-student target and crop view retains gradients for self-supervision.
+  last_three_validation_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+    peak_probe_accuracy_minimum: 0.50
+  plausible_equivalence_gate:
+    peak_probe_accuracy_minimum: 0.85
+    final_probe_accuracy_minimum: 0.84
+    step_auc_minimum: 0.75
+    rationale: These floors are within 0.0558 peak accuracy and 0.045948 step AUC of the accepted seed-0 baseline and reserve confirmation for a result plausibly consistent with the user's relaxed equivalence criterion.
+  selection:
+    eligibility: Every collapse threshold must pass on each of the last three validation records.
+    ranking: Plausible-equivalence gate, probe step AUC, peak accuracy, active-time AUC, then lower view count and direct features.
+    no_automatic_promotion: This screen selects a candidate manually; harness promotion thresholds remain intentionally unreachable.
+  stopping:
+    - Complete all six preregistered seed-0 runs unless a safety or mechanical failure requires repair.
+    - If at least one eligible run passes plausible equivalence, select by the fixed ranking and proceed to fresh baseline/winner paired confirmation at seeds 0, 1, and 2.
+    - If no eligible run passes plausible equivalence, stop pretraining research; do not spend the six confirmation runs or run supervised downstream evaluation.
+    - Do not add another crop, lambda, projector, or loss-weight variant after observing this screen.
+  retention: Retain all checkpoints and backbones because destructive retention is not authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-masked-collapse-v1-multiview-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 6
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

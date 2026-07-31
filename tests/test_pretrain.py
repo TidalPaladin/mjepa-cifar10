@@ -51,6 +51,7 @@ from mjepa_cifar10.pretrain import (
     get_scheduler_last_lr,
     report_checkpoint_lifecycle,
     run_optimizer_step,
+    split_training_views,
     update_cls_patch_alignment_metric,
 )
 
@@ -165,6 +166,25 @@ def test_get_gradient_sync_context_skips_no_sync_for_final_microbatch() -> None:
         events.append("body")
 
     assert events == ["body"]
+
+
+def test_split_training_views_preserves_single_view_batches() -> None:
+    images = torch.randn(3, 3, 32, 32)
+
+    anchor, additional = split_training_views(images)
+
+    assert anchor is images
+    assert additional is None
+
+
+def test_split_training_views_separates_anchor_from_additional_views() -> None:
+    images = torch.randn(3, 4, 3, 32, 32)
+
+    anchor, additional = split_training_views(images)
+
+    assert torch.equal(anchor, images[:, 0])
+    assert additional is not None
+    assert torch.equal(additional, images[:, 1:])
 
 
 def _find_free_port() -> int:
