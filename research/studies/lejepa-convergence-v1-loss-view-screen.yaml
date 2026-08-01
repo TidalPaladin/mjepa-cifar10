@@ -1,0 +1,153 @@
+id: lejepa-convergence-v1-loss-view-screen
+question: Which masked-prediction, invariance, SigREG, and crop interaction improves teacher-free representation convergence, and how many views are needed to retain that gain?
+hypothesis: Combining lambda 0.05 with invariance weight 2.0 will improve frozen accuracy over the lambda 0.10 control; stronger invariance, less aggressive local crops, or one local view may improve performance or cost, while removing auxiliary CLS prediction or all local views will reduce semantic quality.
+
+baseline:
+  id: g2l2-l010-w2
+  config: config/pretrain/vit-small-lejepa-convergence-lr2e3-wd2e1-constant-100e.yaml
+  hypothesis: The original optimizer with two global and two local views, lambda 0.10, and invariance weight 2.0 remains the control after optimizer calibration rejected every optimizer candidate.
+  mechanism: Preserve masked visual and auxiliary CLS prediction, direct CLS-plus-patch-mean SigREG, and four-view invariance.
+  changes:
+    - Use the calibrated detached classifier head without changing encoder gradients.
+    - Retain AdamW learning rate 0.002, weight decay 0.2, and constant-after-warmup optimization.
+
+variants:
+  - id: g2l2-l005-w2
+    config: config/pretrain/vit-small-lejepa-lossview-g2l2-l005-w2-100e.yaml
+    hypothesis: The lambda 0.05 and invariance-weight 2.0 main effects are complementary.
+    mechanism: Reduce only the convex SigREG share while retaining the strongest prior invariance setting.
+    changes:
+      - Lower LeJEPA lambda from 0.10 to 0.05.
+  - id: g2l2-l010-w4
+    config: config/pretrain/vit-small-lejepa-lossview-g2l2-l010-w4-100e.yaml
+    hypothesis: The prior gain from invariance weight 1.0 to 2.0 has not saturated.
+    mechanism: Increase only the same-image invariance coefficient at lambda 0.10.
+    changes:
+      - Raise invariance loss weight from 2.0 to 4.0.
+  - id: g2l2-l005-w4
+    config: config/pretrain/vit-small-lejepa-lossview-g2l2-l005-w4-100e.yaml
+    hypothesis: Lower SigREG share permits stronger invariance without sacrificing feature diversity.
+    mechanism: Evaluate the lambda-by-invariance interaction at lambda 0.05 and invariance weight 4.0.
+    changes:
+      - Lower lambda from 0.10 to 0.05 and raise invariance weight from 2.0 to 4.0 as the missing factorial corner.
+  - id: g2l2-l005-w2-noaux
+    config: config/pretrain/vit-small-lejepa-lossview-g2l2-l005-w2-noaux-100e.yaml
+    hypothesis: Auxiliary CLS masked prediction competes with augmentation invariance for the same representation.
+    mechanism: Remove the auxiliary CLS predictor while preserving masked visual-token prediction.
+    changes:
+      - Disable only auxiliary CLS prediction relative to g2l2-l005-w2.
+  - id: g2l1-l005-w2
+    config: config/pretrain/vit-small-lejepa-lossview-g2l1-l005-w2-100e.yaml
+    hypothesis: One local crop retains most semantic benefit with lower view cost.
+    mechanism: Remove one of two local views from g2l2-l005-w2.
+    changes:
+      - Reduce local views from two to one.
+  - id: g2-l005-w2
+    config: config/pretrain/vit-small-lejepa-lossview-g2-l005-w2-100e.yaml
+    hypothesis: Two global views define the compute floor but lose the semantic benefit of local crops.
+    mechanism: Remove both local views from g2l2-l005-w2.
+    changes:
+      - Reduce local views from two to zero.
+  - id: g2l2-l005-w2-local50
+    config: config/pretrain/vit-small-lejepa-lossview-g2l2-l005-w2-local50-100e.yaml
+    hypothesis: CIFAR-10 crops below 50% image area are often label-ambiguous and weaken invariance learning.
+    mechanism: Preserve four views and all losses while making local crops less aggressive.
+    changes:
+      - Raise the local crop minimum area from 0.30 to 0.50.
+
+methodology:
+  linked_program: lejepa-convergence-v1
+  trigger:
+    optimizer_study: lejepa-convergence-v1-optimizer-screen
+    calibration_study: lejepa-convergence-v1-optimizer-probe
+    decision: no-eligible-optimizer-candidate
+    evidence:
+      - Lower weight decay led the online screen at 0.4480 but every optimizer source missed the preregistered 0.50 online floor.
+      - Fixed frozen accuracy was 0.5590 for lower weight decay and 0.5558 for the original optimizer, only a 0.0032 gain versus the required 0.02.
+      - The calibrated teacher reached 0.9004, leaving a 0.3414 gap, so objective and view interactions remain the primary target.
+      - Prior frozen results favored two global plus two local views, lambda 0.05 at invariance weight 1.0, and lambda 0.10 at invariance weight 2.0, but did not test their interaction.
+  scientific_run_allocation:
+    seed_zero_runs: 8
+    maximum_pretraining_runs: 8
+    separate_confirmation_only_if_terminal_gate_passes: true
+    mechanical_smokes_excluded: true
+  controls:
+    seed: 0
+    epochs: 100
+    validation_interval_epochs: 10
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the first global view.
+    masked_task: Preserve visual-token prediction in every run; vary auxiliary CLS prediction only in the named noaux ablation.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, 5% linear warmup followed by a constant rate.
+    probe_boundary: Final CLS enters the online classifier through an explicit detach; only the classifier head uses learning rate 0.01 and weight decay 1e-6.
+    gradient_boundary: Shared-student targets and every additional view retain self-supervised gradients.
+    terminal_probe: After all eight runs, freeze every encoder and reuse the 100-epoch normalized final-two-layer six-rate probe bank from lejepa-convergence-v1-probe.
+  last_three_validation_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.07
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.07
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+  terminal_performance_gate:
+    frozen_accuracy_minimum: 0.60
+    frozen_accuracy_gain_over_fresh_baseline: 0.03
+    plausible_equivalence_frozen_accuracy_minimum: 0.85
+    ranking: Collapse eligibility, plausible equivalence, frozen accuracy, online step AUC, online active-time AUC, then lower view count.
+  terminal_cost_gate:
+    matched_full_view_variant: g2l2-l005-w2
+    common_step_active_time_gain_minimum: 0.15
+    maximum_frozen_accuracy_loss: 0.01
+  stopping:
+    - Complete all eight preregistered seed-0 runs unless a safety or mechanical failure requires repair.
+    - Do not let the managed online summary launch confirmation; terminal selection requires the fixed frozen probe.
+    - If no candidate passes the performance or cost gate, stop this loss/view branch without supervised evaluation.
+    - If a candidate passes, preregister a separate fresh baseline/winner three-seed confirmation study before using the official test set.
+    - Do not add a post-hoc lambda, invariance, auxiliary, view-count, or crop-scale variant after observing this screen.
+  retention: Retain every checkpoint, frozen-probe cache, local metric curve, and W&B run. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-convergence-v1-loss-view-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

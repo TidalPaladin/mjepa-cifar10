@@ -1684,3 +1684,35 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Selection boundary: Apply the optimizer-screen pretraining eligibility gates before comparing frozen accuracy. Frozen results diagnose convergence and select a control only among eligible sources; they cannot override the `0.50` online floor. If no optimizer source is eligible, retain the original optimizer as the control for a separately preregistered loss-interaction and view-cost study.
 - External tracking: W&B destination `tidalpaladin/mjepa-cifar10`, group `lejepa-convergence-v1-optimizer-probe`; launch emits authorized `metrics`, `configs`, and `provenance`.
 - Retention: Keep feature caches, complete curves, results, and every source checkpoint. No destructive retention is authorized.
+<!-- autoresearch-operation:{"content_sha256":"b568ba4f5fd2d4cff89e7cb95c485dabbc3e34297507efe3061f5aec9c3e1c34","operation_id":"lejepa-convergence-v1-optimizer-probe-result-v1"} -->
+
+
+## 2026-08-01 result: LeJEPA optimizer frozen-probe calibration
+
+- Study: `lejepa-convergence-v1-optimizer-probe`; status: completed. Two GPU workers calibrated the teacher and all four optimizer checkpoints in `209.13` wall seconds and `331.15` summed active seconds. Both workers exited with code `0`, and notify-wake watch `591707c1-e7a2-43c7-a9ac-a099d37f3806` delivered the terminal event successfully.
+- Provenance: Parent `e14297f78510624dea537cc35a285021c772feec`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`; manifest SHA-256 `9b4dda257e910431b95760774cdb958e60c3ca8a4c2daf89ea04653f193e8d3c`; structured summary SHA-256 `e545fbcb420e73ad248cfd716ba5f0bb2c2a00341da39a95061fe164e34a8c1f`.
+
+| Source | Online accuracy | Frozen accuracy | Calibration gain | Best probe LR |
+| --- | ---: | ---: | ---: | ---: |
+| original optimizer | 0.4190 | 0.5558 | +0.1368 | 0.03 |
+| lower learning rate | 0.4286 | 0.5418 | +0.1132 | 0.03 |
+| lower weight decay | 0.4480 | 0.5590 | +0.1110 | 0.03 |
+| OneCycle combination | 0.3788 | 0.4394 | +0.0606 | 0.03 |
+| teacher baseline | 0.9058 | 0.9004 | -0.0054 | 0.003 |
+
+- Decision: Lower weight decay improved frozen accuracy by only `0.0032` over the original optimizer, below the preregistered `0.02` requirement. Every optimizer run also missed the preregistered `0.50` online eligibility floor. No optimizer candidate is eligible, the provisional online-only managed selection is superseded by the mandatory frozen and eligibility gates, and no optimizer confirmation will launch.
+- Interpretation: Optimizer changes affected the detached online probe more than the representation. The best shared representation remains below the `0.60` floor and `0.3414` behind the calibrated teacher, so representation convergence remains the primary limitation.
+- Tracker and retention: All five W&B runs completed online with authorized metrics, configs, and provenance. Retain every feature cache, curve, result, checkpoint, and backbone. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"2f22c3646ed3f99e5e2d72544e51e9e423ece78e6818f5e9db305317bfee6c16","operation_id":"lejepa-convergence-v1-loss-view-protocol-v1"} -->
+
+
+## 2026-08-01 protocol: LeJEPA loss-interaction and view-cost screen
+
+- Study: `lejepa-convergence-v1-loss-view-screen`; linked program: `lejepa-convergence-v1`.
+- Trigger: Frozen optimizer calibration rejected lower learning rate, lower weight decay, and OneCycle as representation improvements. The original AdamW setting remains the control.
+- Hypothesis: Lambda `0.05` and invariance weight `2.0` combine complementary gains. A `2 x 2` lambda-by-invariance screen tests saturation and interaction; auxiliary CLS removal tests objective competition; G2L1 and G2 test view cost; and a `0.50` local-crop floor tests CIFAR-10 label ambiguity.
+- Runs: Eight fresh seed-0, 100-epoch runs: G2L2 lambda `0.10` weight `2` control; G2L2 lambda `0.05` weight `2`; G2L2 lambda `0.10` weight `4`; G2L2 lambda `0.05` weight `4`; G2L2 lambda `0.05` weight `2` without auxiliary CLS prediction; matched G2L1 and G2 cost variants; and matched G2L2 with local scale `0.50-0.75`.
+- Invariants: Every run retains masked visual-token prediction, shared-student target gradients, direct CLS-plus-patch-mean SigREG, the original encoder optimizer, and an explicitly detached classifier input. The official test set remains prohibited.
+- Terminal evaluation: Complete every run, apply last-three collapse gates, then calibrate every frozen encoder with the fixed normalized final-two-layer six-rate probe. Performance requires frozen accuracy at least `0.60` and a `0.03` gain over the fresh baseline. The cost route requires at least `15%` common-step active-time gain with no more than `0.01` frozen-accuracy loss.
+- Stopping and retention: Managed online promotion is disabled. A qualifying result requires a separately preregistered fresh three-seed confirmation; otherwise stop this branch without supervised evaluation. Retain every checkpoint, cache, curve, and tracker run.
+- External tracking: W&B destination `tidalpaladin/mjepa-cifar10`, group `lejepa-convergence-v1-loss-view-screen`; launch and summary emit only authorized data classes.

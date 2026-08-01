@@ -181,6 +181,72 @@ LEJEPA_CONVERGENCE_CONFIGS = {
         True,
     ),
 }
+LEJEPA_LOSS_VIEW_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-convergence-lr2e3-wd2e1-constant-100e.yaml": (
+        2,
+        2,
+        0.10,
+        2.0,
+        True,
+        [0.30, 0.75],
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-lossview-g2l2-l005-w2-100e.yaml": (
+        2,
+        2,
+        0.05,
+        2.0,
+        True,
+        [0.30, 0.75],
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-lossview-g2l2-l010-w4-100e.yaml": (
+        2,
+        2,
+        0.10,
+        4.0,
+        True,
+        [0.30, 0.75],
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-lossview-g2l2-l005-w4-100e.yaml": (
+        2,
+        2,
+        0.05,
+        4.0,
+        True,
+        [0.30, 0.75],
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-lossview-g2l2-l005-w2-noaux-100e.yaml": (
+        2,
+        2,
+        0.05,
+        2.0,
+        False,
+        [0.30, 0.75],
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-lossview-g2l1-l005-w2-100e.yaml": (
+        2,
+        1,
+        0.05,
+        2.0,
+        True,
+        [0.30, 0.75],
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-lossview-g2-l005-w2-100e.yaml": (
+        2,
+        0,
+        0.05,
+        2.0,
+        True,
+        [0.30, 0.75],
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-lossview-g2l2-l005-w2-local50-100e.yaml": (
+        2,
+        2,
+        0.05,
+        2.0,
+        True,
+        [0.50, 0.75],
+    ),
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -427,6 +493,51 @@ def test_lejepa_convergence_configs_isolate_optimizer_and_calibrate_detached_pro
     if expected_scheduled:
         assert optimizer_config.pct_start == 0.10
         assert optimizer_config.final_div_factor == 100
+
+
+@pytest.mark.parametrize(("config_path", "expected"), LEJEPA_LOSS_VIEW_CONFIGS.items())
+def test_lejepa_loss_view_configs_preserve_optimizer_and_factorial_boundaries(
+    config_path: Path,
+    expected: tuple[int, int, float, float, bool, list[float]],
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    backbone_config = config["backbone"]
+    jepa_config = config["jepa"]
+    optimizer_config = config["optimizer"]
+    multi_crop = config["multi_crop"]
+    expected_globals, expected_locals, expected_lambda, expected_weight, expected_aux, expected_local_scale = expected
+
+    assert isinstance(backbone_config, ViTConfig)
+    assert isinstance(jepa_config, JEPAConfig)
+    assert isinstance(optimizer_config, OptimizerConfig)
+    assert backbone_config.heads["cls"].dropout == 0
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.enable_cls_prediction is expected_aux
+    assert jepa_config.cls_prediction_mode == (
+        SELECTED_CLS_PREDICTION_MODE if expected_aux else "legacy_cross_attention"
+    )
+    assert jepa_config.lejepa_lambda == expected_lambda
+    assert jepa_config.invariance_loss_weight == expected_weight
+    assert jepa_config.sigreg_views == "both"
+    assert jepa_config.sigreg_features == "cls_patch_mean"
+    assert jepa_config.sigreg_projector_dims == ()
+    assert jepa_config.context_ratio == 0.5
+    assert jepa_config.target_ratio == 0.25
+    assert jepa_config.scale == 2
+    assert multi_crop == {
+        "global_views": expected_globals,
+        "local_views": expected_locals,
+        "global_scale": [0.75, 1.0],
+        "local_scale": expected_local_scale,
+    }
+    assert optimizer_config.lr == 0.002
+    assert optimizer_config.weight_decay == 0.2
+    assert not optimizer_config.scheduled
+    assert optimizer_config.parameter_groups[-1] == {
+        "params": ["heads"],
+        "lr": 0.01,
+        "weight_decay": 0.000001,
+    }
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:
