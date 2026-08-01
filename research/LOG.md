@@ -1780,3 +1780,14 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Interpretation: Auxiliary CLS prediction is not required for optimization stability and appears mildly harmful to online accuracy, active time, and representation diversity in this setting. The improvement is diagnostic, not promotion evidence, because the patch-rank gate still fails and frozen accuracy is pending.
 - Provenance: Parent `a2eddbef9ae150ae5e3208dd56ca609a05ffb303`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0c218ad1).
 - Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"098ea32946cfe23418fbbe486e72d63152cec4ceeafa092176172e552eeba4d9","operation_id":"lejepa-convergence-v1-loss-view-g2-l005-w2-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2 lambda 0.05 weight 2 seed 0
+
+- Identity: `pretrain-g2-l005-w2-seed0`, attempt `1`, terminal event `229be64f-ed0d-4d95-a42a-ba85915802ac`. The run started at `16:35:01.554523` UTC and completed with exit code `0` at `18:29:23.603825` UTC on physical GPU 2.
+- Online result: Peak and final validation accuracy were `0.4034` at `6,843.13` active seconds. At the common terminal step this was `36.81%` faster than matched G2L2 lambda `0.05`, weight `2`, but accuracy was `0.0944` lower. Relative to G2L1, G2 was `22.43%` faster and `0.0710` less accurate.
+- Eligibility: Variance, top-eigenvalue, cosine, shuffled-target, finite-value, and CLS effective-rank checks passed. Patch effective-rank fractions were `0.04458`, `0.04878`, and `0.05007` at epochs 79, 89, and 99, below the preregistered `0.07` floor. The run is ineligible under the collapse gate; its retained encoder will still receive the fixed frozen probe.
+- Cost interpretation: G2 decisively clears the `15%` common-step active-time threshold, but its `0.0944` online loss is far beyond the `0.01` cost-route allowance. Removing both local views therefore saves compute at a large semantic cost in this training regime.
+- Provenance: Parent `41ef7d8f21a2e7ff66b111e2958b13b5fc491b6b`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0f0c7cc1).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
