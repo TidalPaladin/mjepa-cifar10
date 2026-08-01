@@ -1,0 +1,106 @@
+id: lejepa-convergence-v1-loss-view-probe
+question: Which loss interaction, auxiliary objective, and view topology produces the best fixed frozen-probe accuracy and cost-quality tradeoff for the teacher-free SigREG JEPA?
+hypothesis: Removing auxiliary CLS prediction will preserve its modest advantage over matched G2L2 lambda 0.05 weight 2, while the strong-invariance online lead will shrink under frozen probing because of its low effective rank; reducing local views or enlarging local crops will retain a frozen-accuracy deficit.
+mechanism: Freeze the accepted teacher and all eight retained loss/view encoders, extract the normalized concatenation of each encoder's final two CLS representations, and train the preregistered six-head learning-rate bank without backbone gradients.
+rejection: Reject a performance candidate unless frozen accuracy reaches 0.60, improves by 0.03 over the fresh lambda 0.10 weight 2 baseline, and its pretraining run passes every collapse gate. Reject a cost candidate unless common-step active time improves by 15%, frozen accuracy loses no more than 0.01 against matched G2L2 lambda 0.05 weight 2, isolated-path latency is lower, and every collapse gate passes.
+
+sources:
+  - id: teacher-baseline-seed0
+    role: teacher-baseline
+    run_dir: logs/research/vit-small-baseline-v1/runs/pretrain-baseline-seed0
+    online_probe_accuracy: 0.9058
+  - id: lossview-g2l2-l010-w2-seed0
+    role: shared-student-baseline
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2l2-l010-w2-seed0
+    online_probe_accuracy: 0.4190
+  - id: lossview-g2l2-l005-w2-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2l2-l005-w2-seed0
+    online_probe_accuracy: 0.4978
+  - id: lossview-g2l2-l010-w4-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2l2-l010-w4-seed0
+    online_probe_accuracy: 0.4904
+  - id: lossview-g2l2-l005-w4-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2l2-l005-w4-seed0
+    online_probe_accuracy: 0.5618
+  - id: lossview-g2l2-l005-w2-noaux-seed0
+    role: shared-student-exploratory
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2l2-l005-w2-noaux-seed0
+    online_probe_accuracy: 0.5076
+  - id: lossview-g2l1-l005-w2-seed0
+    role: shared-student-exploratory
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2l1-l005-w2-seed0
+    online_probe_accuracy: 0.4744
+  - id: lossview-g2-l005-w2-seed0
+    role: shared-student-exploratory
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2-l005-w2-seed0
+    online_probe_accuracy: 0.4034
+  - id: lossview-g2l2-l005-w2-local50-seed0
+    role: shared-student-exploratory
+    run_dir: logs/research/lejepa-convergence-v1-loss-view-screen/runs/pretrain-g2l2-l005-w2-local50-seed0
+    online_probe_accuracy: 0.4552
+
+recipes:
+  - id: last-two-cls-layernorm
+    mode: last_two_cls
+    normalize: true
+    purpose: Reuse the fixed recipe selected by lejepa-convergence-v1-probe for every retained loss/view checkpoint.
+
+probe:
+  seed: 0
+  epochs: 100
+  feature_batch_size: 512
+  probe_batch_size: 4096
+  num_workers: 24
+  learning_rates: [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.000001
+  warmup_fraction: 0.10
+  start_factor: 0.10
+  schedule: linear-warmup-cosine
+  final_factor: 0.001
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+resources:
+  physical_gpus: [1, 2]
+  workers: 2
+  timeout_seconds: 7200
+  retention: Retain feature caches, complete curves, results, and all source checkpoints.
+
+decision:
+  material_probe_lag_gain: 0.10
+  shared_representation_floor: 0.60
+  maximum_teacher_gap_for_probe_explanation: 0.20
+  performance_baseline_source: lossview-g2l2-l010-w2-seed0
+  performance_accuracy_floor: 0.60
+  performance_accuracy_gain: 0.03
+  cost_baseline_source: lossview-g2l2-l005-w2-seed0
+  cost_active_time_gain: 0.15
+  cost_accuracy_loss: 0.01
+  pretraining_collapse_gates_required: true
+  selection: Apply every preregistered pretraining collapse gate first. Diagnose all sources, then rank eligible performance candidates by frozen accuracy and eligible cost candidates by common-step active-time gain, frozen accuracy loss, and isolated-path latency.
+  next_step: Launch fresh three-seed confirmation only if a candidate passes every applicable frozen, pretraining, and cost gate; otherwise close the program without supervised evaluation.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-convergence-v1-loss-view-probe
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

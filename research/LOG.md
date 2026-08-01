@@ -1802,3 +1802,36 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Interpretation: Larger local crops did not mitigate CIFAR-10 label ambiguity under this objective. They reduced online accuracy without improving active time, while the modest patch-rank improvement was insufficient to clear the diversity gate.
 - Provenance: Parent `b7fb7407c632ed88bed09d3f563696d1febc7d7e`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/cf667768).
 - Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"8ff54980da8ec5f5eeb12a76851d064ee273e9e96fe6747458f2679d798f40a8","operation_id":"lejepa-convergence-v1-loss-view-screen-result-v1"} -->
+
+
+## 2026-08-01 result: LeJEPA loss-interaction and view-cost pretraining screen
+
+- Study: `lejepa-convergence-v1-loss-view-screen`; phase: `no-promotion`. All eight seed-0 pretraining runs completed successfully from `07:59:22.336112` to `20:02:05.296241` UTC, with `80,344.21` summed active seconds. Structured summary: `logs/research/lejepa-convergence-v1-loss-view-screen/summary.json`, SHA-256 `3d7619dc92cc486c06c1278dc2b83bb2feb9b756e6d6024ea540bc4f584c9565`.
+
+| Variant | Online accuracy | Active seconds | Late collapse decision |
+| --- | ---: | ---: | --- |
+| G2L2 lambda 0.10, weight 2 | 0.4190 | 10,903.49 | eligible baseline |
+| G2L2 lambda 0.05, weight 2 | 0.4978 | 10,829.67 | reject: late rank |
+| G2L2 lambda 0.10, weight 4 | 0.4904 | 10,824.75 | reject: late patch rank |
+| G2L2 lambda 0.05, weight 4 | 0.5618 | 10,895.74 | reject: late rank |
+| G2L2 lambda 0.05, weight 2, no auxiliary CLS | 0.5076 | 10,348.38 | reject: late patch rank |
+| G2L1 lambda 0.05, weight 2 | 0.4744 | 8,821.61 | reject: late patch rank |
+| G2 lambda 0.05, weight 2 | 0.4034 | 6,843.13 | reject: late patch rank |
+| G2L2 lambda 0.05, weight 2, local scale 0.50 | 0.4552 | 10,877.44 | reject: late patch rank |
+
+- Findings: Lower SigREG and stronger invariance improved the detached online probe but concentrated CLS and patch representations. Removing auxiliary CLS prediction modestly improved accuracy, speed, and rank. Reducing local views saved `18.54%` for G2L1 and `36.81%` for G2, but online losses exceeded the cost allowance. Larger local crops reduced accuracy without saving time.
+- Decision: No candidate passes the pretraining collapse and promotion gates, so no candidate is promoted from online evidence. Run the mandatory fixed frozen-probe diagnostic for the teacher and all eight retained encoders before closing the program or considering confirmation.
+- Tracker and retention: Summary metrics and provenance were published to authorized W&B. Every checkpoint and backbone remains retained; no destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"b30e900c650abb58d13f4a34cb3d5a90bdca3d7f04e7d7896d8946ef1d58e66f","operation_id":"lejepa-convergence-v1-loss-view-probe-protocol-v1"} -->
+
+
+## 2026-08-01 protocol: LeJEPA loss/view frozen-probe calibration
+
+- Study: `lejepa-convergence-v1-loss-view-probe`; source study: `lejepa-convergence-v1-loss-view-screen`; manifest: `research/probe-calibrations/lejepa-convergence-v1-loss-view-probe.yaml`.
+- Question: Which loss interaction, auxiliary objective, and view topology provides the best fixed frozen accuracy and cost-quality tradeoff after controlling for online-probe lag?
+- Hypothesis: Removing auxiliary CLS prediction will preserve its modest advantage over matched G2L2 lambda `0.05`, weight `2`; the lambda `0.05`, weight `4` online lead will shrink because of low rank; and G2L1, G2, and larger local crops will retain frozen-accuracy deficits.
+- Evaluation: Freeze the accepted teacher and all eight retained encoders. Reuse only normalized concatenated final-two-layer CLS features, the six fixed AdamW probe learning rates, 100 probe epochs, seed 0, deterministic feature extraction, and the fixed 45,000/5,000 split. The official test set remains prohibited.
+- Gates: Performance requires frozen accuracy at least `0.60`, at least `0.03` above the fresh lambda `0.10`, weight `2` baseline, and every pretraining collapse gate. Cost requires at least `15%` common-step active-time gain, no more than `0.01` frozen loss against matched lambda `0.05`, weight `2`, lower isolated-path latency, and every collapse gate.
+- External tracking: W&B destination `tidalpaladin/mjepa-cifar10`, group `lejepa-convergence-v1-loss-view-probe`; launch emits authorized non-sensitive `metrics`, `configs`, and `provenance`.
+- Stopping and retention: Launch fresh three-seed confirmation only if every applicable gate passes. Otherwise close without supervised evaluation. Retain every feature cache, complete curve, result, and source checkpoint.
