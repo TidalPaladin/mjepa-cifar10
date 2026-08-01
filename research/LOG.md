@@ -1835,3 +1835,27 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Gates: Performance requires frozen accuracy at least `0.60`, at least `0.03` above the fresh lambda `0.10`, weight `2` baseline, and every pretraining collapse gate. Cost requires at least `15%` common-step active-time gain, no more than `0.01` frozen loss against matched lambda `0.05`, weight `2`, lower isolated-path latency, and every collapse gate.
 - External tracking: W&B destination `tidalpaladin/mjepa-cifar10`, group `lejepa-convergence-v1-loss-view-probe`; launch emits authorized non-sensitive `metrics`, `configs`, and `provenance`.
 - Stopping and retention: Launch fresh three-seed confirmation only if every applicable gate passes. Otherwise close without supervised evaluation. Retain every feature cache, complete curve, result, and source checkpoint.
+<!-- autoresearch-operation:{"content_sha256":"a0752926863bd3bf1c3c27efa36b33a827e5087f7198a2901e5231ca66925e87","operation_id":"lejepa-convergence-v1-loss-view-probe-result-v1"} -->
+
+
+## 2026-08-01 result: LeJEPA loss/view frozen-probe calibration
+
+- Study: `lejepa-convergence-v1-loss-view-probe`; status: completed. Two GPU workers calibrated the teacher and all eight retained shared-student checkpoints in `342.62` wall seconds and `589.41` summed active seconds. Both workers exited with code `0`; notify-wake watch `8b1a2053-fb2c-4699-b5c3-a7519d0a8aa0` validated the exact PID identity, delivered the terminal event, and released the owned goal wait.
+- Provenance: Parent `518ea709949b11f13657cd208178a67da3ea4989`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`; manifest SHA-256 `b74342056105d4806c877c44eea99c808ff2ae8f69487c5d7c0ff2e839bffc82`; structured summary SHA-256 `542ab8e3345e3fac27446bbba3d5606f06126824c4a83425d909aa7ffdbbed2d`.
+
+| Source | Online accuracy | Frozen accuracy | Calibration gain | Best probe LR |
+| --- | ---: | ---: | ---: | ---: |
+| G2L2 lambda 0.10, weight 2 | 0.4190 | 0.5558 | +0.1368 | 0.03 |
+| G2L2 lambda 0.05, weight 2 | 0.4978 | 0.6086 | +0.1108 | 0.03 |
+| G2L2 lambda 0.10, weight 4 | 0.4904 | 0.6282 | +0.1378 | 0.03 |
+| G2L2 lambda 0.05, weight 4 | 0.5618 | 0.6640 | +0.1022 | 0.03 |
+| G2L2 lambda 0.05, weight 2, no auxiliary CLS | 0.5076 | 0.6048 | +0.0972 | 0.03 |
+| G2L1 lambda 0.05, weight 2 | 0.4744 | 0.5864 | +0.1120 | 0.03 |
+| G2 lambda 0.05, weight 2 | 0.4034 | 0.5174 | +0.1140 | 0.03 |
+| G2L2 lambda 0.05, weight 2, local scale 0.50 | 0.4552 | 0.5746 | +0.1194 | 0.03 |
+| teacher baseline | 0.9058 | 0.9004 | -0.0054 | 0.003 |
+
+- Performance gate: Lambda `0.05`, weight `4` remains the strongest shared representation at `0.6640`, a `0.1082` frozen gain over the fresh lambda `0.10`, weight `2` control. Lambda `0.05`, weight `2`, lambda `0.10`, weight `4`, and no-auxiliary CLS also clear the frozen accuracy floor and gain, but every one fails a preregistered late effective-rank gate. Only the baseline clears every collapse gate, so no performance candidate is eligible.
+- Cost gate: Against matched G2L2 lambda `0.05`, weight `2`, G2L1 saves `18.54%` active time but loses `0.0222` frozen accuracy and has higher isolated-path latency (`31.074` versus `30.911` ms). G2 saves `36.81%` but loses `0.0912`; no-auxiliary CLS saves only `4.44%` and is slower in the isolated benchmark; larger local crops save no time. Every cost candidate also fails patch effective rank. No cost candidate is eligible.
+- Interpretation: Fixed probing exposes material online-probe lag, but representation quality remains limiting. The best shared encoder is `0.2364` behind the calibrated teacher, beyond the preregistered `0.20` probe-explanation boundary. Stronger invariance does not lose its lead under calibration; its diversity loss is the disqualifying tradeoff. Removing auxiliary CLS prediction is nearly frozen-equivalent to matched lambda `0.05`, weight `2` (`-0.0038`) but provides neither the required cost gain nor collapse safety.
+- Decision: Close the LeJEPA convergence program with no promotion. Do not launch three-seed confirmation, supervised evaluation, or official-test evaluation because no candidate passes every applicable gate. All nine W&B calibrations completed online; retain every checkpoint, backbone, feature cache, curve, result, and tracker record. No destructive retention was applied.
