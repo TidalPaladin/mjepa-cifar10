@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import select
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -15,16 +16,24 @@ from mjepa_cifar10.research.codex_notifications import (
     read_notification_event,
     write_notification_event,
 )
-from mjepa_cifar10.research.event_controller import is_controller_source, reconcile_managed_root, serve_controller
+from mjepa_cifar10.research.event_controller import (
+    ControllerReconciliation,
+    InotifyTree,
+    is_controller_source,
+    reconcile_managed_root,
+    serve_controller,
+)
 from mjepa_cifar10.research.lifecycle_events import (
     lifecycle_event_id,
     persist_first_cycle_event,
 )
+from mjepa_cifar10.research.runtime import atomic_write_json
 
 
 NOW = datetime(2026, 7, 22, 14, 0, tzinfo=UTC)
 THREAD_ID = "019f876b-21ff-7463-994e-46b075537a5a"
 DAEMON_SOCKET = Path("/home/research/.codex/app-server-control/app-server-control.sock")
+INOTIFY_TEST_TIMEOUT_SECONDS = 1.0
 
 
 def make_root(tmp_path: Path) -> tuple[Path, Path]:
@@ -91,6 +100,59 @@ def test_reconcile_queues_existing_lifecycle_event_once(tmp_path: Path) -> None:
     event_id = lifecycle_event_id("study-a", "run-a", 1, "first_cycle_completed")
     notification = read_notification_event(notification_path_for_event(root, event_id), root)
     assert notification.event_kind == "first_cycle_completed"
+
+
+def test_reconcile_study_scope_ignores_invalid_historical_studies(tmp_path: Path) -> None:
+    root, run_dir = make_root(tmp_path)
+    checkpoint = run_dir / "checkpoint.pt"
+    checkpoint.touch()
+    persist_first_cycle_event(
+        run_dir,
+        study_id="study-a",
+        run_id="run-a",
+        attempt=1,
+        occurred_at=NOW,
+        originating_thread_id=THREAD_ID,
+        epoch=0,
+        optimizer_step=10,
+        active_seconds=12.5,
+        checkpoint_path=checkpoint,
+    )
+    invalid_run = root / "historical-study" / "runs" / "legacy-run"
+    invalid_run.mkdir(parents=True)
+    (invalid_run / "terminal.json").write_text('{"schema_version":1}\n', encoding="utf-8")
+
+    result = reconcile_managed_root(
+        root,
+        now=NOW,
+        progress_timeout=timedelta(minutes=30),
+        study_ids=frozenset({"study-a"}),
+        pid_is_alive=lambda _pid: True,
+    )
+
+    assert result.queued == 1
+    assert result.problems == ()
+
+
+def test_inotify_tree_watches_only_selected_study(tmp_path: Path) -> None:
+    root, selected_run = make_root(tmp_path)
+    ignored_run = root / "study-b" / "runs" / "run-b"
+    ignored_run.mkdir(parents=True)
+    source = InotifyTree(root, study_ids=frozenset({"study-a"}))
+    try:
+        selected_progress = selected_run / "progress.json"
+        ignored_progress = ignored_run / "progress.json"
+        atomic_write_json(selected_progress, {"epoch": 1})
+        atomic_write_json(ignored_progress, {"epoch": 1})
+
+        readable, _, _ = select.select([source.fd], [], [], INOTIFY_TEST_TIMEOUT_SECONDS)
+        assert readable == [source.fd]
+        paths = source.read()
+    finally:
+        source.close()
+
+    assert selected_progress in paths
+    assert ignored_progress not in paths
 
 
 def test_notification_retry_deadline_is_scoped_to_selected_studies(tmp_path: Path) -> None:
@@ -161,7 +223,12 @@ class FakeSelector:
 class FakeInotifyTree:
     fd = 7
 
-    def __init__(self, _root: Path, _socket_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        _root: Path,
+        _socket_path: Path | None = None,
+        _study_ids: frozenset[str] | None = None,
+    ) -> None:
         self.paths: tuple[Path, ...] = ()
 
     def read(self) -> tuple[Path, ...]:
@@ -196,6 +263,34 @@ def test_controller_retries_at_exact_notification_deadline(mocker, tmp_path: Pat
 
     assert deliveries == 2
     assert selector.timeouts[0] == pytest.approx(5.0)
+
+
+def test_controller_passes_study_scope_to_source_and_reconciliation(mocker, tmp_path: Path) -> None:
+    root, _run_dir = make_root(tmp_path)
+    study_ids = frozenset({"study-a"})
+    selector = FakeSelector([])
+    source = FakeInotifyTree(root)
+    source_factory = mocker.patch("mjepa_cifar10.research.event_controller.InotifyTree", return_value=source)
+    mocker.patch("mjepa_cifar10.research.event_controller.selectors.DefaultSelector", return_value=selector)
+    reconcile = mocker.patch(
+        "mjepa_cifar10.research.event_controller.reconcile_managed_root",
+        return_value=ControllerReconciliation((), 0, ()),
+    )
+
+    with pytest.raises(StopController):
+        serve_controller(
+            root,
+            progress_timeout=timedelta(minutes=30),
+            deliver=lambda: None,
+            study_ids=study_ids,
+        )
+
+    source_factory.assert_called_once_with(root.resolve(), None, study_ids)
+    reconcile.assert_called_once_with(
+        root.resolve(),
+        progress_timeout=timedelta(minutes=30),
+        study_ids=study_ids,
+    )
 
 
 def test_new_lifecycle_event_is_delivered_while_another_notification_backs_off(

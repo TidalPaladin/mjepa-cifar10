@@ -7,11 +7,15 @@ import json
 import logging
 import os
 import re
+import signal
 import subprocess
+import sys
+import time
 from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Mapping, Sequence, TextIO
+from uuid import uuid4
 
 from notify_wake import discover_daemon_socket
 
@@ -54,6 +58,23 @@ from .wake_context import (
 def _add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("study", type=Path, help="Path to a committed research study YAML")
     parser.add_argument("--repo-root", type=Path, default=Path.cwd())
+
+
+def _add_event_controller_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--root", type=Path, default=Path("logs/research"))
+    parser.add_argument(
+        "--progress-timeout-seconds",
+        type=int,
+        default=DEFAULT_PROGRESS_TIMEOUT_SECONDS,
+    )
+    parser.add_argument("--socket", type=Path, default=None)
+    parser.add_argument(
+        "--study-id",
+        dest="study_ids",
+        action="append",
+        help="Deliver only notifications for this study; repeat to select more than one",
+    )
+    parser.add_argument("--defer-until-socket-replaced", action="store_true")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -104,20 +125,13 @@ def build_parser() -> argparse.ArgumentParser:
         "event-controller",
         help="Watch durable lifecycle events without model polling",
     )
-    event_controller_parser.add_argument("--root", type=Path, default=Path("logs/research"))
-    event_controller_parser.add_argument(
-        "--progress-timeout-seconds",
-        type=int,
-        default=DEFAULT_PROGRESS_TIMEOUT_SECONDS,
+    _add_event_controller_arguments(event_controller_parser)
+
+    start_controller_parser = subparsers.add_parser(
+        "start-controller",
+        help="Start a detached, directly identifiable research event controller",
     )
-    event_controller_parser.add_argument("--socket", type=Path, default=None)
-    event_controller_parser.add_argument(
-        "--study-id",
-        dest="study_ids",
-        action="append",
-        help="Deliver only notifications for this study; repeat to select more than one",
-    )
-    event_controller_parser.add_argument("--defer-until-socket-replaced", action="store_true")
+    _add_event_controller_arguments(start_controller_parser)
 
     notify_wait_parser = subparsers.add_parser(
         "notify-wait",
@@ -179,6 +193,10 @@ UNRESOLVED_ENVIRONMENT_VARIABLE = re.compile(
 )
 EVENT_CONTROLLER_LOG_DIRECTORY = ".event-controller"
 PROC_START_TICKS_SUFFIX_INDEX = 19
+CONTROLLER_SWEEP_TIMEOUT_SECONDS = 60.0
+CONTROLLER_SWEEP_RETRY_SECONDS = 5.0
+CONTROLLER_STARTUP_TIMEOUT_SECONDS = 10.0
+MAX_CONTROLLER_ERROR_LENGTH = 500
 
 
 def _event_controller_log_path(
@@ -188,7 +206,7 @@ def _event_controller_log_path(
     pid: int | None = None,
 ) -> Path:
     managed_root = validate_notification_root(root)
-    scope = "all" if study_ids is None else hashlib.sha256("\0".join(sorted(study_ids)).encode()).hexdigest()[:16]
+    scope = _event_controller_scope(study_ids)
     log_directory = managed_root / EVENT_CONTROLLER_LOG_DIRECTORY
     log_directory.mkdir(exist_ok=True)
     if log_directory.is_symlink() or log_directory.resolve() != log_directory:
@@ -199,10 +217,19 @@ def _event_controller_log_path(
     return log_path
 
 
+def _event_controller_scope(study_ids: frozenset[str] | None) -> str:
+    return "all" if study_ids is None else hashlib.sha256("\0".join(sorted(study_ids)).encode()).hexdigest()[:16]
+
+
 def _append_controller_record(stream: TextIO, event: str, **payload: Any) -> None:
     record = {"event": event, "recorded_at": datetime.now(UTC).isoformat(), **payload}
     stream.write(json.dumps(record, sort_keys=True) + "\n")
     stream.flush()
+
+
+def _bounded_controller_error(error: BaseException) -> str:
+    message = " ".join(str(error).split()) or type(error).__name__
+    return f"{type(error).__name__}: {message}"[:MAX_CONTROLLER_ERROR_LENGTH]
 
 
 def _parse_proc_start_ticks(stat: str) -> int:
@@ -277,6 +304,38 @@ def _event_controller_identity_matches(
         )
     except (IndexError, OSError, UnicodeError, ValueError, json.JSONDecodeError):
         return False
+
+
+def _find_active_event_controller(
+    root: Path,
+    study_ids: frozenset[str],
+) -> tuple[int, int, Path] | None:
+    log_directory = root / EVENT_CONTROLLER_LOG_DIRECTORY
+    scope = _event_controller_scope(study_ids)
+    for log_path in sorted(log_directory.glob(f"{scope}-*.jsonl"), key=lambda path: path.stat().st_mtime, reverse=True):
+        try:
+            pid = int(log_path.stem.rsplit("-", 1)[1])
+            records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line]
+            started = [record for record in records if record.get("event") == "controller_started"][-1]
+            start_ticks = int(started["start_ticks"])
+        except (IndexError, KeyError, OSError, ValueError, json.JSONDecodeError):
+            continue
+        if _event_controller_identity_matches(
+            root,
+            pid=pid,
+            start_ticks=start_ticks,
+            study_ids=study_ids,
+        ):
+            return pid, start_ticks, log_path
+    return None
+
+
+def _terminate_controller_process_group(pid: int, start_ticks: int) -> None:
+    try:
+        if _process_start_ticks(pid) == start_ticks:
+            os.killpg(pid, signal.SIGTERM)
+    except (OSError, ValueError):
+        return
 
 
 class _ControllerJsonFormatter(logging.Formatter):
@@ -581,20 +640,46 @@ def command_event_controller(args: argparse.Namespace) -> int:
                 socket_path=str(socket_path),
                 study_ids=sorted(study_ids) if study_ids is not None else None,
             )
+            controller_retry_at: datetime | None = None
 
             def deliver_once() -> None:
-                result = asyncio.run(sweep_notifications(args.root, connect=connector, study_ids=study_ids))
+                nonlocal controller_retry_at
+
+                async def bounded_sweep():
+                    return await asyncio.wait_for(
+                        sweep_notifications(args.root, connect=connector, study_ids=study_ids),
+                        timeout=CONTROLLER_SWEEP_TIMEOUT_SECONDS,
+                    )
+
+                try:
+                    result = asyncio.run(bounded_sweep())
+                except Exception as error:
+                    controller_retry_at = datetime.now(UTC) + timedelta(seconds=CONTROLLER_SWEEP_RETRY_SECONDS)
+                    _append_controller_record(
+                        log_stream,
+                        "notification_sweep_failed",
+                        error=_bounded_controller_error(error),
+                        retry_at=controller_retry_at.isoformat(),
+                    )
+                    return
+                controller_retry_at = None
                 print(json.dumps(result.to_dict(), indent=2, sort_keys=True), flush=True)
                 _append_controller_record(log_stream, "notification_sweep", **result.to_dict())
+
+            def next_delivery_deadline() -> datetime | None:
+                persisted = next_notification_attempt_at(args.root, study_ids=study_ids)
+                candidates = tuple(value for value in (persisted, controller_retry_at) if value is not None)
+                return min(candidates) if candidates else None
 
             try:
                 serve_controller(
                     args.root,
                     progress_timeout=timedelta(seconds=args.progress_timeout_seconds),
                     deliver=deliver_once,
-                    next_delivery_at=lambda: next_notification_attempt_at(args.root, study_ids=study_ids),
+                    next_delivery_at=next_delivery_deadline,
                     socket_path=socket_path,
                     defer_until_socket_replaced=args.defer_until_socket_replaced,
+                    study_ids=study_ids,
                 )
             except BaseException as error:
                 _append_controller_record(
@@ -609,6 +694,98 @@ def command_event_controller(args: argparse.Namespace) -> int:
         EVENT_CONTROLLER_LOGGER.removeHandler(file_handler)
         file_handler.close()
     return 0
+
+
+def command_start_controller(args: argparse.Namespace) -> int:
+    if args.progress_timeout_seconds <= 0:
+        raise ValueError("--progress-timeout-seconds must be positive")
+    if not args.study_ids:
+        raise ValueError("start-controller requires at least one --study-id")
+    if len(args.study_ids) != len(set(args.study_ids)):
+        raise ValueError("--study-id values must be unique")
+    managed_root = validate_notification_root(args.root)
+    study_ids = frozenset(args.study_ids)
+    if active := _find_active_event_controller(managed_root, study_ids):
+        pid, start_ticks, controller_log = active
+        print(
+            json.dumps(
+                {
+                    "pid": pid,
+                    "start_ticks": start_ticks,
+                    "root": str(managed_root),
+                    "study_ids": sorted(study_ids),
+                    "controller_log": str(controller_log),
+                    "reused": True,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
+        return 0
+    script = Path(__file__).parents[2] / "scripts" / "research.py"
+    command = [
+        sys.executable,
+        str(script),
+        "event-controller",
+        "--root",
+        str(managed_root),
+        "--progress-timeout-seconds",
+        str(args.progress_timeout_seconds),
+    ]
+    if args.socket is not None:
+        command.extend(("--socket", str(args.socket.expanduser().resolve(strict=False))))
+    for study_id in sorted(study_ids):
+        command.extend(("--study-id", study_id))
+    if args.defer_until_socket_replaced:
+        command.append("--defer-until-socket-replaced")
+
+    log_directory = _event_controller_log_path(managed_root, study_ids, pid=os.getpid()).parent
+    process_log_path = log_directory / f"launcher-{uuid4()}.log"
+    with process_log_path.open("ab", buffering=0) as process_log:
+        process = subprocess.Popen(
+            command,
+            cwd=Path(__file__).parents[2],
+            stdin=subprocess.DEVNULL,
+            stdout=process_log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+            close_fds=True,
+        )
+    try:
+        start_ticks = _process_start_ticks(process.pid)
+    except (OSError, ValueError) as error:
+        raise RuntimeError(f"event controller exited before identity capture; see {process_log_path}") from error
+
+    deadline = time.monotonic() + CONTROLLER_STARTUP_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        if _event_controller_identity_matches(
+            managed_root,
+            pid=process.pid,
+            start_ticks=start_ticks,
+            study_ids=study_ids,
+        ):
+            controller_log = _event_controller_log_path(managed_root, study_ids, pid=process.pid)
+            print(
+                json.dumps(
+                    {
+                        "pid": process.pid,
+                        "start_ticks": start_ticks,
+                        "root": str(managed_root),
+                        "study_ids": sorted(study_ids),
+                        "controller_log": str(controller_log),
+                        "process_log": str(process_log_path),
+                        "reused": False,
+                    },
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+            return 0
+        if process.poll() is not None:
+            raise RuntimeError(f"event controller failed during startup; see {process_log_path}")
+        time.sleep(0.01)
+    _terminate_controller_process_group(process.pid, start_ticks)
+    raise RuntimeError(f"event controller did not become ready; see {process_log_path}")
 
 
 def command_notify_wait(args: argparse.Namespace) -> int:
@@ -711,6 +888,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "notify": command_notify,
         "notify-worker": command_notify_worker,
         "event-controller": command_event_controller,
+        "start-controller": command_start_controller,
         "notify-wait": command_notify_wait,
         "register-root": command_register_root,
         "summarize": command_summarize,

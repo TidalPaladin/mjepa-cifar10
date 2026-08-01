@@ -60,11 +60,26 @@ def is_controller_source(filename: str) -> bool:
     return filename in SOURCE_FILENAMES
 
 
-def _managed_run_directories(root: Path) -> tuple[Path, ...]:
+def _selected_study_directories(root: Path, study_ids: frozenset[str] | None) -> tuple[Path, ...]:
+    if study_ids is None:
+        return tuple(sorted(path for path in root.iterdir() if path.is_dir() and not path.is_symlink()))
+    selected: list[Path] = []
+    for study_id in sorted(study_ids):
+        study_dir = root / study_id
+        resolved = study_dir.resolve(strict=False)
+        if study_dir.parent != root or study_dir.name != study_id or resolved.parent != root or resolved != study_dir:
+            raise ValueError(f"study ID must name one direct child of the managed root: {study_id!r}")
+        if study_dir.is_symlink() or not study_dir.is_dir():
+            raise ValueError(f"selected managed study directory does not exist: {study_dir}")
+        selected.append(study_dir)
+    return tuple(selected)
+
+
+def _managed_run_directories(root: Path, study_ids: frozenset[str] | None = None) -> tuple[Path, ...]:
     run_directories: list[Path] = []
-    for study_dir in root.iterdir():
+    for study_dir in _selected_study_directories(root, study_ids):
         runs_dir = study_dir / "runs"
-        if study_dir.is_symlink() or not runs_dir.is_dir() or runs_dir.is_symlink():
+        if not runs_dir.is_dir() or runs_dir.is_symlink():
             continue
         run_directories.extend(
             run_dir for run_dir in runs_dir.iterdir() if run_dir.is_dir() and not run_dir.is_symlink()
@@ -90,6 +105,7 @@ def reconcile_managed_root(
     *,
     now: datetime | None = None,
     progress_timeout: timedelta,
+    study_ids: frozenset[str] | None = None,
     pid_is_alive: Callable[[int], bool] = lambda pid: _pid_is_alive(pid),
 ) -> ControllerReconciliation:
     """Recover lifecycle events and queues without changing run terminal status."""
@@ -101,7 +117,7 @@ def reconcile_managed_root(
     problems: list[str] = []
     events_root = notification_namespace(managed_root) / "events"
     known_event_ids = {path.parent.name for path in events_root.glob("*/notification.json")}
-    for run_dir in _managed_run_directories(managed_root):
+    for run_dir in _managed_run_directories(managed_root, study_ids):
         try:
             for event in reconcile_run_safety_events(
                 run_dir,
@@ -159,7 +175,12 @@ def _pid_is_alive(pid: int) -> bool:
 class InotifyTree:
     """Minimal recursive inotify source used only for durable local state writes."""
 
-    def __init__(self, root: Path, socket_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        root: Path,
+        socket_path: Path | None = None,
+        study_ids: frozenset[str] | None = None,
+    ) -> None:
         self.root = root
         self.socket_path = socket_path
         self.libc = ctypes.CDLL(None, use_errno=True)
@@ -168,7 +189,11 @@ class InotifyTree:
             error_number = ctypes.get_errno()
             raise OSError(error_number, os.strerror(error_number))
         self.watches: dict[int, Path] = {}
-        self._add_tree(root)
+        if study_ids is None:
+            self._add_tree(root)
+        else:
+            for study_dir in _selected_study_directories(root, study_ids):
+                self._add_tree(study_dir)
         if socket_path is not None:
             self._add_directory(socket_path.parent)
 
@@ -208,9 +233,14 @@ class InotifyTree:
         os.close(self.fd)
 
 
-def _next_progress_deadline(root: Path, progress_timeout: timedelta, now: datetime) -> float | None:
+def _next_progress_deadline(
+    root: Path,
+    progress_timeout: timedelta,
+    now: datetime,
+    study_ids: frozenset[str] | None = None,
+) -> float | None:
     waits: list[float] = []
-    for run_dir in _managed_run_directories(root):
+    for run_dir in _managed_run_directories(root, study_ids):
         if _running_supervisor_pid(run_dir) is None or (run_dir / PROGRESS_STALLED_FILENAME).exists():
             continue
         try:
@@ -230,10 +260,11 @@ def serve_controller(
     clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     socket_path: Path | None = None,
     defer_until_socket_replaced: bool = False,
+    study_ids: frozenset[str] | None = None,
 ) -> None:
     """Serve lifecycle events through inotify, pidfds, and deadline timers."""
     managed_root = validate_notification_root(root)
-    source = InotifyTree(managed_root, socket_path)
+    source = InotifyTree(managed_root, socket_path, study_ids)
     selector = selectors.DefaultSelector()
     selector.register(source.fd, selectors.EVENT_READ, ("inotify", None))
     registered_pidfds: dict[int, int] = {}
@@ -264,14 +295,18 @@ def serve_controller(
             selector.register(pidfd, selectors.EVENT_READ, ("pid", pid))
 
     try:
-        reconciliation = reconcile_managed_root(managed_root, progress_timeout=progress_timeout)
+        reconciliation = reconcile_managed_root(
+            managed_root,
+            progress_timeout=progress_timeout,
+            study_ids=study_ids,
+        )
         report_new_problems(reconciliation.problems)
         refresh_pidfds(reconciliation.active_pids)
         if not delivery_deferred:
             deliver()
         while True:
             now = clock().astimezone(UTC)
-            progress_wait = _next_progress_deadline(managed_root, progress_timeout, now)
+            progress_wait = _next_progress_deadline(managed_root, progress_timeout, now, study_ids)
             delivery_deadline = None if delivery_deferred else next_delivery_at()
             delivery_wait = (
                 None
@@ -303,7 +338,11 @@ def serve_controller(
             if not reconcile and not socket_replaced and not deadline_due:
                 continue
             if reconcile:
-                reconciliation = reconcile_managed_root(managed_root, progress_timeout=progress_timeout)
+                reconciliation = reconcile_managed_root(
+                    managed_root,
+                    progress_timeout=progress_timeout,
+                    study_ids=study_ids,
+                )
                 report_new_problems(reconciliation.problems)
                 refresh_pidfds(reconciliation.active_pids)
                 delivery_trigger = delivery_trigger or bool(reconciliation.created_kinds or reconciliation.queued)

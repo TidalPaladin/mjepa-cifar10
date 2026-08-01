@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import hashlib
 import json
 import subprocess
@@ -1185,6 +1186,117 @@ def test_event_controller_persists_startup_and_sweep_output(mocker, tmp_path: Pa
         "controller_stopped",
     ]
     assert records[1]["accepted"] == 1
+
+
+def test_event_controller_recovers_from_bounded_sweep_timeout(mocker, tmp_path: Path) -> None:
+    initialize_notification_root(tmp_path)
+    (tmp_path / "study-a").mkdir()
+    attempts = 0
+
+    async def sweep_once_then_succeed(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            await asyncio.Event().wait()
+        return SweepResult(discovered=1, due=1, accepted=1)
+
+    def serve_twice(_root, **kwargs) -> None:
+        kwargs["deliver"]()
+        assert kwargs["next_delivery_at"]() is not None
+        kwargs["deliver"]()
+        assert kwargs["next_delivery_at"]() is None
+
+    mocker.patch("mjepa_cifar10.research.cli.CONTROLLER_SWEEP_TIMEOUT_SECONDS", 0.01)
+    mocker.patch("mjepa_cifar10.research.cli.sweep_notifications", side_effect=sweep_once_then_succeed)
+    mocker.patch("mjepa_cifar10.research.cli.serve_controller", side_effect=serve_twice)
+
+    assert (
+        research_main(
+            [
+                "event-controller",
+                "--root",
+                str(tmp_path),
+                "--socket",
+                str(tmp_path / "app-server.sock"),
+                "--study-id",
+                "study-a",
+            ]
+        )
+        == 0
+    )
+
+    records = [
+        json.loads(line)
+        for line in next((tmp_path / ".event-controller").glob("*.jsonl")).read_text(encoding="utf-8").splitlines()
+    ]
+    assert [record["event"] for record in records] == [
+        "controller_started",
+        "notification_sweep_failed",
+        "notification_sweep",
+        "controller_stopped",
+    ]
+
+
+def test_start_controller_detaches_exact_direct_process(mocker, tmp_path: Path, capsys) -> None:
+    initialize_notification_root(tmp_path)
+    (tmp_path / "study-a").mkdir()
+    process = SimpleNamespace(pid=4321, poll=lambda: None)
+    popen = mocker.patch("mjepa_cifar10.research.cli.subprocess.Popen", return_value=process)
+    mocker.patch("mjepa_cifar10.research.cli._process_start_ticks", return_value=987654)
+    mocker.patch("mjepa_cifar10.research.cli._event_controller_identity_matches", return_value=True)
+
+    assert (
+        research_main(
+            [
+                "start-controller",
+                "--root",
+                str(tmp_path),
+                "--study-id",
+                "study-a",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["pid"] == 4321
+    assert payload["start_ticks"] == 987654
+    assert payload["study_ids"] == ["study-a"]
+    assert payload["controller_log"].endswith("-4321.jsonl")
+    assert payload["process_log"].endswith(".log")
+    assert popen.call_args.kwargs["start_new_session"] is True
+    command = popen.call_args.args[0]
+    assert command[1].endswith("/scripts/research.py")
+    assert command[2] == "event-controller"
+
+
+def test_start_controller_reuses_matching_live_process(mocker, tmp_path: Path, capsys) -> None:
+    initialize_notification_root(tmp_path)
+    (tmp_path / "study-a").mkdir()
+    controller_log = tmp_path / ".event-controller" / "controller.jsonl"
+    mocker.patch(
+        "mjepa_cifar10.research.cli._find_active_event_controller",
+        return_value=(4321, 987654, controller_log),
+    )
+    popen = mocker.patch("mjepa_cifar10.research.cli.subprocess.Popen")
+
+    assert (
+        research_main(
+            [
+                "start-controller",
+                "--root",
+                str(tmp_path),
+                "--study-id",
+                "study-a",
+            ]
+        )
+        == 0
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reused"] is True
+    assert payload["pid"] == 4321
+    popen.assert_not_called()
 
 
 def test_parse_proc_start_ticks_handles_parentheses_in_process_name() -> None:

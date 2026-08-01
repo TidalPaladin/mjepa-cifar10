@@ -160,11 +160,15 @@ run attempt.
 
 If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
 
-Run `event-controller --root logs/research --study-id <study-id>` as a
-persistent, direct local non-model process for new launches. Do not wrap the
-controller in a generic notify-wake process watch because the generic watcher
-and research notifier use different goal-wait source identities. After the
-controller writes its durable startup record, bind the active goal with
+Run `start-controller --root logs/research --study-id <study-id>` after a new
+launch. It starts the direct Python event controller in a detached session or
+reuses an exact matching live process, then returns the PID and Linux start
+ticks from its durable startup record. The controller limits recursive inotify
+watches and lifecycle reconciliation to the selected study. It bounds each
+notification sweep and schedules a local retry when that bound expires. Do not
+wrap the controller in a generic notify-wake process watch because the generic
+watcher and research notifier use different goal-wait source identities. Bind
+the active goal with
 `notify-wait --root logs/research --controller-pid <pid>
 --controller-start-ticks <ticks> --study-id <study-id>`. This command verifies
 the live process, start ticks, research root, study scope, and startup record

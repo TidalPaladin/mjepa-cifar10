@@ -1626,3 +1626,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Workflow repair: Add `research.py notify-wait`, which binds an owned goal wait to the direct controller's PID, Linux start ticks, exact registered root, study set, command line, and durable startup record. Regression tests cover stat parsing, identity rejection, lease inputs, and the controller record. Use this path before the full optimizer screen.
 - Decision: Approve the four-run optimizer and schedule screen unchanged after the workflow repair passes the repository gate and the launch commit is pushed. No destructive retention was applied.
 <!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-optimizer-smoke-result-v1"} -->
+<!-- autoresearch-operation:{"content_sha256":"a304350105487201139f18281ef1cafd686e18556b28fe0c2b0a9db099872156","operation_id":"lejepa-convergence-v1-notification-recovery-v1"} -->
+
+
+## 2026-08-01 amendment: optimizer-screen notification recovery
+
+- Observation: The lower-learning-rate first-cycle source was written at `01:51:49.173671` UTC and queued `0.091` seconds later, but its delivery attempt remained at zero. The baseline source was written at `01:51:57.379` UTC and was not queued until manual reconciliation. The controller recorded neither a completed nor failed post-event notification sweep.
+- Boundary: The exact owned goal lease remained healthy and the shared notify-wake preflight reported automatic delivery available. The adapter controller had entered the post-event path far enough to queue one event, but its exact blocked stack was unavailable after the process exited. It had also been launched inside an interactive command session instead of as a detached process.
+- Recovery: A scoped reconciliation and one-shot worker accepted both pending events through the current turn, released the exact lease, and reactivated the goal. Both trainers continued normally and retained their checkpoints throughout the notification outage.
+- Repair: Controller reconciliation and inotify now select only the requested study. Notification sweeps have a `60`-second bound and controller-local `5`-second retry. The new `start-controller` command launches a detached exact process, verifies its durable startup identity, and reuses a matching live controller.
+- Scientific impact: None. No run, hyperparameter, comparison, promotion threshold, checkpoint, or tracker record changed. The two optimizer-screen runs remain in progress under their preregistered protocol.
