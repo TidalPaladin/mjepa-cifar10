@@ -1,0 +1,86 @@
+id: lejepa-convergence-v1-optimizer-probe
+question: Does changing AdamW learning rate, weight decay, or schedule improve the fixed frozen-probe accuracy of the teacher-free SigREG representation?
+hypothesis: Lowering weight decay from 0.20 to 0.05 will preserve its online accuracy gain under the fixed normalized final-two-layer probe, while lowering learning rate or adding OneCycle decay will not close the calibrated teacher gap.
+mechanism: Freeze each retained encoder, extract the normalized concatenation of its final two CLS representations, and train the preregistered six-head learning-rate bank without backbone gradients.
+rejection: Reject the lower-weight-decay hypothesis if its calibrated accuracy improves by less than 0.02 over the optimizer-screen baseline or if its pretraining run fails an online eligibility gate.
+
+sources:
+  - id: teacher-baseline-seed0
+    role: teacher-baseline
+    run_dir: logs/research/vit-small-baseline-v1/runs/pretrain-baseline-seed0
+    online_probe_accuracy: 0.9058
+  - id: optimizer-g2l2-w2-lr2e3-wd2e1-constant-seed0
+    role: shared-student-baseline
+    run_dir: logs/research/lejepa-convergence-v1-optimizer-screen/runs/pretrain-g2l2-w2-lr2e3-wd2e1-constant-seed0
+    online_probe_accuracy: 0.4190
+  - id: optimizer-g2l2-w2-lr5e4-wd2e1-constant-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-convergence-v1-optimizer-screen/runs/pretrain-g2l2-w2-lr5e4-wd2e1-constant-seed0
+    online_probe_accuracy: 0.4286
+  - id: optimizer-g2l2-w2-lr2e3-wd5e2-constant-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-convergence-v1-optimizer-screen/runs/pretrain-g2l2-w2-lr2e3-wd5e2-constant-seed0
+    online_probe_accuracy: 0.4480
+  - id: optimizer-g2l2-w2-lr5e4-wd5e2-onecycle-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-convergence-v1-optimizer-screen/runs/pretrain-g2l2-w2-lr5e4-wd5e2-onecycle-seed0
+    online_probe_accuracy: 0.3788
+
+recipes:
+  - id: last-two-cls-layernorm
+    mode: last_two_cls
+    normalize: true
+    purpose: Reuse the fixed recipe selected by lejepa-convergence-v1-probe for every optimizer checkpoint.
+
+probe:
+  seed: 0
+  epochs: 100
+  feature_batch_size: 512
+  probe_batch_size: 4096
+  num_workers: 24
+  learning_rates: [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.000001
+  warmup_fraction: 0.10
+  start_factor: 0.10
+  schedule: linear-warmup-cosine
+  final_factor: 0.001
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+resources:
+  physical_gpus: [1, 2]
+  workers: 2
+  timeout_seconds: 7200
+  retention: Retain feature caches, complete curves, results, and all source checkpoints.
+
+decision:
+  material_probe_lag_gain: 0.10
+  shared_representation_floor: 0.60
+  maximum_teacher_gap_for_probe_explanation: 0.20
+  optimizer_baseline_source: optimizer-g2l2-w2-lr2e3-wd2e1-constant-seed0
+  optimizer_accuracy_gain: 0.02
+  pretraining_online_accuracy_floor: 0.50
+  selection: Apply every preregistered pretraining eligibility gate first, then rank eligible optimizer sources by frozen accuracy, online active-time AUC, peak online accuracy, and schedule simplicity.
+  next_step: If no optimizer candidate is eligible, retain the original optimizer as the control for a separately preregistered loss-interaction and view-cost study.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-convergence-v1-optimizer-probe
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

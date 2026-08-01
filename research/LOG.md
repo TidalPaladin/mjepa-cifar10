@@ -1654,3 +1654,33 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Online result: Peak and final validation accuracy were `0.4286` at `10,810.84` active seconds, a `0.0096` accuracy increase and `84.17` active-second reduction relative to the seed-0 baseline. The last-three patch effective-rank fractions were `0.06484`, `0.06960`, and `0.07303`, so epochs 79 and 89 missed the preregistered `0.07` floor. Peak online accuracy also remained below the `0.50` eligibility floor.
 - Provenance: Parent `2e44e71f36aecf52752ac227b86df0af26fa153e`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/6c589f64).
 - Recovery and decision: The v2 terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. The fixed frozen probe is pending, so no promotion decision is recorded.
+<!-- autoresearch-operation:{"content_sha256":"0388b2be429d06100eb39be84e8240016ac46882e79a7d952016854facc7e276","operation_id":"lejepa-convergence-v1-optimizer-screen-onecycle-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: optimizer-screen OneCycle seed 0
+
+- Identity: `pretrain-g2l2-w2-lr5e4-wd5e2-onecycle-seed0`, attempt `1`, terminal event `d27c8fd5-a0fb-4e4a-a205-d6570d32c282`. The run started at `04:36:19.462162` UTC and completed with exit code `0` at `07:36:47.382483` UTC on physical GPU 2.
+- Online result: Peak accuracy was `0.3788`, final accuracy was `0.3770`, and final active time was `10,809.01` seconds. Peak accuracy was `0.0402` below the seed-0 baseline, while active time was `86.00` seconds lower. The last-three CLS effective-rank fractions were `0.06877`, `0.06941`, and `0.06969`; the patch fractions were `0.05675`, `0.05740`, and `0.05767`. All six values missed the preregistered `0.07` floor. Variance, eigenvalue, cosine, shuffled-target, and finite-value checks passed.
+- Provenance: Parent `c72d47d865375d7c5d90f63f1063ab85d03de2da`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/45a29970).
+- Recovery and decision: The v2 terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained for the fixed frozen probe. The run is ineligible under the online and late-rank gates, but final optimizer selection remains pending until every seed-0 checkpoint is calibrated.
+<!-- autoresearch-operation:{"content_sha256":"0a69e17ad4115a5952241e4120e5a8aa42d54ced69cda640931e403a4e07b01f","operation_id":"lejepa-convergence-v1-optimizer-screen-wd5e2-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: optimizer-screen lower-weight-decay seed 0
+
+- Identity: `pretrain-g2l2-w2-lr2e3-wd5e2-constant-seed0`, attempt `1`, terminal event `f2b61acb-8a7c-4245-868f-a370421f72b2`. The run started at `04:36:19.383323` UTC and completed with exit code `0` at `07:38:08.836702` UTC on physical GPU 1.
+- Online result: Peak and final accuracy were `0.4480` at `10,890.72` active seconds. Peak accuracy was `0.0290` above the seed-0 baseline, while active time was `4.29` seconds lower. Every last-three variance, effective-rank, eigenvalue, cosine, shuffled-target, and finite-value gate passed. Peak online accuracy remained below the preregistered absolute `0.50` eligibility floor.
+- Provenance: Parent `c72d47d865375d7c5d90f63f1063ab85d03de2da`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/c54a8bc8).
+- Recovery and decision: The v2 terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained for the fixed frozen probe. This run leads the online comparison, but optimizer selection remains pending until all four retained checkpoints use the preregistered frozen-probe recipe.
+<!-- autoresearch-operation:{"content_sha256":"fd042e435cff2c2e33593de29966e0574aadee5235cbb1ccde46a6956980f855","operation_id":"lejepa-convergence-v1-optimizer-probe-protocol-v1"} -->
+
+
+## 2026-08-01 protocol: LeJEPA optimizer frozen-probe calibration
+
+- Study: `lejepa-convergence-v1-optimizer-probe`; source study: `lejepa-convergence-v1-optimizer-screen`.
+- Trigger: All four seed-0 optimizer runs completed. Lower weight decay led online at `0.4480`, compared with `0.4190` for the original optimizer, `0.4286` for lower learning rate, and `0.3788` for OneCycle. Every source remained below the preregistered `0.50` online eligibility floor.
+- Hypothesis: Lowering AdamW weight decay from `0.20` to `0.05` will preserve at least a `0.02` accuracy gain under the fixed normalized final-two-layer frozen probe. Lower learning rate and OneCycle are expected not to close the calibrated teacher gap.
+- Evaluation: Freeze the accepted teacher checkpoint and all four retained optimizer checkpoints. Reuse only the fixed `last-two-cls-layernorm` recipe, six-head learning-rate bank, 100-epoch probe schedule, 45,000-example training split, and 5,000-example validation split from the completed calibration. The official test set remains prohibited.
+- Selection boundary: Apply the optimizer-screen pretraining eligibility gates before comparing frozen accuracy. Frozen results diagnose convergence and select a control only among eligible sources; they cannot override the `0.50` online floor. If no optimizer source is eligible, retain the original optimizer as the control for a separately preregistered loss-interaction and view-cost study.
+- External tracking: W&B destination `tidalpaladin/mjepa-cifar10`, group `lejepa-convergence-v1-optimizer-probe`; launch emits authorized `metrics`, `configs`, and `provenance`.
+- Retention: Keep feature caches, complete curves, results, and every source checkpoint. No destructive retention is authorized.
