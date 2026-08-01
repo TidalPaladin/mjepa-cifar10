@@ -1636,3 +1636,21 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Recovery: A scoped reconciliation and one-shot worker accepted both pending events through the current turn, released the exact lease, and reactivated the goal. Both trainers continued normally and retained their checkpoints throughout the notification outage.
 - Repair: Controller reconciliation and inotify now select only the requested study. Notification sweeps have a `60`-second bound and controller-local `5`-second retry. The new `start-controller` command launches a detached exact process, verifies its durable startup identity, and reuses a matching live controller.
 - Scientific impact: None. No run, hyperparameter, comparison, promotion threshold, checkpoint, or tracker record changed. The two optimizer-screen runs remain in progress under their preregistered protocol.
+<!-- autoresearch-operation:{"content_sha256":"d3f689dca6078ee7a1daeb7dbe7de40546bce89856019ea01df3e307eb35556a","operation_id":"lejepa-convergence-v1-optimizer-screen-baseline-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: optimizer-screen baseline seed 0
+
+- Identity: `pretrain-g2l2-w2-lr2e3-wd2e1-constant-seed0`, attempt `1`, terminal event `7c9aa799-20d6-4378-b77c-7df4f98b0da2`. The run started at `01:33:23.874492` UTC and completed with exit code `0` at `04:35:18.279645` UTC on physical GPU 1.
+- Online result: Peak and final validation accuracy were `0.4190` at `10,895.01` active seconds. Every variance, effective-rank, eigenvalue, cosine, shuffled-target, and finite-value gate passed on epochs 79, 89, and 99. The online accuracy remained below the preregistered `0.50` eligibility floor.
+- Provenance: Parent `2e44e71f36aecf52752ac227b86df0af26fa153e`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/3f51007e).
+- Recovery and decision: The v2 terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. The fixed frozen probe is pending, so no promotion decision is recorded.
+<!-- autoresearch-operation:{"content_sha256":"0d1c23085c14f899a25302812da1a0e59290dd187de8a92b49a2e923412fbb83","operation_id":"lejepa-convergence-v1-optimizer-screen-lr5e4-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: optimizer-screen lower-learning-rate seed 0
+
+- Identity: `pretrain-g2l2-w2-lr5e4-wd2e1-constant-seed0`, attempt `1`, terminal event `9c2dfc3e-bf5e-4f89-b2aa-91f1f11c7b06`. The run started at `01:33:23.953075` UTC and completed with exit code `0` at `04:33:54.076830` UTC on physical GPU 2.
+- Online result: Peak and final validation accuracy were `0.4286` at `10,810.84` active seconds, a `0.0096` accuracy increase and `84.17` active-second reduction relative to the seed-0 baseline. The last-three patch effective-rank fractions were `0.06484`, `0.06960`, and `0.07303`, so epochs 79 and 89 missed the preregistered `0.07` floor. Peak online accuracy also remained below the `0.50` eligibility floor.
+- Provenance: Parent `2e44e71f36aecf52752ac227b86df0af26fa153e`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/6c589f64).
+- Recovery and decision: The v2 terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. The fixed frozen probe is pending, so no promotion decision is recorded.
