@@ -1791,3 +1791,14 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Cost interpretation: G2 decisively clears the `15%` common-step active-time threshold, but its `0.0944` online loss is far beyond the `0.01` cost-route allowance. Removing both local views therefore saves compute at a large semantic cost in this training regime.
 - Provenance: Parent `41ef7d8f21a2e7ff66b111e2958b13b5fc491b6b`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0f0c7cc1).
 - Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"063bbb9c10c63aece4fefbf7b3d88df1995df7bacae430d1eaa0f605dc5bfa74","operation_id":"lejepa-convergence-v1-loss-view-g2l2-l005-w2-local50-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2L2 lambda 0.05 weight 2 local scale 0.50 seed 0
+
+- Identity: `pretrain-g2l2-l005-w2-local50-seed0`, attempt `1`, terminal event `1d39b756-216d-4c3a-8030-896db1522f66`. The run started at `17:00:28.673024` UTC and completed with exit code `0` at `20:02:05.296241` UTC on physical GPU 1.
+- Online result: Peak and final validation accuracy were `0.4552` at `10,877.44` active seconds. Raising the local-crop scale floor from `0.25` to `0.50` reduced matched G2L2 lambda `0.05`, weight `2` accuracy by `0.0426` and increased common-step active time by `0.44%`.
+- Eligibility: Variance, top-eigenvalue, cosine, shuffled-target, finite-value, and CLS effective-rank checks passed. Patch effective-rank fractions were `0.04976`, `0.05255`, and `0.05439` at epochs 79, 89, and 99, slightly improved over default crops but below the preregistered `0.07` floor. The run is ineligible under the collapse gate; its retained encoder will receive the fixed frozen probe.
+- Interpretation: Larger local crops did not mitigate CIFAR-10 label ambiguity under this objective. They reduced online accuracy without improving active time, while the modest patch-rank improvement was insufficient to clear the diversity gate.
+- Provenance: Parent `b7fb7407c632ed88bed09d3f563696d1febc7d7e`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/cf667768).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
