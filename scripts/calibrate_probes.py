@@ -24,6 +24,7 @@ from mjepa_cifar10.probe_calibration import (
     FINAL_CLS_MODE,
     LAST_TWO_CLS_MODE,
     ProbeFeatureMode,
+    ProbeTrainingResult,
     extract_dataset_features,
     load_feature_cache,
     save_feature_cache,
@@ -173,6 +174,30 @@ def _normalize_features(features: torch.Tensor, normalize: bool) -> torch.Tensor
     return F.layer_norm(features, (features.shape[-1],)) if normalize else features
 
 
+def _log_validation_curves(
+    recipe_name: str,
+    training_result: ProbeTrainingResult,
+    learning_rates: tuple[float, ...],
+    *,
+    step_offset: int,
+) -> None:
+    if len(training_result.validation_curves) != len(learning_rates):
+        raise ValueError("probe validation curves must match the learning-rate sweep")
+    epochs = len(training_result.validation_curves[0])
+    if any(len(curve) != epochs for curve in training_result.validation_curves):
+        raise ValueError("probe validation curves must have equal lengths")
+    for epoch in range(epochs):
+        wandb.log(
+            {
+                f"probe_calibration/{recipe_name}/lr_{learning_rate:g}/validation_accuracy": (
+                    training_result.validation_curves[index][epoch]
+                )
+                for index, learning_rate in enumerate(learning_rates)
+            },
+            step=step_offset + epoch,
+        )
+
+
 def _calibrate_source(
     *,
     manifest: dict[str, Any],
@@ -262,7 +287,8 @@ def _calibrate_source(
         learning_rates = tuple(float(value) for value in probe_config["learning_rates"])
         train_labels = features["train_labels"]
         validation_labels = features["validation_labels"]
-        for recipe in manifest["recipes"]:
+        epochs = int(probe_config["epochs"])
+        for recipe_index, recipe in enumerate(manifest["recipes"]):
             recipe_name = str(recipe["id"])
             mode = cast(ProbeFeatureMode, recipe["mode"])
             if mode not in (FINAL_CLS_MODE, LAST_TWO_CLS_MODE):
@@ -276,7 +302,7 @@ def _calibrate_source(
                 validation_features,
                 validation_labels,
                 learning_rates=learning_rates,
-                epochs=int(probe_config["epochs"]),
+                epochs=epochs,
                 batch_size=int(probe_config["probe_batch_size"]),
                 weight_decay=float(probe_config["weight_decay"]),
                 warmup_fraction=float(probe_config["warmup_fraction"]),
@@ -288,16 +314,12 @@ def _calibrate_source(
             recipe_result = training_result.to_dict()
             recipe_result["active_seconds"] = perf_counter() - recipe_started_at
             recipes[recipe_name] = recipe_result
-            for epoch in range(int(probe_config["epochs"])):
-                wandb.log(
-                    {
-                        f"probe_calibration/{recipe_name}/lr_{learning_rate:g}/validation_accuracy": (
-                            training_result.validation_curves[index][epoch]
-                        )
-                        for index, learning_rate in enumerate(learning_rates)
-                    },
-                    step=epoch,
-                )
+            _log_validation_curves(
+                recipe_name,
+                training_result,
+                learning_rates,
+                step_offset=recipe_index * epochs,
+            )
 
         best_recipe = max(
             recipes,

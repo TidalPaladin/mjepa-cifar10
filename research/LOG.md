@@ -1581,3 +1581,37 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Interpretation: The one-epoch, one-learning-rate accuracies are mechanical evidence only. They do not alter the scientific calibration hypothesis, fixed learning-rate sweep, or decision thresholds.
 - Decision and retention: Approve the seven-checkpoint calibration unchanged. Retain the feature cache and all source weights; no destructive retention was applied.
 <!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-probe-smoke-result-v1"} -->
+
+## 2026-08-01 result: LeJEPA convergence frozen-probe calibration
+
+- Study: `lejepa-convergence-v1-probe`; status: completed. Two GPU shards processed all seven preregistered checkpoints in `477.94` wall seconds and `787.56` summed active seconds; every run, aggregate worker terminal, and notify-wake watch `214b8e49-4b01-4ed3-af45-fa616d40722e` closed successfully.
+- Provenance: parent `adaf8e85f8b5371a2baf4a6894d3cd8ebadfc05c`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`; manifest SHA-256 `fbf4cfe120652184e5cb123c94dd5f5540be54056fa656fe9837ce92c405fff5`. Structured summary: `logs/research/lejepa-convergence-v1-probe/summary.json` with SHA-256 `b3c931b007ba7139da1c7be3ef3cab33b83413db9eaea874b2862fb8329e9d8a`.
+
+| Source | Online probe | Frozen final CLS | Frozen normalized final-two CLS | Calibration gain |
+| --- | ---: | ---: | ---: | ---: |
+| teacher baseline | 0.9058 | 0.8952 | 0.9004 | -0.0054 |
+| G2 direct, lambda 0.10, invariance 1 | 0.3560 | 0.4268 | 0.4604 | +0.1044 |
+| G4 direct, lambda 0.10, invariance 1 | 0.3534 | 0.4358 | 0.4780 | +0.1246 |
+| G2L2 direct, lambda 0.10, invariance 1 | 0.3708 | 0.4596 | 0.4970 | +0.1262 |
+| G2L2 projected, lambda 0.10, invariance 1 | 0.3054 | 0.3856 | 0.3924 | +0.0870 |
+| G2L2 direct, lambda 0.05, invariance 1 | 0.4042 | 0.5014 | 0.5260 | +0.1218 |
+| G2L2 direct, lambda 0.10, invariance 2 | 0.4068 | 0.5202 | 0.5768 | +0.1700 |
+
+- Decision: Probe lag is material because the best shared checkpoint gained `0.1700`, above the preregistered `0.10` threshold. Representation convergence remains primary because `0.5768` is below the `0.60` shared floor and `0.3236` behind the calibrated teacher, above the `0.20` maximum gap. The normalized final-two-layer recipe won every checkpoint; all shared raw and normalized recipes selected the sweep boundary learning rate `0.03`, while the teacher's normalized recipe selected `0.003`.
+- Tracker: All seven W&B runs completed online and contain exact summary metrics and provenance. The per-epoch history reset from step 99 to 0 for the second recipe, so W&B rejected that recipe's curve history as nonmonotonic; the complete curves remain in each local `result.json`. The logger now offsets recipe steps monotonically before any subsequent calibration.
+- Next action: Use the fixed frozen calibration as the terminal evaluation and preregister a fresh four-run optimizer/schedule screen. Give the detached online classifier a low-decay, higher-learning-rate parameter group to reduce measurement lag without changing encoder gradients; isolate lower encoder learning rate and lower weight decay, then test their official-recipe combination with cosine-shaped OneCycle decay.
+- Retention: Retain all feature caches, complete curves, W&B runs, and source checkpoints. No destructive retention was applied.
+<!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-probe-result-v1"} -->
+
+## 2026-08-01 protocol: LeJEPA convergence optimizer/schedule screen
+
+- Study: `lejepa-convergence-v1-optimizer-screen`; linked smoke: `lejepa-convergence-v1-optimizer-smoke`.
+- Trigger: Frozen calibration found a material `+0.1700` probe gain but left the best shared representation at `0.5768`, below the `0.60` floor and `0.3236` behind the calibrated teacher. Optimizer and schedule changes are therefore justified before altering the objective or view topology.
+- Baseline: Fresh 100-epoch G2L2 direct run with lambda `0.10`, invariance weight `2.0`, AdamW learning rate `0.002`, weight decay `0.2`, and 5% linear warmup followed by a constant rate.
+- Initial variants: Isolate encoder learning rate `0.0005`; isolate encoder weight decay `0.05`; combine both with 10% warmup and cosine-shaped OneCycle decay to maximum learning rate divided by 1000. The OneCycle candidate also cycles AdamW beta1 and is recorded as an approximation rather than an exact reproduction of the official LeJEPA scheduler.
+- Measurement amendment: All four runs remove classifier dropout and place only the detached classifier head in an AdamW group with learning rate `0.01` and weight decay `1e-6`. A regression test proves the shared-student model's `heads` selector contains only classifier weight and bias; encoder gradients remain blocked at the classifier boundary. Terminal selection uses the same fixed frozen final-two-layer normalized probe as the completed calibration.
+- Controls: Fixed 45,000/5,000 split, no official test set, seed 0 screen, 100 epochs, validation every 10 epochs, effective batch size 1024, identical masking, two global plus two local views, shared-student gradients, and full online W&B provenance.
+- Allocation: Four seed-0 runs initially. A managed promotion may add only fresh baseline/winner seeds 1 and 2, for at most eight scientific pretraining runs. The one-epoch mechanical smoke is excluded.
+- Promotion: Require `+0.02` peak online accuracy, 10% lower active time to the fixed 95% target, or 5% higher active-time AUC with no more than `0.005` peak loss for speed/AUC routes. Calibrate every seed-0 checkpoint before choosing the optimizer control for a separate preregistered loss-interaction and view-cost study.
+- Retention: Keep every checkpoint, curve, cache, and tracker run. No destructive retention is authorized.
+<!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-optimizer-protocol-v1"} -->

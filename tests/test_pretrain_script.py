@@ -6,7 +6,7 @@ from types import ModuleType, SimpleNamespace
 
 import pytest
 import yaml
-from mjepa import JEPAConfig
+from mjepa import JEPAConfig, OptimizerConfig
 from mjepa.trainer import CheckpointMetadata
 from vit import ViTConfig
 
@@ -157,6 +157,28 @@ LEJEPA_MULTIVIEW_CONFIGS = {
         0.10,
         2.0,
         (),
+    ),
+}
+LEJEPA_CONVERGENCE_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-convergence-lr2e3-wd2e1-constant-100e.yaml": (
+        0.002,
+        0.2,
+        False,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-convergence-lr5e4-wd2e1-constant-100e.yaml": (
+        0.0005,
+        0.2,
+        False,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-convergence-lr2e3-wd5e2-constant-100e.yaml": (
+        0.002,
+        0.05,
+        False,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-convergence-lr5e4-wd5e2-onecycle-100e.yaml": (
+        0.0005,
+        0.05,
+        True,
     ),
 }
 CLS_CONFIGS = {
@@ -372,6 +394,39 @@ def test_lejepa_multiview_configs_preserve_masked_task_and_preregistered_ladder(
         0.0,
         0.0,
     )
+
+
+@pytest.mark.parametrize(("config_path", "expected"), LEJEPA_CONVERGENCE_CONFIGS.items())
+def test_lejepa_convergence_configs_isolate_optimizer_and_calibrate_detached_probe(
+    config_path: Path,
+    expected: tuple[float, float, bool],
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    backbone_config = config["backbone"]
+    jepa_config = config["jepa"]
+    optimizer_config = config["optimizer"]
+    expected_lr, expected_weight_decay, expected_scheduled = expected
+
+    assert isinstance(backbone_config, ViTConfig)
+    assert isinstance(jepa_config, JEPAConfig)
+    assert isinstance(optimizer_config, OptimizerConfig)
+    assert backbone_config.heads["cls"].dropout == 0
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.lejepa_lambda == 0.10
+    assert jepa_config.invariance_loss_weight == 2.0
+    assert config["multi_crop"]["global_views"] == 2
+    assert config["multi_crop"]["local_views"] == 2
+    assert optimizer_config.lr == expected_lr
+    assert optimizer_config.weight_decay == expected_weight_decay
+    assert optimizer_config.scheduled is expected_scheduled
+    assert optimizer_config.parameter_groups[-1] == {
+        "params": ["heads"],
+        "lr": 0.01,
+        "weight_decay": 0.000001,
+    }
+    if expected_scheduled:
+        assert optimizer_config.pct_start == 0.10
+        assert optimizer_config.final_div_factor == 100
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:

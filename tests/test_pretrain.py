@@ -20,6 +20,7 @@ from mjepa.jepa import (
     SLOT_BIAS_CLS_PREDICTION_MODE,
     SOURCE_BALANCED_TOKEN_ROUTED_JOINT_CONTEXT_CLS_PREDICTION_MODE,
     CrossAttentionPredictor,
+    TargetEncoderMode,
     compute_jepa_prediction_loss,
 )
 from mjepa.metrics import CLSPatchAlignmentMetric
@@ -628,6 +629,7 @@ def make_model(
     head_config: HeadConfig | AttentivePoolHeadConfig | None = None,
     cls_prediction_mode: CLSPredictionMode = "legacy_cross_attention",
     cls_global_target_pooling: str = "raw_mean",
+    target_encoder_mode: TargetEncoderMode = "ema",
 ) -> CIFAR10MJEPA:
     backbone_config = ViTConfig(
         in_channels=3,
@@ -645,7 +647,11 @@ def make_model(
     backbone = backbone_config.instantiate()
     predictor = CrossAttentionPredictor(backbone, depth=1, cls_prediction_mode=cls_prediction_mode)
     return CIFAR10MJEPA(
-        JEPAConfig(gram_start_epoch=None, cls_prediction_mode=cls_prediction_mode),
+        JEPAConfig(
+            gram_start_epoch=None,
+            cls_prediction_mode=cls_prediction_mode,
+            target_encoder_mode=target_encoder_mode,
+        ),
         backbone,
         predictor,
         autocast_dtype=torch.float32,
@@ -660,6 +666,40 @@ def make_features(*, num_cls_tokens: int) -> ViTFeatures:
         BATCH_SIZE, total_tokens, HIDDEN_SIZE
     )
     return ViTFeatures(dense_features, NUM_REGISTER_TOKENS, cls_count, tokenized_size=(2, 2))
+
+
+def test_calibrated_probe_parameter_group_selects_only_classifier_head() -> None:
+    model = make_model(
+        num_cls_tokens=1,
+        head_config=HeadConfig(out_features=10, dropout=0.0),
+        target_encoder_mode="shared",
+    )
+    optimizer_config = OptimizerConfig(
+        lr=0.002,
+        weight_decay=0.2,
+        betas=(0.85, 0.95),
+        fused=False,
+        parameter_groups=[{"params": ["heads"], "lr": 0.01, "weight_decay": 0.000001}],
+        skip_weight_decay_on_1d=True,
+    )
+
+    optimizer, _scheduler = optimizer_config.instantiate(model, total_steps=TOTAL_TRAIN_STEPS)
+
+    probe_parameter_ids = {id(parameter) for parameter in model.student.get_head("cls").parameters()}
+    probe_group = next(
+        group
+        for group in optimizer.param_groups
+        if {id(parameter) for parameter in group["params"]} == probe_parameter_ids
+    )
+    assert {id(parameter) for parameter in probe_group["params"]} == probe_parameter_ids
+    assert probe_group["initial_lr"] == 0.01
+    assert probe_group["weight_decay"] == 0.000001
+    assert all(
+        id(parameter) not in probe_parameter_ids
+        for group in optimizer.param_groups
+        if group is not probe_group
+        for parameter in group["params"]
+    )
 
 
 def test_visual_target_shuffle_diagnostic_measures_cross_sample_matching() -> None:

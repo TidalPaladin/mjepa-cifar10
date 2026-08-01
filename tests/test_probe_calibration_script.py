@@ -1,6 +1,7 @@
 import importlib.util
 from copy import deepcopy
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,3 +43,14 @@ def test_probe_calibration_manifest_requires_explicit_online_emissions() -> None
 
     with pytest.raises(ValueError, match="configs, metrics, and provenance"):
         script._validate_manifest(invalid_manifest)
+
+
+def test_probe_curve_logging_uses_monotonic_global_steps(mocker) -> None:
+    script = load_calibration_script_module()
+    log = mocker.patch.object(script.wandb, "log")
+    result = SimpleNamespace(validation_curves=((0.2, 0.3),))
+
+    script._log_validation_curves("first", result, (0.01,), step_offset=0)
+    script._log_validation_curves("second", result, (0.01,), step_offset=2)
+
+    assert [call.kwargs["step"] for call in log.call_args_list] == [0, 1, 2, 3]

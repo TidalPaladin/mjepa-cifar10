@@ -1,0 +1,123 @@
+id: lejepa-convergence-v1-optimizer-screen
+question: Can the official LeJEPA starting learning rate, ViT weight decay, or a decaying schedule improve representation convergence for the noncollapsed teacher-free masked objective?
+hypothesis: The existing 0.002 learning rate and 0.2 weight decay over-regularize or overshoot the shared-student representation; lowering either term, or combining the official 0.0005 and 0.05 values with decay, will improve common-horizon probe AUC and final frozen-probe accuracy without violating the collapse gates.
+
+baseline:
+  id: g2l2-w2-lr2e3-wd2e1-constant
+  config: config/pretrain/vit-small-lejepa-convergence-lr2e3-wd2e1-constant-100e.yaml
+  hypothesis: The prior best masked LeJEPA representation remains the control after correcting only the detached online probe's optimization.
+  mechanism: Preserve the two-global/two-local masked objective, encoder optimizer, and constant-after-warmup schedule; assign the detached classifier head low decay and a higher learning rate.
+  changes:
+    - Remove classifier dropout and optimize the detached head at learning rate 0.01 with weight decay 1e-6.
+    - Preserve encoder AdamW learning rate 0.002, weight decay 0.2, and 5% linear warmup followed by a constant rate.
+
+variants:
+  - id: g2l2-w2-lr5e4-wd2e1-constant
+    config: config/pretrain/vit-small-lejepa-convergence-lr5e4-wd2e1-constant-100e.yaml
+    hypothesis: The current encoder learning rate is too high for the shared target gradients and slows semantic organization.
+    mechanism: Isolate the official LeJEPA starting learning rate while retaining current weight decay and the constant-after-warmup schedule.
+    changes:
+      - Lower only the encoder and predictor learning rate from 0.002 to 0.0005.
+  - id: g2l2-w2-lr2e3-wd5e2-constant
+    config: config/pretrain/vit-small-lejepa-convergence-lr2e3-wd5e2-constant-100e.yaml
+    hypothesis: Weight decay 0.2 suppresses useful feature specialization despite adequate feature variance.
+    mechanism: Isolate the official LeJEPA ViT weight decay while retaining the current learning rate and constant-after-warmup schedule.
+    changes:
+      - Lower only encoder and predictor weight decay from 0.2 to 0.05.
+  - id: g2l2-w2-lr5e4-wd5e2-onecycle
+    config: config/pretrain/vit-small-lejepa-convergence-lr5e4-wd5e2-onecycle-100e.yaml
+    hypothesis: The lower official rate and decay require a decaying schedule to front-load representation learning and stabilize the last training quarter.
+    mechanism: Combine learning rate 0.0005 and weight decay 0.05 with 10% warmup and cosine-shaped OneCycle decay to one-thousandth of the maximum learning rate.
+    changes:
+      - Use the official LeJEPA starting rate and ViT weight decay together.
+      - Replace constant-after-warmup optimization with the repository's OneCycle approximation to linear-warmup cosine decay; this also cycles AdamW beta1 and is not claimed to be an exact scheduler reproduction.
+
+methodology:
+  linked_program: lejepa-convergence-v1
+  trigger:
+    study: lejepa-convergence-v1-probe
+    decision: material-probe-lag-with-residual-representation-gap
+    evidence:
+      - The best shared checkpoint improved from 0.4068 online to 0.5768 with a fixed frozen probe, a material 0.1700 gain.
+      - The same checkpoint remained below the preregistered 0.60 floor and 0.3236 behind the calibrated teacher, so representation convergence remains primary.
+      - The normalized final-two-layer frozen recipe won all seven checkpoints; the best shared run used two global and two local views, direct features, lambda 0.10, and invariance weight 2.0.
+  scientific_run_allocation:
+    initial_seed_zero_runs: 4
+    paired_confirmation_if_promoted: 4
+    maximum_pretraining_runs: 8
+    mechanical_smokes_excluded: true
+  controls:
+    seed_zero_screen_epochs: 100
+    validation_interval_epochs: 10
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the first global view.
+    views: Two global views at scale 0.75-1.00 and two local views at scale 0.30-0.75; only the first global view anchors masked prediction.
+    objective: Shared-student visual and auxiliary CLS masked prediction, direct CLS-plus-patch-mean SigREG at lambda 0.10, and same-image invariance weight 2.0.
+    gradient_boundary: Shared-student targets and additional views retain self-supervised gradients; classifier input features remain detached.
+    online_probe: Final CLS only, dropout 0, AdamW parameter group learning rate 0.01 and weight decay 1e-6; this head cannot update the encoder.
+    terminal_probe: Reuse the fixed 100-epoch frozen learning-rate bank and normalized final-two-layer recipe from lejepa-convergence-v1-probe.
+  last_three_validation_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.07
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.07
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+    peak_online_probe_accuracy_minimum: 0.50
+  selection:
+    eligibility: Every collapse and finite-value threshold must pass on each of the last three validation records.
+    ranking: Promotion criterion, frozen normalized final-two-layer accuracy, online active-time AUC, peak online accuracy, then simpler constant scheduling.
+    frozen_probe_requirement: Calibrate every completed seed-0 checkpoint before selecting the optimizer setting for the loss/view follow-up.
+  stopping:
+    - Complete the baseline and all three seed-0 variants unless a safety or mechanical failure requires repair.
+    - If the managed promotion rule selects a seed-0 winner, run only its paired fresh baseline/winner confirmation at seeds 1 and 2, keeping the total at eight.
+    - Do not run supervised downstream evaluation in this study.
+    - After frozen calibration, preregister a separate loss-interaction and view-cost study around the best eligible optimizer setting; do not add post-hoc optimizer variants here.
+  retention: Retain every checkpoint, fixed-probe feature cache, local curve, and W&B run because destructive retention is not authorized.
+  primary_reference: https://github.com/galilai-group/lejepa
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0, 1, 2]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-convergence-v1-optimizer-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 8
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.02
+  convergence_gain: 0.10
+  auc_gain: 0.05
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]
