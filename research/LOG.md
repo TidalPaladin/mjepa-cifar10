@@ -1769,3 +1769,14 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Cost interpretation: G2L1 clears the `15%` common-step active-time threshold, but its `0.0234` online loss exceeds the `0.01` cost-route allowance. Frozen accuracy and isolated-path latency remain pending, so this is not a final cost decision.
 - Provenance: Parent `a2eddbef9ae150ae5e3208dd56ca609a05ffb303`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/709bc65c).
 - Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"b8d486a224d31f80b89fc63fd0e971387b27723dbb1f30df70c22896b26e6cdf","operation_id":"lejepa-convergence-v1-loss-view-g2l2-l005-w2-noaux-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2L2 lambda 0.05 weight 2 without auxiliary CLS seed 0
+
+- Identity: `pretrain-g2l2-l005-w2-noaux-seed0`, attempt `1`, terminal event `51714026-610c-4469-bdf0-76c6abbb8d2d`. The run started at `14:05:55.627196` UTC and completed with exit code `0` at `16:58:42.975599` UTC on physical GPU 1.
+- Online result: Peak and final validation accuracy were `0.5076` at `10,348.38` active seconds. Removing auxiliary CLS prediction improved matched G2L2 lambda `0.05`, weight `2` by `0.0098` accuracy and reduced common-step active time by `4.44%`.
+- Eligibility: Variance, top-eigenvalue, cosine, shuffled-target, finite-value, and CLS effective-rank checks passed. Patch effective-rank fractions were `0.05260`, `0.05570`, and `0.05710` at epochs 79, 89, and 99, improved over the matched auxiliary run but below the preregistered `0.07` floor. The run is ineligible under the collapse gate; its retained encoder will receive the fixed frozen probe.
+- Interpretation: Auxiliary CLS prediction is not required for optimization stability and appears mildly harmful to online accuracy, active time, and representation diversity in this setting. The improvement is diagnostic, not promotion evidence, because the patch-rank gate still fails and frozen accuracy is pending.
+- Provenance: Parent `a2eddbef9ae150ae5e3208dd56ca609a05ffb303`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0c218ad1).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
