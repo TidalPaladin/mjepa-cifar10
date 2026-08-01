@@ -1559,3 +1559,15 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Program conclusion: Shared-student SigREG can prevent obvious variance/cosine collapse without an EMA teacher, and same-image multiview invariance improves semantic probing over the masked-only design. In this implementation, however, neither masked prediction plus invariance nor the tested LeJEPA-style projector approaches the accepted teacher baseline. The relaxed equivalence condition is not met.
 - Future hypothesis: If a separate program is authorized, test whether masked prediction and augmentation invariance need separate representation subspaces or a scheduled loss balance. This hypothesis is outside the completed program and its 22-run authorization; it is not authorized by this result.
 - Allocation and retention: Sixteen of 22 authorized scientific pretraining runs were used; the six confirmation runs remain unused because the promotion gate failed. Mechanical smokes were excluded. Keep every checkpoint and backbone; no destructive retention was applied.
+
+## 2026-08-01 protocol: LeJEPA convergence probe calibration
+
+- Study: `lejepa-convergence-v1-probe`.
+- Question: Does the moving online probe materially understate the final linear separability of the retained teacher-free SigREG representations?
+- Hypothesis: A fresh frozen-backbone probe will improve the best shared-student validation accuracy by at least `0.10`, but accuracy below `0.60` or a remaining teacher gap above `0.20` will identify representation convergence as the primary limitation.
+- Evaluation: Reuse all six retained multiview checkpoints and the accepted teacher checkpoint. Train only fresh probe heads on the fixed 45,000-example training split and evaluate on the fixed 5,000-example validation split. The official test set remains prohibited.
+- Recipes: Compare final-layer CLS without added normalization against concatenated final-two-layer CLS features with fixed LayerNorm. Sweep six preregistered AdamW learning rates with weight decay `1e-6` and linear-warmup cosine decay. The encoder remains in evaluation mode without gradients.
+- External tracking: W&B destination `tidalpaladin/mjepa-cifar10`; launch emits the authorized non-sensitive `metrics`, `configs`, and `provenance` classes.
+- Decision: If probe lag does not explain the deficit, preregister a fresh pretraining screen that isolates learning rate, weight decay, and schedule before changing loss composition or views.
+- Retention: Keep feature caches, full probe curves, calibration results, and every source checkpoint. No destructive retention is authorized.
+<!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-probe-protocol-v1"} -->

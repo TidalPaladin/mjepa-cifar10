@@ -173,6 +173,41 @@ def test_get_val_dataloader_disables_persistent_workers_with_zero_workers(mocker
     )
 
 
+def test_get_probe_train_dataloader_uses_deterministic_transform_and_fixed_training_split(mocker) -> None:
+    base_dataset = DatasetWithTargets()
+    split = data.StratifiedSplit(tuple(range(100)), tuple(range(100, 200)))
+    dataloader = object()
+    transform = object()
+    transform_mock = mocker.patch.object(data, "get_val_transforms", return_value=transform)
+    cifar10_mock = mocker.patch.object(data, "CIFAR10", return_value=base_dataset)
+    mocker.patch.object(data, "build_stratified_split_indices", return_value=split)
+    dataloader_mock = mocker.patch.object(data, "DataLoader", return_value=dataloader)
+
+    result = data.get_probe_train_dataloader(
+        size=IMG_SIZE,
+        batch_size=BATCH_SIZE,
+        root=ROOT,
+        num_workers=0,
+    )
+
+    assert result is dataloader
+    transform_mock.assert_called_once_with(IMG_SIZE)
+    cifar10_mock.assert_called_once_with(root=ROOT, train=True, transform=transform, download=True)
+    subset = dataloader_mock.call_args.args[0]
+    assert isinstance(subset, Subset)
+    assert subset.dataset is base_dataset
+    assert tuple(subset.indices) == split.train_indices
+    dataloader_mock.assert_called_once_with(
+        subset,
+        batch_size=BATCH_SIZE,
+        num_workers=0,
+        pin_memory=True,
+        shuffle=False,
+        drop_last=False,
+        persistent_workers=False,
+    )
+
+
 def test_get_train_dataloader_keeps_small_few_shot_subset_nonempty(mocker) -> None:
     base_dataset = DatasetWithTargets()
     split = data.StratifiedSplit(tuple(range(200)), ())

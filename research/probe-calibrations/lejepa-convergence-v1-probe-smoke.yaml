@@ -1,0 +1,62 @@
+id: lejepa-convergence-v1-probe-smoke
+question: Does the frozen-probe calibration path extract both feature recipes, train probe heads, publish online metrics, and persist recoverable artifacts?
+hypothesis: One epoch on the retained best shared-student checkpoint will exercise the complete calibration path without modifying encoder weights or reading the official test set.
+mechanism: Run both preregistered feature recipes with one probe learning rate while retaining the scientific study's data split and deterministic feature extraction.
+rejection: Any extraction, W&B, probe training, artifact, or terminal-state failure rejects the mechanical path.
+
+sources:
+  - id: multiview-g2l2-direct-l010-w2-smoke-seed0
+    role: mechanical-smoke
+    run_dir: logs/research/lejepa-masked-collapse-v1-multiview-screen/runs/pretrain-multiview-g2l2-direct-l010-w2-seed0
+    online_probe_accuracy: 0.4068
+
+recipes:
+  - id: final-cls-raw
+    mode: final_cls
+    normalize: false
+  - id: last-two-cls-layernorm
+    mode: last_two_cls
+    normalize: true
+
+probe:
+  seed: 0
+  epochs: 1
+  feature_batch_size: 512
+  probe_batch_size: 4096
+  num_workers: 24
+  learning_rates: [0.001]
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.000001
+  warmup_fraction: 0.10
+  start_factor: 0.10
+  schedule: linear-warmup-cosine
+  final_factor: 0.001
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+resources:
+  physical_gpus: [1]
+  workers: 1
+  timeout_seconds: 1800
+  retention: Retain the feature cache and mechanical result.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-convergence-v1-probe-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

@@ -274,6 +274,29 @@ def get_train_dataloader(
         )
 
 
+def get_probe_train_dataloader(
+    size: Sequence[int],
+    batch_size: int,
+    root: Path,
+    num_workers: int,
+) -> DataLoader:
+    """Return the fixed training split with deterministic evaluation transforms."""
+    transforms = get_val_transforms(size)
+    persistent_workers = num_workers > 0
+    base_dataset = CIFAR10(root=root, train=True, transform=transforms, download=True)
+    split = build_stratified_split_indices(base_dataset.targets)
+    dataset = Subset(base_dataset, split.train_indices)
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        pin_memory=PIN_MEMORY,
+        shuffle=False,
+        drop_last=False,
+        persistent_workers=persistent_workers,
+    )
+
+
 def get_val_dataloader(
     size: Sequence[int],
     batch_size: int,

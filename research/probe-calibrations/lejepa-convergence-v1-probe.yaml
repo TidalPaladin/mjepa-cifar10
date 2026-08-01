@@ -1,0 +1,94 @@
+id: lejepa-convergence-v1-probe
+question: Does the moving online probe materially understate the final linear separability of the retained teacher-free SigREG representations?
+hypothesis: A fresh frozen-backbone probe with negligible weight decay and a fixed learning-rate sweep will improve the best shared-student checkpoint by at least 0.10 validation accuracy, but a remaining accuracy below 0.60 or a teacher gap above 0.20 will show that representation convergence is still the primary limitation.
+mechanism: Remove online representation drift and backbone optimizer coupling, then compare the existing final-layer CLS feature against the LeJEPA-style concatenation of normalized CLS features from the final two encoder layers.
+rejection: Reject probe lag as the primary explanation if the best shared-student calibration gain is below 0.10 and its calibrated accuracy remains below 0.60.
+
+sources:
+  - id: teacher-baseline-seed0
+    role: teacher-baseline
+    run_dir: logs/research/vit-small-baseline-v1/runs/pretrain-baseline-seed0
+    online_probe_accuracy: 0.9058
+  - id: multiview-g2-direct-l010-w1-seed0
+    role: shared-student-baseline
+    run_dir: logs/research/lejepa-masked-collapse-v1-multiview-screen/runs/pretrain-multiview-g2-direct-l010-w1-seed0
+    online_probe_accuracy: 0.3560
+  - id: multiview-g4-direct-l010-w1-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-masked-collapse-v1-multiview-screen/runs/pretrain-multiview-g4-direct-l010-w1-seed0
+    online_probe_accuracy: 0.3534
+  - id: multiview-g2l2-direct-l010-w1-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-masked-collapse-v1-multiview-screen/runs/pretrain-multiview-g2l2-direct-l010-w1-seed0
+    online_probe_accuracy: 0.3708
+  - id: multiview-g2l2-proj64-l010-w1-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-masked-collapse-v1-multiview-screen/runs/pretrain-multiview-g2l2-proj64-l010-w1-seed0
+    online_probe_accuracy: 0.3054
+  - id: multiview-g2l2-direct-l005-w1-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-masked-collapse-v1-multiview-screen/runs/pretrain-multiview-g2l2-direct-l005-w1-seed0
+    online_probe_accuracy: 0.4042
+  - id: multiview-g2l2-direct-l010-w2-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-masked-collapse-v1-multiview-screen/runs/pretrain-multiview-g2l2-direct-l010-w2-seed0
+    online_probe_accuracy: 0.4068
+
+recipes:
+  - id: final-cls-raw
+    mode: final_cls
+    normalize: false
+    purpose: Isolate online-probe lag without changing the representation consumed by the classifier.
+  - id: last-two-cls-layernorm
+    mode: last_two_cls
+    normalize: true
+    purpose: Measure the evaluation gap from the practical LeJEPA linear-probe feature recipe.
+
+probe:
+  seed: 0
+  epochs: 100
+  feature_batch_size: 512
+  probe_batch_size: 4096
+  num_workers: 24
+  learning_rates: [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.000001
+  warmup_fraction: 0.10
+  start_factor: 0.10
+  schedule: linear-warmup-cosine
+  final_factor: 0.001
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+resources:
+  physical_gpus: [1, 2]
+  workers: 2
+  timeout_seconds: 7200
+  retention: Retain feature caches, complete curves, and all source checkpoints.
+
+decision:
+  material_probe_lag_gain: 0.10
+  shared_representation_floor: 0.60
+  maximum_teacher_gap_for_probe_explanation: 0.20
+  next_step: If representation convergence remains primary, preregister a fresh optimizer and schedule screen without changing the calibrated evaluation protocol.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-convergence-v1-probe
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research
