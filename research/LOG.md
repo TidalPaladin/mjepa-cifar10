@@ -1736,3 +1736,25 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Eligibility: Every variance, effective-rank, top-eigenvalue, cosine, shuffled-target, and finite-value gate passed on epochs 79, 89, and 99. The fresh control is eligible for terminal frozen-probe comparison.
 - Provenance: Parent `526f2df1c4e0755d9a1ebf5e3d0dd4cfc9aaeef2`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/6f1da3d5).
 - Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"70e4f75f4651a47da274eecb5a16d289f729dd67cda57ad9ed79e2c976ebb9e6","operation_id":"lejepa-convergence-v1-loss-view-g2l2-l010-w4-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2L2 lambda 0.10 weight 4 seed 0
+
+- Identity: `pretrain-g2l2-l010-w4-seed0`, attempt `1`, terminal event `3a160821-016e-441f-ad74-8e49ad938069`. The run started at `11:01:05.539634` UTC and completed with exit code `0` at `14:01:49.212374` UTC on physical GPU 2.
+- Online result: Peak and final validation accuracy were `0.4904` at `10,824.75` active seconds, `0.0714` above the matched lambda `0.10`, weight `2` control. Final CLS and patch effective-rank fractions were `0.08352` and `0.06976`.
+- Eligibility: Variance, top-eigenvalue, cosine, shuffled-target, and finite-value checks passed. CLS effective rank passed at epochs 79, 89, and 99; patch effective-rank fractions were `0.06102`, `0.06630`, and `0.06976`, narrowly below the preregistered `0.07` floor. The run is ineligible, but its retained encoder will receive the fixed frozen probe for diagnostic comparison.
+- Interpretation: Raising invariance weight from `2` to `4` increased the online probe by `0.0714`, but reduced final CLS and patch rank relative to the matched control (`0.10179` and `0.08528`). This is evidence of a probe-quality/diversity tradeoff, not promotion evidence.
+- Provenance: Parent `526f2df1c4e0755d9a1ebf5e3d0dd4cfc9aaeef2`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/885e5779).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"fed10074776aceedfcef05eb066630f9a3852d7d130237a131f20b28f9bf5a78","operation_id":"lejepa-convergence-v1-loss-view-g2l2-l005-w4-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2L2 lambda 0.05 weight 4 seed 0
+
+- Identity: `pretrain-g2l2-l005-w4-seed0`, attempt `1`, terminal event `0a9d381d-0c91-427d-ad5f-9706c497a220`. The run started at `11:02:03.166111` UTC and completed with exit code `0` at `14:03:57.524912` UTC on physical GPU 1.
+- Online result: Peak and final validation accuracy were `0.5618` at `10,895.74` active seconds, `0.1428` above the fresh lambda `0.10`, weight `2` control and `0.0640` above lambda `0.05`, weight `2`. Final CLS and patch effective-rank fractions were `0.04825` and `0.03886`.
+- Eligibility: Variance, top-eigenvalue, cosine, shuffled-target, and finite-value checks passed. CLS effective-rank fractions were `0.04247`, `0.04503`, and `0.04825`; patch fractions were `0.03556`, `0.03662`, and `0.03886`. All six values missed the preregistered `0.07` floor. The run is ineligible, but its retained encoder will receive the fixed frozen probe for diagnostic comparison.
+- Interpretation: Combining lower SigREG weight with stronger invariance produced the factorial screen's best online probe while concentrating both CLS and patch representations. Lower lambda and higher invariance each improved online accuracy, but their combination did not preserve the diversity gate.
+- Provenance: Parent `526f2df1c4e0755d9a1ebf5e3d0dd4cfc9aaeef2`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/7fbdf35b).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
