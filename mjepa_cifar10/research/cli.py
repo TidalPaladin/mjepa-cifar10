@@ -19,6 +19,7 @@ from .codex_notifications import (
     UnixWebSocketTransport,
     capture_wake_context,
     ensure_notification,
+    enter_research_notify_wait,
     initialize_notification_root,
     next_notification_attempt_at,
     register_notification_root,
@@ -118,6 +119,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     event_controller_parser.add_argument("--defer-until-socket-replaced", action="store_true")
 
+    notify_wait_parser = subparsers.add_parser(
+        "notify-wait",
+        help="Bind the active goal wait to one verified research event controller",
+    )
+    notify_wait_parser.add_argument("--root", type=Path, default=Path("logs/research"))
+    notify_wait_parser.add_argument("--socket", type=Path, default=None)
+    notify_wait_parser.add_argument("--controller-pid", type=int, required=True)
+    notify_wait_parser.add_argument("--controller-start-ticks", type=int, required=True)
+    notify_wait_parser.add_argument(
+        "--study-id",
+        dest="study_ids",
+        action="append",
+        required=True,
+        help="Study owned by the controller; repeat to select more than one",
+    )
+
     register_root_parser = subparsers.add_parser(
         "register-root", help="Register one exact root for notification discovery"
     )
@@ -161,6 +178,7 @@ UNRESOLVED_ENVIRONMENT_VARIABLE = re.compile(
     r"\$(?:\{(?P<braced>[A-Za-z_][A-Za-z0-9_]*)\}|(?P<plain>[A-Za-z_][A-Za-z0-9_]*))"
 )
 EVENT_CONTROLLER_LOG_DIRECTORY = ".event-controller"
+PROC_START_TICKS_SUFFIX_INDEX = 19
 
 
 def _event_controller_log_path(
@@ -185,6 +203,80 @@ def _append_controller_record(stream: TextIO, event: str, **payload: Any) -> Non
     record = {"event": event, "recorded_at": datetime.now(UTC).isoformat(), **payload}
     stream.write(json.dumps(record, sort_keys=True) + "\n")
     stream.flush()
+
+
+def _parse_proc_start_ticks(stat: str) -> int:
+    """Extract Linux field 22 while allowing spaces and parentheses in comm."""
+    closing_parenthesis = stat.rfind(")")
+    if closing_parenthesis < 0:
+        raise ValueError("process stat has no closing command parenthesis")
+    suffix = stat[closing_parenthesis + 1 :].split()
+    if len(suffix) <= PROC_START_TICKS_SUFFIX_INDEX:
+        raise ValueError("process stat is missing start ticks")
+    start_ticks = int(suffix[PROC_START_TICKS_SUFFIX_INDEX])
+    if start_ticks <= 0:
+        raise ValueError("process start ticks must be positive")
+    return start_ticks
+
+
+def _process_start_ticks(pid: int, *, proc_root: Path = Path("/proc")) -> int:
+    if pid <= 0:
+        raise ValueError("controller PID must be positive")
+    return _parse_proc_start_ticks((proc_root / str(pid) / "stat").read_text(encoding="utf-8"))
+
+
+def _command_flag_values(command: tuple[str, ...], flag: str) -> tuple[str, ...]:
+    values: list[str] = []
+    for index, argument in enumerate(command):
+        if argument == flag:
+            if index + 1 >= len(command):
+                return ()
+            values.append(command[index + 1])
+        elif argument.startswith(f"{flag}="):
+            values.append(argument.removeprefix(f"{flag}="))
+    return tuple(values)
+
+
+def _event_controller_identity_matches(
+    root: Path,
+    *,
+    pid: int,
+    start_ticks: int,
+    study_ids: frozenset[str],
+    proc_root: Path = Path("/proc"),
+) -> bool:
+    """Verify the live direct controller and its durable startup record."""
+    try:
+        managed_root = validate_notification_root(root)
+        if _process_start_ticks(pid, proc_root=proc_root) != start_ticks:
+            return False
+        command = tuple(
+            part.decode("utf-8") for part in (proc_root / str(pid) / "cmdline").read_bytes().split(b"\0") if part
+        )
+        if len(command) < 3 or not Path(command[0]).name.startswith("python"):
+            return False
+        expected_script = Path(__file__).parents[2] / "scripts" / "research.py"
+        if Path(command[1]).expanduser().resolve(strict=False) != expected_script.resolve():
+            return False
+        if command[2] != "event-controller":
+            return False
+        roots = _command_flag_values(command, "--root")
+        if len(roots) != 1 or Path(roots[0]).expanduser().resolve(strict=False) != managed_root:
+            return False
+        if frozenset(_command_flag_values(command, "--study-id")) != study_ids:
+            return False
+
+        log_path = _event_controller_log_path(managed_root, study_ids, pid=pid)
+        records = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line]
+        started = [record for record in records if record.get("event") == "controller_started"][-1]
+        return (
+            started.get("pid") == pid
+            and started.get("start_ticks") == start_ticks
+            and started.get("root") == str(managed_root)
+            and started.get("study_ids") == sorted(study_ids)
+        )
+    except (IndexError, OSError, UnicodeError, ValueError, json.JSONDecodeError):
+        return False
 
 
 class _ControllerJsonFormatter(logging.Formatter):
@@ -473,6 +565,8 @@ def command_event_controller(args: argparse.Namespace) -> int:
     connector = unix_connector(socket_path)
     study_ids = frozenset(args.study_ids) if args.study_ids else None
     log_path = _event_controller_log_path(args.root, study_ids)
+    controller_pid = os.getpid()
+    controller_start_ticks = _process_start_ticks(controller_pid)
     file_handler = logging.FileHandler(log_path, encoding="utf-8")
     file_handler.setFormatter(_ControllerJsonFormatter())
     EVENT_CONTROLLER_LOGGER.addHandler(file_handler)
@@ -481,6 +575,8 @@ def command_event_controller(args: argparse.Namespace) -> int:
             _append_controller_record(
                 log_stream,
                 "controller_started",
+                pid=controller_pid,
+                start_ticks=controller_start_ticks,
                 root=str(args.root.expanduser().resolve(strict=False)),
                 socket_path=str(socket_path),
                 study_ids=sorted(study_ids) if study_ids is not None else None,
@@ -512,6 +608,54 @@ def command_event_controller(args: argparse.Namespace) -> int:
     finally:
         EVENT_CONTROLLER_LOGGER.removeHandler(file_handler)
         file_handler.close()
+    return 0
+
+
+def command_notify_wait(args: argparse.Namespace) -> int:
+    if args.controller_pid <= 0:
+        raise ValueError("--controller-pid must be positive")
+    if args.controller_start_ticks <= 0:
+        raise ValueError("--controller-start-ticks must be positive")
+    if len(args.study_ids) != len(set(args.study_ids)):
+        raise ValueError("--study-id values must be unique")
+    study_ids = frozenset(args.study_ids)
+    managed_root = validate_notification_root(args.root)
+    loop_id = f"research-event-controller:{args.controller_pid}:{args.controller_start_ticks}"
+    source_ids = tuple(f"study:{study_id}" for study_id in sorted(study_ids))
+
+    def verify_loop_identity(candidate_loop_id: str, candidate_source_ids: tuple[str, ...]) -> bool:
+        return (
+            candidate_loop_id == loop_id
+            and candidate_source_ids == source_ids
+            and _event_controller_identity_matches(
+                managed_root,
+                pid=args.controller_pid,
+                start_ticks=args.controller_start_ticks,
+                study_ids=study_ids,
+            )
+        )
+
+    if not verify_loop_identity(loop_id, source_ids):
+        raise RuntimeError("research event controller identity or durable startup record does not match")
+    context = capture_launch_wake_context()
+    socket_path = resolve_event_controller_socket(args.socket)
+
+    async def enter_wait():
+        transport = await UnixWebSocketTransport.connect(socket_path)
+        try:
+            return await enter_research_notify_wait(
+                managed_root,
+                context=context,
+                loop_id=loop_id,
+                source_ids=source_ids,
+                transport=transport,
+                verify_loop_identity=verify_loop_identity,
+            )
+        finally:
+            await transport.close()
+
+    lease = asyncio.run(enter_wait())
+    print(json.dumps(lease.to_dict(), indent=2, sort_keys=True))
     return 0
 
 
@@ -567,6 +711,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "notify": command_notify,
         "notify-worker": command_notify_worker,
         "event-controller": command_event_controller,
+        "notify-wait": command_notify_wait,
         "register-root": command_register_root,
         "summarize": command_summarize,
         "inventory": command_inventory,

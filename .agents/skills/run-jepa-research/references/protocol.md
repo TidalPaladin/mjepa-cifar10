@@ -161,7 +161,14 @@ run attempt.
 If a run is marked `retryable`, inspect its terminal log, fix and push the cause, then use `launch --retry-failed`. The retry keeps the W&B ID and checkpoint. Detached workers must remove the inherited `WANDB_SERVICE` token so each job starts its own W&B service instead of using the launcher's short-lived socket.
 
 Run `event-controller --root logs/research --study-id <study-id>` as a
-persistent local non-model process for new launches. Direct Unix-socket
+persistent, direct local non-model process for new launches. Do not wrap the
+controller in a generic notify-wake process watch because the generic watcher
+and research notifier use different goal-wait source identities. After the
+controller writes its durable startup record, bind the active goal with
+`notify-wait --root logs/research --controller-pid <pid>
+--controller-start-ticks <ticks> --study-id <study-id>`. This command verifies
+the live process, start ticks, research root, study scope, and startup record
+before acquiring the research-owned lease. Direct Unix-socket
 delivery is the default, and the CLI discovers the running daemon socket.
 The controller includes the earliest persisted notification `next_attempt_at` in
 its selector deadline, so transient retries do not depend on another filesystem

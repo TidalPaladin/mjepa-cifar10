@@ -1615,3 +1615,14 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Promotion: Require `+0.02` peak online accuracy, 10% lower active time to the fixed 95% target, or 5% higher active-time AUC with no more than `0.005` peak loss for speed/AUC routes. Calibrate every seed-0 checkpoint before choosing the optimizer control for a separate preregistered loss-interaction and view-cost study.
 - Retention: Keep every checkpoint, curve, cache, and tracker run. No destructive retention is authorized.
 <!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-optimizer-protocol-v1"} -->
+
+## 2026-08-01 result: LeJEPA optimizer-screen mechanical smoke
+
+- Study: `lejepa-convergence-v1-optimizer-smoke`; run: `pretrain-g2l2-probe-group-smoke-seed0`; status: completed with exit code `0`.
+- Mechanical result: The shared-student G2L2 baseline completed one train, validation, checkpoint, and W&B cycle at optimizer step `44` in `121.837` active seconds. The detached classifier-only parameter group ran without changing the pretraining boundaries. Peak and final online probe accuracy were `0.2024`; these one-epoch values are not scientific promotion evidence.
+- Representation checks: Final CLS and patch-mean standard deviations were `0.760708` and `0.694544`, mean pairwise cosines were `0.023537` and `0.009581`, and visual-target shuffled relative improvement was `0.722906`. All recorded fractions were finite. The smoke did not show variance or cosine collapse.
+- Provenance and artifacts: Parent `7356cc76a3efc812343a1b29839ce30e392b9217`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/b9589e96); local summary `logs/research/lejepa-convergence-v1-optimizer-smoke/summary.json`. The checkpoint and backbone remain retained.
+- Notification finding: Training was unaffected, but the first-cycle and terminal deliveries were initially blocked because the persistent research controller had been wrapped in a generic process watch. That watch owned a different goal-wait lease. The exact controller was stopped after terminal reconciliation, and the terminal research event was explicitly requeued and accepted.
+- Workflow repair: Add `research.py notify-wait`, which binds an owned goal wait to the direct controller's PID, Linux start ticks, exact registered root, study set, command line, and durable startup record. Regression tests cover stat parsing, identity rejection, lease inputs, and the controller record. Use this path before the full optimizer screen.
+- Decision: Approve the four-run optimizer and schedule screen unchanged after the workflow repair passes the repository gate and the launch commit is pushed. No destructive retention was applied.
+<!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-optimizer-smoke-result-v1"} -->

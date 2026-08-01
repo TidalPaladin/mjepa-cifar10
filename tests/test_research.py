@@ -2,6 +2,7 @@ import argparse
 import hashlib
 import json
 import subprocess
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from dataclasses import replace
@@ -11,7 +12,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from mjepa_cifar10.research.cli import _load_spec, wandb_preflight_errors
+from mjepa_cifar10.research.cli import (
+    _event_controller_identity_matches,
+    _event_controller_log_path,
+    _load_spec,
+    _parse_proc_start_ticks,
+    wandb_preflight_errors,
+)
 from mjepa_cifar10.research.cli import main as research_main
 from mjepa_cifar10.research.codex_notifications import (
     MANAGED_ROOT_MARKER_FILENAME,
@@ -1178,6 +1185,145 @@ def test_event_controller_persists_startup_and_sweep_output(mocker, tmp_path: Pa
         "controller_stopped",
     ]
     assert records[1]["accepted"] == 1
+
+
+def test_parse_proc_start_ticks_handles_parentheses_in_process_name() -> None:
+    stat = "123 (research controller (gpu)) S " + " ".join(["0"] * 18 + ["987654"])
+
+    assert _parse_proc_start_ticks(stat) == 987654
+
+
+def test_event_controller_identity_requires_exact_process_and_durable_startup(tmp_path: Path) -> None:
+    root = tmp_path / "logs" / "research"
+    initialize_notification_root(root)
+    pid = 123
+    start_ticks = 987654
+    study_ids = frozenset({"study-a", "study-b"})
+    proc_directory = tmp_path / "proc" / str(pid)
+    proc_directory.mkdir(parents=True)
+    proc_directory.joinpath("stat").write_text(
+        f"{pid} (python) S " + " ".join(["0"] * 18 + [str(start_ticks)]),
+        encoding="utf-8",
+    )
+    script = Path(__file__).parents[1] / "scripts" / "research.py"
+    proc_directory.joinpath("cmdline").write_bytes(
+        b"\0".join(
+            str(argument).encode()
+            for argument in (
+                sys.executable,
+                script,
+                "event-controller",
+                "--root",
+                root,
+                "--study-id",
+                "study-a",
+                "--study-id",
+                "study-b",
+            )
+        )
+        + b"\0"
+    )
+    log_path = _event_controller_log_path(root, study_ids, pid=pid)
+    log_path.write_text(
+        json.dumps(
+            {
+                "event": "controller_started",
+                "pid": pid,
+                "start_ticks": start_ticks,
+                "root": str(root.resolve()),
+                "study_ids": sorted(study_ids),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    assert _event_controller_identity_matches(
+        root,
+        pid=pid,
+        start_ticks=start_ticks,
+        study_ids=study_ids,
+        proc_root=tmp_path / "proc",
+    )
+    assert not _event_controller_identity_matches(
+        root,
+        pid=pid,
+        start_ticks=start_ticks + 1,
+        study_ids=study_ids,
+        proc_root=tmp_path / "proc",
+    )
+    wrapped_command = (
+        proc_directory.joinpath("cmdline")
+        .read_bytes()
+        .replace(
+            str(sys.executable).encode(),
+            b"/usr/bin/uv",
+            1,
+        )
+    )
+    proc_directory.joinpath("cmdline").write_bytes(wrapped_command)
+    assert not _event_controller_identity_matches(
+        root,
+        pid=pid,
+        start_ticks=start_ticks,
+        study_ids=study_ids,
+        proc_root=tmp_path / "proc",
+    )
+
+
+def test_notify_wait_binds_goal_lease_to_exact_controller_identity(mocker, tmp_path: Path, capsys) -> None:
+    root = tmp_path / "logs" / "research"
+    initialize_notification_root(root)
+    context = SimpleNamespace(thread_id="thread-a")
+    transport = SimpleNamespace(close=mocker.AsyncMock())
+    lease = SimpleNamespace(to_dict=lambda: {"state": "owned", "loop_id": "controller"})
+    mocker.patch("mjepa_cifar10.research.cli.capture_launch_wake_context", return_value=context)
+    mocker.patch(
+        "mjepa_cifar10.research.cli.resolve_event_controller_socket",
+        return_value=tmp_path / "app-server.sock",
+    )
+    mocker.patch(
+        "mjepa_cifar10.research.cli._event_controller_identity_matches",
+        return_value=True,
+    )
+    connect = mocker.patch(
+        "mjepa_cifar10.research.cli.UnixWebSocketTransport.connect",
+        new=mocker.AsyncMock(return_value=transport),
+    )
+    enter_wait = mocker.patch(
+        "mjepa_cifar10.research.cli.enter_research_notify_wait",
+        new=mocker.AsyncMock(return_value=lease),
+    )
+
+    assert (
+        research_main(
+            [
+                "notify-wait",
+                "--root",
+                str(root),
+                "--controller-pid",
+                "123",
+                "--controller-start-ticks",
+                "987654",
+                "--study-id",
+                "study-b",
+                "--study-id",
+                "study-a",
+            ]
+        )
+        == 0
+    )
+
+    assert json.loads(capsys.readouterr().out)["state"] == "owned"
+    connect.assert_awaited_once_with(tmp_path / "app-server.sock")
+    kwargs = enter_wait.await_args.kwargs
+    assert kwargs["context"] is context
+    assert kwargs["loop_id"] == "research-event-controller:123:987654"
+    assert kwargs["source_ids"] == ("study:study-a", "study:study-b")
+    assert kwargs["transport"] is transport
+    assert kwargs["verify_loop_identity"](kwargs["loop_id"], kwargs["source_ids"])
+    assert not kwargs["verify_loop_identity"]("wrong", kwargs["source_ids"])
+    transport.close.assert_awaited_once_with()
 
 
 def test_state_marks_missing_supervisor_as_retryable(mocker, tmp_path: Path) -> None:
