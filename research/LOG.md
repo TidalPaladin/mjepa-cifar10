@@ -1716,3 +1716,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Terminal evaluation: Complete every run, apply last-three collapse gates, then calibrate every frozen encoder with the fixed normalized final-two-layer six-rate probe. Performance requires frozen accuracy at least `0.60` and a `0.03` gain over the fresh baseline. The cost route requires at least `15%` common-step active-time gain with no more than `0.01` frozen-accuracy loss.
 - Stopping and retention: Managed online promotion is disabled. A qualifying result requires a separately preregistered fresh three-seed confirmation; otherwise stop this branch without supervised evaluation. Retain every checkpoint, cache, curve, and tracker run.
 - External tracking: W&B destination `tidalpaladin/mjepa-cifar10`, group `lejepa-convergence-v1-loss-view-screen`; launch and summary emit only authorized data classes.
+<!-- autoresearch-operation:{"content_sha256":"a1d3c29df553cb5f424b1fcb1b3cea12454bfe942756bfa448e8dd5a67ebaa0f","operation_id":"lejepa-convergence-v1-loss-view-g2l2-l005-w2-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2L2 lambda 0.05 weight 2 seed 0
+
+- Identity: `pretrain-g2l2-l005-w2-seed0`, attempt `1`, terminal event `9aa0f455-7937-4655-8436-c0e87bae3645`. The run started at `07:59:22.418236` UTC and completed with exit code `0` at `11:00:11.060316` UTC on physical GPU 2.
+- Online result: Peak and final validation accuracy were `0.4978` at `10,829.67` active seconds, `0.0788` above the fresh lambda `0.10` control. Final CLS and patch effective-rank fractions were `0.07544` and `0.04983`.
+- Eligibility: Variance, top-eigenvalue, cosine, shuffled-target, and finite-value checks passed. Patch effective-rank fractions were `0.04794`, `0.04912`, and `0.04983` on epochs 79, 89, and 99, below the preregistered `0.07` floor; CLS rank also missed the floor at epoch 79. The run is ineligible, but its retained encoder will receive the fixed frozen probe for diagnostic comparison.
+- Provenance: Parent `526f2df1c4e0755d9a1ebf5e3d0dd4cfc9aaeef2`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/049bfce8).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"4b47e516d9038215de429e87737d95b892e5064c1cbf4d7586ffd17783c6a8cb","operation_id":"lejepa-convergence-v1-loss-view-g2l2-l010-w2-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2L2 lambda 0.10 weight 2 control seed 0
+
+- Identity: `pretrain-g2l2-l010-w2-seed0`, attempt `1`, terminal event `b4b79b9d-14c0-466c-8da3-856d510132e9`. The run started at `07:59:22.336112` UTC and completed with exit code `0` at `11:01:24.848637` UTC on physical GPU 1.
+- Online result: Peak and final validation accuracy were `0.4190` at `10,903.49` active seconds, exactly reproducing the optimizer-screen control. Final CLS and patch effective-rank fractions were `0.10179` and `0.08528`.
+- Eligibility: Every variance, effective-rank, top-eigenvalue, cosine, shuffled-target, and finite-value gate passed on epochs 79, 89, and 99. The fresh control is eligible for terminal frozen-probe comparison.
+- Provenance: Parent `526f2df1c4e0755d9a1ebf5e3d0dd4cfc9aaeef2`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/6f1da3d5).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
