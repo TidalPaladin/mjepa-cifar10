@@ -1571,3 +1571,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Decision: If probe lag does not explain the deficit, preregister a fresh pretraining screen that isolates learning rate, weight decay, and schedule before changing loss composition or views.
 - Retention: Keep feature caches, full probe curves, calibration results, and every source checkpoint. No destructive retention is authorized.
 <!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-probe-protocol-v1"} -->
+
+## 2026-08-01 result: LeJEPA convergence probe smoke
+
+- Study: `lejepa-convergence-v1-probe-smoke`; run: `multiview-g2l2-direct-l010-w2-smoke-seed0`; status: completed.
+- Mechanical result: Both final-layer CLS and normalized final-two-layer CLS paths extracted the fixed 45,000/5,000 split, trained fresh frozen-backbone probe heads, published online metrics, and wrote atomic feature-cache, result, metadata, and terminal artifacts in `20.89` active seconds.
+- Provenance: parent `897b2ccffb3cb33985cbb902c64fe1fd4de0082c`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`; source checkpoint SHA-256 `c007638f3a5a0c6e7c68db6ccbcd786dda9fa9e609b396dc0c51ba13baf820e5`.
+- Tracker and recovery: W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/9iahsx2t); notify-wake watch `c6f0de42-b95f-48df-a620-d28b7f19605e` closed with `succeeded` and accepted delivery.
+- Interpretation: The one-epoch, one-learning-rate accuracies are mechanical evidence only. They do not alter the scientific calibration hypothesis, fixed learning-rate sweep, or decision thresholds.
+- Decision and retention: Approve the seven-checkpoint calibration unchanged. Retain the feature cache and all source weights; no destructive retention was applied.
+<!-- autoresearch-operation:{"operation_id":"lejepa-convergence-v1-probe-smoke-result-v1"} -->
