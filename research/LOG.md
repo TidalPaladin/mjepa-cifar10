@@ -1758,3 +1758,14 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Interpretation: Combining lower SigREG weight with stronger invariance produced the factorial screen's best online probe while concentrating both CLS and patch representations. Lower lambda and higher invariance each improved online accuracy, but their combination did not preserve the diversity gate.
 - Provenance: Parent `526f2df1c4e0755d9a1ebf5e3d0dd4cfc9aaeef2`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/7fbdf35b).
 - Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"af00f9e89a8b8b78fef6dc17ed48c2f4c6ff8a2e341d31eba0719c4035cdeb2a","operation_id":"lejepa-convergence-v1-loss-view-g2l1-l005-w2-seed0-attempt1-terminal"} -->
+
+
+## 2026-08-01 terminal: loss/view G2L1 lambda 0.05 weight 2 seed 0
+
+- Identity: `pretrain-g2l1-l005-w2-seed0`, attempt `1`, terminal event `7c2c18c1-5176-4948-be95-45477631ae73`. The run started at `14:05:55.712739` UTC and completed with exit code `0` at `16:33:16.539328` UTC on physical GPU 2.
+- Online result: Peak and final validation accuracy were `0.4744` at `8,821.61` active seconds. At the common terminal step this was `18.54%` faster than matched G2L2 lambda `0.05`, weight `2`, but accuracy was `0.0234` lower.
+- Eligibility: Variance, top-eigenvalue, cosine, shuffled-target, finite-value, and CLS effective-rank checks passed. Patch effective-rank fractions were `0.04447`, `0.04598`, and `0.04710` at epochs 79, 89, and 99, below the preregistered `0.07` floor. The run is ineligible under the collapse gate. Its retained encoder will still receive the fixed frozen probe to diagnose whether the online accuracy loss is probe lag.
+- Cost interpretation: G2L1 clears the `15%` common-step active-time threshold, but its `0.0234` online loss exceeds the `0.01` cost-route allowance. Frozen accuracy and isolated-path latency remain pending, so this is not a final cost decision.
+- Provenance: Parent `a2eddbef9ae150ae5e3208dd56ca609a05ffb303`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`. W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/709bc65c).
+- Recovery and retention: The terminal notification was accepted on its first `turn/steer` attempt. Both `checkpoint.pt` and `backbone.safetensors` remain retained. No destructive retention was applied.
