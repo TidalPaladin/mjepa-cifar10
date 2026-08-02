@@ -37,6 +37,7 @@
 - `uv run python scripts/research.py start-controller --root logs/research --study-id <study-id>`: start or reuse one detached, study-scoped event controller and return its verified PID and Linux start ticks.
 - `uv run python scripts/research.py notify-wait --root logs/research --controller-pid <pid> --controller-start-ticks <ticks> --study-id <study-id>`: bind the active goal wait to one verified direct event-controller process and its exact study scope.
 - `uv run python scripts/research.py summarize <study.yaml>`: compute convergence and promotion results.
+- `uv run python scripts/evaluate_checkpoint_probe.py <config> <checkpoint> <data> <output> --study-id <study-id> --run-id <run-id> --expected-step <step> --append-metrics`: evaluate a retained online probe on the fixed validation holdout and append an idempotent terminal metric.
 - `uv run python scripts/research.py inventory`: index legacy and managed local run artifacts without changing them.
 
 ## Coding Style & Naming Conventions
@@ -106,4 +107,5 @@
 - Codex 0.146.0 goal transitions and idle-turn starts are not atomic. The owned lease and exact `updatedAt` checks detect changes outside the read-write window but cannot prevent a concurrent user or client update inside it.
 - Run notification sweeps only against an exact root registered by the research launcher or `register-root`; reject missing, mismatched, symlinked, repository, home, or broad roots before scanning.
 - On checkpoint resume, preserve the launch-time isolated-path benchmark and its immutable W&B config; do not recompute or overwrite it.
+- When a primary endpoint falls after the last scheduled validation epoch, evaluate the terminal checkpoint with `evaluate_checkpoint_probe.py --expected-step <step> --append-metrics` before the final summary. Use only the fixed validation holdout, keep the model in evaluation and inference modes, and record the derived metric and evaluator hashes.
 - When an authorized pull request contains terminal comparative research results, update its body after the result commit is pushed with a `## Findings` table generated from the committed structured summary. Include every evaluated variant, key hyperparameters, primary and convergence metrics, elapsed wall time, decision, total study span, and summed run time or compute cost; mark censored values and distinguish active from wall time. Omit the section for protocol-only changes and active studies.

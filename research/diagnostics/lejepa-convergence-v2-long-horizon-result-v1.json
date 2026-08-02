@@ -1,0 +1,180 @@
+{
+  "schema_version": 1,
+  "operation_id": "lejepa-convergence-v2-long-horizon-result-v1",
+  "study_id": "lejepa-convergence-v2-long-horizon",
+  "run_id": "pretrain-g2l2-l005-w4-397e-seed0",
+  "status": "completed",
+  "phase": "no-promotion",
+  "decision": "rejected",
+  "question": "Does the strongest observed teacher-free SigREG configuration catch the immutable teacher baseline by optimizer step 17400?",
+  "answer": "No. Longer training raised the teacher-free peak substantially, but its 0.8150 peak and 0.8104 terminal accuracy remained about nine percentage points below the teacher baseline.",
+  "horizon": {
+    "common_comparison_step": 17400,
+    "candidate_checkpoint_step": 17418,
+    "candidate_checkpoint_epoch": 396,
+    "endpoint_step_overrun": 18,
+    "endpoint_step_overrun_fraction": 0.0010344827586206897,
+    "candidate_interpolated_accuracy_at_common_step": 0.8106697067006015
+  },
+  "catch_up_gate": {
+    "baseline_peak_accuracy": 0.9057999849319458,
+    "candidate_peak_accuracy": 0.8149999976158142,
+    "maximum_peak_accuracy_loss": 0.005,
+    "peak_accuracy_gap": 0.09079998731613159,
+    "peak_gate_miss": 0.08579998731613159,
+    "peak_gate_passed": false,
+    "baseline_endpoint_accuracy": 0.8999999761581421,
+    "candidate_endpoint_accuracy": 0.8104,
+    "maximum_endpoint_accuracy_loss": 0.005,
+    "endpoint_accuracy_gap": 0.08959997615814208,
+    "endpoint_gate_miss": 0.08459997615814208,
+    "endpoint_gate_passed": false,
+    "overall_passed": false
+  },
+  "convergence": {
+    "source_100_epoch_peak_accuracy": 0.5618,
+    "long_horizon_peak_gain": 0.25319999761581424,
+    "fixed_target_90_accuracy": 0.8152199864387513,
+    "fixed_target_95_accuracy": 0.8605099856853485,
+    "candidate": {
+      "step_to_90": null,
+      "step_to_95": null,
+      "step_auc_at_17400": 0.6511314690158938,
+      "active_time_auc_at_common_time": 0.37566933365389304,
+      "active_seconds_at_step_17400": 43049.54473579728
+    },
+    "baseline": {
+      "step_to_90": 6090,
+      "step_to_95": 8265,
+      "step_auc_at_17400": 0.7959475006908179,
+      "active_time_auc_at_common_time": 0.7941916177852463,
+      "active_seconds_at_step_17400": 11123.6081756372
+    },
+    "comparison": {
+      "step_auc_absolute_loss": 0.14481603167492407,
+      "step_auc_relative_loss": 0.18194168779880018,
+      "active_time_auc_absolute_loss": 0.41852228413135323,
+      "active_time_auc_relative_loss": 0.5269789742914712,
+      "active_time_ratio_at_step_17400": 3.8701061792237432
+    }
+  },
+  "last_three_validation_gate": {
+    "passed": false,
+    "failed_metrics": [
+      "pretrain/collapse/target_patch_mean/effective_rank_fraction"
+    ],
+    "thresholds": {
+      "target_cls_std_mean_minimum": 0.1,
+      "target_cls_effective_rank_fraction_minimum": 0.07,
+      "target_cls_top_eigenvalue_fraction_maximum": 0.5,
+      "target_cls_mean_pairwise_cosine_maximum": 0.9,
+      "target_patch_mean_std_mean_minimum": 0.1,
+      "target_patch_mean_effective_rank_fraction_minimum": 0.07,
+      "target_patch_mean_top_eigenvalue_fraction_maximum": 0.5,
+      "target_patch_mean_mean_pairwise_cosine_maximum": 0.9,
+      "visual_target_relative_improvement_minimum": 0.01,
+      "finite_fraction_required": 1.0
+    },
+    "points": [
+      {
+        "step": 16233,
+        "probe_accuracy": 0.8032000064849854,
+        "target_cls_effective_rank_fraction": 0.07694445906550665,
+        "target_cls_std_mean": 0.4292994886677979,
+        "target_cls_top_eigenvalue_fraction": 0.07502275218228917,
+        "target_cls_mean_pairwise_cosine": 0.0023358329714641113,
+        "target_cls_finite_fraction": 1.0,
+        "target_patch_mean_effective_rank_fraction": 0.05744892760536053,
+        "target_patch_mean_std_mean": 0.40453025810371535,
+        "target_patch_mean_top_eigenvalue_fraction": 0.10885458108808438,
+        "target_patch_mean_mean_pairwise_cosine": 0.0027012646979814054,
+        "target_patch_mean_finite_fraction": 1.0,
+        "visual_target_relative_improvement": 0.9705940142519629,
+        "visual_target_shuffle_gap": 1.5300677008926868
+      },
+      {
+        "step": 16672,
+        "probe_accuracy": 0.8098000288009644,
+        "target_cls_effective_rank_fraction": 0.07818153044631185,
+        "target_cls_std_mean": 0.43518925516759444,
+        "target_cls_top_eigenvalue_fraction": 0.06889141897060488,
+        "target_cls_mean_pairwise_cosine": 0.001689913766719294,
+        "target_cls_finite_fraction": 1.0,
+        "target_patch_mean_effective_rank_fraction": 0.060484926503596055,
+        "target_patch_mean_std_mean": 0.4114224472671824,
+        "target_patch_mean_top_eigenvalue_fraction": 0.10080949828194423,
+        "target_patch_mean_mean_pairwise_cosine": 0.0017524815897824663,
+        "target_patch_mean_finite_fraction": 1.0,
+        "visual_target_relative_improvement": 0.9680657936375879,
+        "visual_target_shuffle_gap": 1.4842091873288155
+      },
+      {
+        "step": 17111,
+        "probe_accuracy": 0.8149999976158142,
+        "target_cls_effective_rank_fraction": 0.07719889696532861,
+        "target_cls_std_mean": 0.4321624934944928,
+        "target_cls_top_eigenvalue_fraction": 0.07145131781436709,
+        "target_cls_mean_pairwise_cosine": 0.0035512587929003446,
+        "target_cls_finite_fraction": 1.0,
+        "target_patch_mean_effective_rank_fraction": 0.05889143167571024,
+        "target_patch_mean_std_mean": 0.41334313658307975,
+        "target_patch_mean_top_eigenvalue_fraction": 0.10779128057998039,
+        "target_patch_mean_mean_pairwise_cosine": 0.0034193308143922662,
+        "target_patch_mean_finite_fraction": 1.0,
+        "visual_target_relative_improvement": 0.9645715331178725,
+        "visual_target_shuffle_gap": 1.511435903608799
+      }
+    ],
+    "interpretation": "The run did not globally collapse: values stayed finite, variances stayed nonzero, cosine stayed near zero, shuffled targets were much worse, and CLS effective rank cleared its late floor. Patch-mean effective rank remained below 0.07 at all three late validations."
+  },
+  "terminal_probe": {
+    "accuracy": 0.8104,
+    "correct": 4052,
+    "examples": 5000,
+    "split": "fixed-validation-holdout",
+    "split_sha256": "bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b",
+    "model_mode": "eval",
+    "gradient_mode": "torch.inference_mode",
+    "autocast_dtype": "bfloat16",
+    "target_encoder": "shared_student",
+    "official_test_set_used": false,
+    "elapsed_seconds": 3.932752549648285
+  },
+  "execution": {
+    "started_at": "2026-08-02T01:25:57.709292+00:00",
+    "finished_at": "2026-08-02T13:35:30.717259+00:00",
+    "wall_seconds": 43773.008,
+    "checkpoint_active_seconds": 43094.07340565324,
+    "physical_gpu": 1,
+    "exit_code": 0,
+    "terminal_event_id": "2f554bb5-6a21-471f-9bc9-38678836d99f",
+    "first_cycle_event_id": "f1cceb89-a3af-5913-a7a5-0d82debb95b1",
+    "notification_delivery": "accepted",
+    "event_controller_pid": 2274437,
+    "event_controller_start_ticks": 1244429663
+  },
+  "provenance": {
+    "launch_parent_sha": "3841ab1ec216703e2ce85bde792b0b48fb66e043",
+    "mjepa_sha": "8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6",
+    "vit_sha": "bf15705454975f04912538cdc790d399eea69e67",
+    "config_sha256": "def826e61ddb60dcc12428ebf165034894e2e4a695cafc7e04eb544aed9d0220",
+    "study_sha256": "03b1a3e204516e3429accf09b0b4ee3dc39b273484249df88d90f1655d30ace1",
+    "baseline_metrics_sha256": "3aba5e404e3ed299ea5faccdc823b35678030d0339a4f7485cefb2081430d911",
+    "checkpoint_sha256": "3b27eb1d6e29f42458ac755b377d61145f7494c8f58d6414f7bb15282dc550cb",
+    "metric_curve_sha256": "7f815059912715bcc075aba9ab1ea4e95edb5fc8d129f0ee3ad3c999979f4b48",
+    "managed_summary_sha256": "0cc1345b04bdaf135ab1f867c4a32e7f925dae0ba881feaf38ae09a8ffdfb242",
+    "terminal_probe_artifact_sha256": "ca62dd534241f956b5adf538d46f8f9b6bbe10fc10c9bd02e383d43cdfe1d24d",
+    "terminal_probe_evaluator_sha256": "30329b13eb9ce1a2aa60b833aaec611b50eafccc82329bd3671d44699a2e44b2",
+    "wandb_run_id": "afb7f2c3",
+    "wandb_url": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/afb7f2c3",
+    "wandb_summary_publish_errors": []
+  },
+  "retention": {
+    "checkpoint": "retained",
+    "backbone": "retained",
+    "metric_curve": "retained",
+    "terminal_probe": "retained",
+    "destructive_retention_applied": false
+  },
+  "follow_up": "Do not promote or launch confirmation, fine-tuning, or official-test evaluation from this result. The large residual accuracy and AUC gaps rule out training horizon alone as the explanation. If the design is revisited, treat late patch-rank concentration and the 3.87x active-time cost as primary constraints, and test an absolute rather than horizon-scaled warmup only in a new preregistered study."
+}

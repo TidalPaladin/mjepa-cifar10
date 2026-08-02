@@ -1880,3 +1880,37 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Correction: The candidate's 128-example microbatch and eight-batch accumulation produce `17,550` optimizer steps at 400 epochs, while the teacher baseline's 512-example microbatch and two-batch accumulation produced `17,400` steps at 400 epochs.
 - Revised horizon: Train the candidate for 397 epochs and `17,418` optimizer steps, the nearest epoch-aligned setting. Truncate common-step and step-AUC comparisons at `17,400`; compare the candidate's final validation at `17,418` with the baseline endpoint at `17,400` and report the 18-step (`0.10%`) mismatch.
 - Scope: This corrects only the horizon mechanics. The candidate architecture, losses, views, optimizer, seed, catch-up thresholds, stopping rule, and retention remain unchanged.
+<!-- autoresearch-operation:{"content_sha256":"cd8f8f8f85ab6015b45c59d622c98afaf831d7be1a5676c4b0415eae9a770163","operation_id":"7edb9f7a1114ba79e08645c699f2ed51"} -->
+
+<!-- study:lejepa-convergence-v2-long-horizon:phase:no-promotion -->
+## lejepa-convergence-v2-long-horizon
+
+- Question: Does the best observed teacher-free SigREG configuration catch the teacher baseline when trained through the same 17,400 optimizer-step horizon?
+- Hypothesis: Extending G2L2 with SigREG lambda 0.05 and invariance weight 4.0 from 4,387 through 17,400 optimizer steps will continue its late online-probe gains and reach within 0.005 of the teacher baseline's 0.9058 peak validation accuracy.
+- Mechanisms and exact changes:
+  - `teacher-fixed-400e`: Mechanism: Reuse its exact committed seed-0 online-probe curve, whose peak is 0.9058 and final step-17,400 accuracy is 0.9000. Changes: not recorded.
+  - `g2l2-l005-w4-397e`: Mechanism: Preserve the complete 100-epoch design and change only the training horizon from 100 to 397 epochs. Changes: Extend num_epochs from 100 to 397, yielding 17,418 optimizer steps, the nearest epoch-aligned horizon to the fixed teacher baseline's 17,400 steps.
+- Launch code provenance:
+  - `pretrain-g2l2-l005-w4-397e-seed0`: parent=`3841ab1ec216703e2ce85bde792b0b48fb66e043` (`codex/research/lejepa-convergence-v2-long-horizon`), mjepa=`8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6` (`codex/research/lejepa-masked-collapse-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-convergence-v2-long-horizon/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-g2l2-l005-w4-397e-seed0`: attempt=1; status=completed; decision=rejected; started=2026-08-02T01:25:57.709292+00:00; finished=2026-08-02T13:35:30.717259+00:00; terminal_event=2f554bb5-6a21-471f-9bc9-38678836d99f; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-convergence-v2-long-horizon/runs/pretrain-g2l2-l005-w4-397e-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/afb7f2c3); checkpoint=retained; metrics=peak_accuracy=0.815000, final_accuracy=0.810400, step_to_90=censored, step_to_95=censored, active_seconds_to_90=censored, active_seconds_to_95=censored, step_auc=0.651131, active_time_auc=0.375669, active_seconds_at_step_horizon=43049.545, cls_path_latency_median_ms=31.346687, cls_path_latency_p90_ms=32.201729; error=none
+<!-- autoresearch-operation:{"content_sha256":"594a5995596a60cea60190d36638ed7d5417426089d3849f928f8c6fa826b746","operation_id":"lejepa-convergence-v2-long-horizon-result-v1"} -->
+
+## 2026-08-02 result: LeJEPA 397-epoch long-horizon diagnostic
+
+- Outcome: The teacher-free G2L2 configuration completed all `17,418` optimizer steps with finite metrics, but it did not catch the immutable teacher baseline. Its online probe peaked at `0.8150` and measured `0.8104` on the terminal checkpoint. The baseline peaked at `0.9058` and ended at `0.9000` at step `17,400`.
+- Catch-up gates: The peak gap was `0.0908`, which missed the `0.005` tolerance by `0.0858`. The nearest-endpoint gap was `0.0896`, which missed the `0.005` tolerance by `0.0846`. The terminal checkpoint is 18 steps (`0.10%`) past the common horizon; linear interpolation gives `0.81067` at step `17,400`.
+- Horizon finding: Extending training increased the source configuration's peak from `0.5618` at 100 epochs to `0.8150`, a gain of `0.2532`. The curve then flattened: validation accuracy ranged from `0.7700` to `0.8150` over the final `6,011` logged steps and fell to `0.8104` at the terminal checkpoint. Training horizon alone does not explain the remaining teacher gap.
+- Convergence and cost: The candidate never reached the fixed 90% target (`0.81522`) or 95% target (`0.86051`) derived from the baseline peak. Its step AUC was `0.651131` versus `0.795948` for the baseline, an `18.19%` relative loss. Its active-time AUC was `0.375669` versus `0.794192`, and it required `43,049.54` active seconds to step `17,400` versus `11,123.61`, a `3.87x` ratio.
+- Collapse diagnostics: All last-three CLS and patch values were finite. Variance remained nonzero, pairwise cosine stayed below `0.004`, shuffled-target gaps stayed above `1.48`, and late CLS effective-rank fractions were `0.07694`, `0.07818`, and `0.07720`. Patch-mean effective-rank fractions were `0.05745`, `0.06048`, and `0.05889`, below the preregistered `0.07` floor at all three validations. This is late patch-rank concentration, not global constant-output collapse.
+- Terminal probe: `scripts/evaluate_checkpoint_probe.py` restored the retained checkpoint and evaluated the fixed 5,000-image validation holdout with the shared student in `eval()` mode under `torch.inference_mode()` and bfloat16 autocast. It classified `4,052/5,000` examples correctly. The official test set was not used. Structured result: `research/diagnostics/lejepa-convergence-v2-long-horizon-result-v1.json`.
+- Provenance: Launch parent `3841ab1ec216703e2ce85bde792b0b48fb66e043`; `mjepa=8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6`; `vit=bf15705454975f04912538cdc790d399eea69e67`; baseline curve SHA-256 `3aba5e404e3ed299ea5faccdc823b35678030d0339a4f7485cefb2081430d911`; checkpoint SHA-256 `3b27eb1d6e29f42458ac755b377d61145f7494c8f58d6414f7bb15282dc550cb`; W&B [run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/afb7f2c3).
+- Lifecycle and retention: The run finished with exit code `0` after `43,773.01` wall seconds and `43,094.07` checkpoint active seconds on physical GPU 1. The first-cycle and terminal notifications were accepted by the study-scoped controller. The checkpoint, backbone, complete metric curve, terminal-probe record, and W&B run remain retained. No destructive retention was applied.
+- Decision: Reject the catch-up hypothesis and stop without confirmation, fine-tuning, or official-test evaluation. If this design is revisited, treat patch-rank concentration and the `3.87x` active-time cost as primary constraints. Test absolute warmup duration, rather than the horizon-scaled 5% warmup used here, only in a new preregistered study.
