@@ -1,0 +1,126 @@
+id: lejepa-convergence-v2-long-horizon
+question: Does the best observed teacher-free SigREG configuration catch the teacher baseline when trained through the same 17,400 optimizer-step horizon?
+hypothesis: Extending G2L2 with SigREG lambda 0.05 and invariance weight 4.0 from 4,387 through 17,400 optimizer steps will continue its late online-probe gains and reach within 0.005 of the teacher baseline's 0.9058 peak validation accuracy.
+rejection_condition: Reject the catch-up hypothesis if the candidate's peak accuracy through step 17,400 remains below 0.9008, its nearest endpoint accuracy remains below 0.8950, or training cannot complete the common horizon with finite metrics.
+checkpoint_plan: Retain the full checkpoint and backbone through terminal common-step analysis and optional fixed frozen-probe calibration. No destructive retention is authorized.
+
+baseline:
+  id: teacher-fixed-400e
+  config: config/pretrain/vit-small-four-cls-legacy.yaml
+  hypothesis: The completed teacher baseline defines the immutable 400-epoch, 17,400-step comparison curve without another baseline launch.
+  mechanism: Reuse its exact committed seed-0 online-probe curve, whose peak is 0.9058 and final step-17,400 accuracy is 0.9000.
+  changes: []
+
+baseline_reference:
+  study_id: vit-small-baseline-v1
+  run_id: pretrain-baseline-seed0
+  metrics: research/baselines/vit-small-baseline-v1-teacher-seed0.metrics.jsonl
+  metrics_sha256: 3aba5e404e3ed299ea5faccdc823b35678030d0339a4f7485cefb2081430d911
+
+variants:
+  - id: g2l2-l005-w4-397e
+    config: config/pretrain/vit-small-lejepa-lossview-g2l2-l005-w4-397e.yaml
+    hypothesis: The strongest 100-epoch teacher-free configuration is horizon-limited rather than converged.
+    mechanism: Preserve the complete 100-epoch design and change only the training horizon from 100 to 397 epochs.
+    changes:
+      - Extend num_epochs from 100 to 397, yielding 17,418 optimizer steps, the nearest epoch-aligned horizon to the fixed teacher baseline's 17,400 steps.
+
+methodology:
+  linked_program: lejepa-convergence-v1
+  trigger:
+    source_study: lejepa-convergence-v1-loss-view-screen
+    source_run: pretrain-g2l2-l005-w4-seed0
+    source_online_peak_accuracy: 0.5618
+    source_frozen_accuracy: 0.6640
+    source_final_validation_step: 4387
+    evidence:
+      - This source had the highest online and fixed frozen-probe accuracy among the completed teacher-free runs.
+      - Its online probe was still improving at the 100-epoch endpoint.
+      - The fixed teacher baseline trained for 400 epochs and logged its final validation at optimizer step 17,400.
+  scientific_run_allocation:
+    new_pretraining_runs: 1
+    seed: 0
+    no_automatic_confirmation: true
+  controls:
+    epochs: 397
+    common_comparison_step: 17400
+    expected_final_validation_step: 17418
+    endpoint_step_overrun: 18
+    validation_interval_epochs: 10
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the first global view.
+    masked_task: Preserve visual-token and auxiliary CLS masked prediction.
+    views: Two global and two local crops, with the first global view retained as the masked-prediction anchor.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, 5% linear warmup followed by a constant rate.
+    probe_boundary: Final CLS enters the online classifier through an explicit detach; only the classifier head uses learning rate 0.01 and weight decay 1e-6.
+    gradient_boundary: Shared-student targets and every additional view retain self-supervised gradients.
+  primary_endpoints:
+    - Peak online-probe validation accuracy through optimizer step 17,400.
+    - Nearest endpoint online-probe validation accuracy at optimizer step 17,418.
+    - Accuracy gap to the immutable baseline, with the 18-step endpoint mismatch reported explicitly.
+  secondary_endpoints:
+    - Step and active seconds to the baseline's fixed 90% and 95% accuracy targets.
+    - Step and active-time AUC truncated to the common 17,400-step horizon.
+    - Last-three CLS and patch effective-rank, variance, top-eigenvalue, cosine, shuffled-target, and finite-value diagnostics.
+  catch_up_gate:
+    baseline_peak_accuracy: 0.9057999849319458
+    baseline_final_accuracy: 0.8999999761581421
+    maximum_peak_accuracy_loss: 0.005
+    maximum_final_accuracy_loss: 0.005
+  last_three_validation_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.07
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.07
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+  stopping:
+    - Complete the 17,418-step epoch-aligned horizon even if an intermediate collapse diagnostic fails; only non-finite metrics, a mechanical failure, timeout, or safety condition may stop early.
+    - Do not launch confirmation, fine-tuning, or official-test evaluation from this single-seed diagnostic.
+  retention: Retain the checkpoint, backbone, metric curve, W&B run, and notification evidence. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-convergence-v2-long-horizon
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 86400
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null, 10, 100]
+  seeds: [0, 1, 2]
+  official_test_roles: [baseline, winner]

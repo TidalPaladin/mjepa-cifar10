@@ -1859,3 +1859,24 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Cost gate: Against matched G2L2 lambda `0.05`, weight `2`, G2L1 saves `18.54%` active time but loses `0.0222` frozen accuracy and has higher isolated-path latency (`31.074` versus `30.911` ms). G2 saves `36.81%` but loses `0.0912`; no-auxiliary CLS saves only `4.44%` and is slower in the isolated benchmark; larger local crops save no time. Every cost candidate also fails patch effective rank. No cost candidate is eligible.
 - Interpretation: Fixed probing exposes material online-probe lag, but representation quality remains limiting. The best shared encoder is `0.2364` behind the calibrated teacher, beyond the preregistered `0.20` probe-explanation boundary. Stronger invariance does not lose its lead under calibration; its diversity loss is the disqualifying tradeoff. Removing auxiliary CLS prediction is nearly frozen-equivalent to matched lambda `0.05`, weight `2` (`-0.0038`) but provides neither the required cost gain nor collapse safety.
 - Decision: Close the LeJEPA convergence program with no promotion. Do not launch three-seed confirmation, supervised evaluation, or official-test evaluation because no candidate passes every applicable gate. All nine W&B calibrations completed online; retain every checkpoint, backbone, feature cache, curve, result, and tracker record. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"4e900774a0c729c4cf1fb5bb381df21f092ddbeb6f74ad011b3b6e08c15c4ae2","operation_id":"lejepa-convergence-v2-long-horizon-protocol-v1"} -->
+
+
+## 2026-08-02 protocol: LeJEPA 400-epoch long-horizon diagnostic
+
+- Study: `lejepa-convergence-v2-long-horizon`; linked program: `lejepa-convergence-v1`.
+- Question: Does the strongest observed teacher-free configuration catch the teacher baseline when both are compared through optimizer step `17,400`?
+- Baseline: Reuse the immutable seed-0 curve from `vit-small-baseline-v1`, SHA-256 `3aba5e404e3ed299ea5faccdc823b35678030d0339a4f7485cefb2081430d911`. The teacher baseline peaked at `0.9058`, finished at `0.9000`, and logged its final validation at step `17,400` after 400 epochs.
+- Candidate: One fresh seed-0 G2L2 run with SigREG lambda `0.05`, invariance weight `4.0`, masked visual and auxiliary CLS prediction, shared-student target gradients, and explicit classifier-input detach. Preserve every 100-epoch source setting and change only `num_epochs` from `100` to `400`.
+- Hypothesis and endpoint: The source run's online probe was still rising when it ended at step `4,387` with peak accuracy `0.5618`. Catch-up requires candidate peak accuracy at least `0.9008` and final step-`17,400` accuracy at least `0.8950`; otherwise reject the hypothesis. Also report fixed 90% and 95% target convergence, common-step and active-time AUC, and last-three collapse diagnostics.
+- Stopping: Complete the full common horizon even if an intermediate rank diagnostic fails. Stop early only for non-finite metrics, a mechanical failure, the 24-hour timeout, or another safety condition. This single-seed diagnostic cannot launch confirmation, fine-tuning, or official-test evaluation.
+- Resources and tracking: One pretraining trial, at most one concurrent job on managed physical GPUs 1 or 2, W&B destination `tidalpaladin/mjepa-cifar10`, group `lejepa-convergence-v2-long-horizon`, with authorized metrics, configs, and provenance only.
+- Retention: Keep the full checkpoint, backbone, metric curve, W&B run, and notification evidence. No destructive retention is authorized.
+<!-- autoresearch-operation:{"content_sha256":"b64b0a424a8283c259bb70ce8a8b7e8e3ae1a85115e62d8497d2449a16109af2","operation_id":"lejepa-convergence-v2-long-horizon-epoch-alignment-amendment-v1"} -->
+
+
+## 2026-08-02 amendment: LeJEPA long-horizon epoch alignment
+
+- Correction: The candidate's 128-example microbatch and eight-batch accumulation produce `17,550` optimizer steps at 400 epochs, while the teacher baseline's 512-example microbatch and two-batch accumulation produced `17,400` steps at 400 epochs.
+- Revised horizon: Train the candidate for 397 epochs and `17,418` optimizer steps, the nearest epoch-aligned setting. Truncate common-step and step-AUC comparisons at `17,400`; compare the candidate's final validation at `17,418` with the baseline endpoint at `17,400` and report the 18-step (`0.10%`) mismatch.
+- Scope: This corrects only the horizon mechanics. The candidate architecture, losses, views, optimizer, seed, catch-up thresholds, stopping rule, and retention remain unchanged.
