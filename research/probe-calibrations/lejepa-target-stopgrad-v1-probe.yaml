@@ -15,7 +15,7 @@ sources:
   - id: target-stopgrad-seed0
     role: candidate
     run_dir: logs/research/lejepa-target-stopgrad-v1-screen/runs/pretrain-target-stopgrad-seed0
-    online_probe_accuracy: REQUIRED_TERMINAL_VALUE
+    online_probe_accuracy: 0.4803999960422516
     objective_complexity_rank: 0
     objective_cost_rank: 0
 

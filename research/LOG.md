@@ -2129,3 +2129,24 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Checkpoint disposition: see each run below; deleted weights are not recoverable.
 
 - `pretrain-target-stopgrad-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-08-03T15:18:37.392053+00:00; finished=2026-08-03T15:21:37.881666+00:00; terminal_event=47429538-e498-41e8-b425-ee9a8d2d7c9f; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-target-stopgrad-v1-smoke/runs/pretrain-target-stopgrad-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/09e9c50e); checkpoint=retained; metrics=peak_accuracy=0.226000, final_accuracy=0.226000, step_to_90=44, step_to_95=44, active_seconds_to_90=125.432, active_seconds_to_95=125.432, step_auc=0.226000, active_time_auc=0.226000, active_seconds_at_step_horizon=125.432, cls_path_latency_median_ms=31.408640, cls_path_latency_p90_ms=32.248833; error=none
+<!-- autoresearch-operation:{"content_sha256":"1432d5d1061117c5481e4743c739304f723fa696d88d15498915c2843544407c","operation_id":"63ffbc15019f37d7c32611df9bad68bf"} -->
+
+<!-- study:lejepa-target-stopgrad-v1-screen:phase:reference-promotion -->
+## lejepa-target-stopgrad-v1-screen
+
+- Question: Does preventing the shared full-view target from following masked-prediction error recover label-bearing patch and global information without an EMA copy?
+- Hypothesis: Detaching only the shared student's masked-prediction targets will remove a target-chasing shortcut, raising early and final probe quality plus patch-mean label utility while preserving the spatial diversity maintained by patch-residual SigREG.
+- Mechanisms and exact changes:
+  - `shared-target-control`: Mechanism: Reuse the full metric curve and retained checkpoint from the fresh patch-residual control. Changes: not recorded.
+  - `target-stopgrad`: Mechanism: Reuse one student for masked and full views, but detach the full-view visual targets only where they enter visual and auxiliary-CLS masked-prediction losses. Changes: Enable stop_gradient_target.; Do not instantiate or update an EMA teacher.; Preserve gradients from full views through SigREG, multiview invariance, and patch-residual SigREG.
+- Launch code provenance:
+  - `pretrain-target-stopgrad-seed0`: parent=`e193f5bd55cb7bac444833d6bfa90b877887c9ea` (`codex/research/lejepa-target-stopgrad-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: reference-promotion
+- Winner: target-stopgrad
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-target-stopgrad-v1-screen/summary.json`; external_detail=True
+- Conclusion: target-stopgrad met a promotion threshold against the fixed seed-0 baseline reference; paired AdamW confirmation was outside this Muon-only sweep.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-target-stopgrad-seed0`: attempt=1; status=completed; decision=promoted; started=2026-08-03T15:25:09.922256+00:00; finished=2026-08-03T16:39:47.386245+00:00; terminal_event=5ac711aa-e149-4824-9ea7-a8e27e0153bb; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-target-stopgrad-v1-screen/runs/pretrain-target-stopgrad-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/cc599ea7); checkpoint=retained; metrics=peak_accuracy=0.480400, final_accuracy=0.480400, step_to_90=658, step_to_95=658, active_seconds_to_90=1675.322, active_seconds_to_95=1675.322, step_auc=0.396798, active_time_auc=0.396487, active_seconds_at_step_horizon=4446.773, cls_path_latency_median_ms=31.461888, cls_path_latency_p90_ms=32.154625; error=none
