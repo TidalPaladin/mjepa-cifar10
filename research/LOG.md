@@ -2065,3 +2065,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Primary evaluation: Last-three patch-mean rank, final patch-mean nearest-centroid accuracy, fixed frozen CLS probe, and spatial-retention metrics at the common horizon. A candidate must improve patch rank by `1.5x` and patch centroid accuracy by `0.03`, retain at least `80%` of control centered energy, add no more than `0.05` patch cosine, and lose no more than `0.005` frozen accuracy or `0.01` step AUC.
 - Resources and stopping: At most four scientific pretraining runs, two concurrent jobs on physical GPUs 1 and 2, 12-hour timeout per run, and one possible later promotion. No post-hoc variants are allowed, and all artifacts are retained.
 - W&B emission: Online to `tidalpaladin/mjepa-cifar10`; approved and emitted classes are metrics, configs, and provenance.
+
+<!-- autoresearch-operation:{"operation_id":"lejepa-patch-rank-v1-smoke-result-v1"} -->
+
+## 2026-08-03 result: cross-sample patch-rank smoke
+
+- Identity: `pretrain-patch-sample050-smoke-seed0`, attempt `1`, terminal event `59a81ebe-60ac-44ea-8dee-8dfc70c8c8b4`, W&B run `ba42cb82`.
+- Mechanical result: The one-epoch run completed training, validation, and checkpointing at optimizer step `44` with exit code `0`. Validation values were finite; online accuracy was `0.2050`, centered patch energy was `0.47653`, and within-image patch cosine was `0.51606`. These values are not scientific evidence.
+- Lifecycle: First-cycle event `698ab57d-1ec7-53d6-b690-05c1e270b1f4` and terminal event were each accepted once through controller PID `2520760`, start ticks `1256601656`. The owned goal wait was released by the first-cycle event.
+- Provenance and retention: Parent `cbaf13d`, sibling `52f898b`, managed summary SHA-256 `b33f2bdd0b7b6f5bdf7080af570647311fd6995d8129a9d765cdc064c5fe9917`. The checkpoint, metrics, W&B record, and notification evidence remain retained.
+- Decision: Mechanical path passed. Proceed to the preregistered four-run scientific screen without changing candidates or gates.
