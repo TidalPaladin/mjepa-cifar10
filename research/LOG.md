@@ -2109,3 +2109,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Mechanism gate: Require every non-collapse safety gate, at least `+0.01` first-validation accuracy, at least `+0.01` frozen accuracy, at least `+0.03` final patch-centroid accuracy, at least `0.80x` centered patch energy, and no more than `+0.05` patch cosine relative to the control.
 - Resources and stopping: Run one excluded one-epoch mechanical smoke and one scientific pretraining trial on physical GPU 1 or 2, with one concurrent job and 12-hour scientific timeout. Do not launch automatic confirmation, supervised evaluation, an official-test pass, or another variant. Retain every artifact; no destructive retention is authorized.
 - Tracking and provenance: W&B destination `tidalpaladin/mjepa-cifar10`, groups matching each study ID, emits authorized non-sensitive metrics, configs, and provenance. Primary branch `codex/research/lejepa-target-stopgrad-v1`; local-only tandem `mjepa` commit `578a2f92441394f232732348b6e9f569237b2744` must not be pushed without explicit permission.
+<!-- autoresearch-operation:{"content_sha256":"0b3846c29601c8a958205f95b24748b67a0f890b497522a179d418758542ae7f","operation_id":"ef2b0e2bfec3ac3783c2e5d0be4da0b6"} -->
+
+<!-- study:lejepa-target-stopgrad-v1-smoke:phase:no-promotion -->
+## lejepa-target-stopgrad-v1-smoke
+
+- Question: Does a shared-weight, stopped prediction target complete one masked multiview training cycle without creating an EMA teacher or disconnecting auxiliary full-view gradients?
+- Hypothesis: The new target boundary will train, validate, checkpoint, and emit finite collapse diagnostics while the predictor, masked context branch, SigREG, invariance, and patch-residual paths remain active.
+- Mechanisms and exact changes:
+  - `target-stopgrad-smoke`: Mechanism: Reuse the student for the unmasked forward, detach only features consumed as masked-prediction targets, and leave every auxiliary full-view objective connected. Changes: Enable stop_gradient_target with target_encoder_mode shared.; Shorten the fixed 40-epoch candidate to one mechanical epoch.
+- Launch code provenance:
+  - `pretrain-target-stopgrad-smoke-seed0`: parent=`a4ac348d1a65ae6865700fda019a00459e4b282f` (`codex/research/lejepa-target-stopgrad-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-target-stopgrad-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-target-stopgrad-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-08-03T15:18:37.392053+00:00; finished=2026-08-03T15:21:37.881666+00:00; terminal_event=47429538-e498-41e8-b425-ee9a8d2d7c9f; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-target-stopgrad-v1-smoke/runs/pretrain-target-stopgrad-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/09e9c50e); checkpoint=retained; metrics=peak_accuracy=0.226000, final_accuracy=0.226000, step_to_90=44, step_to_95=44, active_seconds_to_90=125.432, active_seconds_to_95=125.432, step_auc=0.226000, active_time_auc=0.226000, active_seconds_at_step_horizon=125.432, cls_path_latency_median_ms=31.408640, cls_path_latency_p90_ms=32.248833; error=none
