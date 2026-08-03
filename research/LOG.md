@@ -2202,3 +2202,46 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Gates: Require the existing non-collapse limits. Mechanism support additionally requires at least `+0.01` first and frozen accuracy, `+0.03` final patch-centroid accuracy, at least `0.80x` centered patch energy, and no more than `+0.05` patch cosine versus the fresh shared-gradient control. Crop-free equivalence requires no more than `0.03` loss in online final, step AUC, frozen accuracy, or patch-centroid accuracy, at least `0.80x` patch energy, and no more than `+0.05` patch cosine versus the multiview reference.
 - Bounded follow-up: Only if stop-gradient is safe and improves the fresh control but misses crop-free equivalence, run at most two linked seed-0 candidates: `lejepa_lambda=0.10` for a dominant frozen/global deficit and `patch_residual_sigreg_loss_weight=0.10` for a dominant patch deficit. No confirmation, fine-tuning, or official-test evaluation is authorized.
 - Resources and retention: One excluded one-epoch smoke, then two scientific runs on physical GPUs 1 and 2 with at most two concurrent jobs and 12-hour timeouts. Retain every artifact; no destructive retention is authorized. Track authorized metrics, configs, and provenance in `tidalpaladin/mjepa-cifar10`.
+<!-- autoresearch-operation:{"content_sha256":"039aa4cf4289e7324fc86380d68660c6ed3407ae19354ab1f76cf1291276c61e","operation_id":"41daecd467721a967e5b05d10bb662f9"} -->
+
+<!-- study:lejepa-single-view-stopgrad-v1-screen:phase:screening-promotion -->
+## lejepa-single-view-stopgrad-v1-screen
+
+- Question: Can a stopped shared target preserve useful global and patch representations in a crop-free, single-view MIM formulation?
+- Hypothesis: Removing the target-chasing gradient is sufficient to improve a literal one-view MIM objective over its shared-gradient control, while matching the retained multiview stopped-target result within preregistered representation-quality tolerances.
+- Mechanisms and exact changes:
+  - `single-view-shared-target`: Mechanism: Reuse one student for full and masked forwards and allow masked-prediction error to update both sides. Changes: Disable RandomResizedCrop and multiview invariance.; Use one full-view and one masked-context forward of the same transformed image.
+  - `single-view-target-stopgrad`: Mechanism: Detach the full-view visual and auxiliary CLS targets only where they enter masked-prediction losses. Changes: Enable stop_gradient_target.; Preserve full-view gradients through SigREG and patch-residual SigREG.; Do not instantiate or update an EMA teacher.
+- Launch code provenance:
+  - `pretrain-single-view-shared-target-seed0`: parent=`f1b15cb03c8b92587f89078170d7f97972a9331a` (`codex/research/lejepa-single-view-stopgrad-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+  - `pretrain-single-view-target-stopgrad-seed0`: parent=`f1b15cb03c8b92587f89078170d7f97972a9331a` (`codex/research/lejepa-single-view-stopgrad-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: screening-promotion
+- Winner: single-view-target-stopgrad
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-screen/summary.json`; external_detail=True
+- Conclusion: single-view-target-stopgrad met a seed-0 promotion threshold; confirmation was disabled by protocol.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-view-shared-target-seed0`: attempt=1; status=completed; decision=baseline; started=2026-08-03T17:41:31.626389+00:00; finished=2026-08-03T18:08:09.721185+00:00; terminal_event=24c37088-8ab8-46d9-9a47-025e688f350c; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-shared-target-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/f0703395); checkpoint=retained; metrics=peak_accuracy=0.317400, final_accuracy=0.317400, step_to_90=1740, step_to_95=1740, active_seconds_to_90=1577.966, active_seconds_to_95=1577.966, step_auc=0.264549, active_time_auc=0.263673, active_seconds_at_step_horizon=1577.966, cls_path_latency_median_ms=31.469056, cls_path_latency_p90_ms=32.044033; error=none
+- `pretrain-single-view-target-stopgrad-seed0`: attempt=1; status=completed; decision=promoted; started=2026-08-03T17:41:31.719269+00:00; finished=2026-08-03T18:08:13.940257+00:00; terminal_event=cb73b0f7-70e8-4ac8-8d58-beb450c5b9e7; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-target-stopgrad-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/083f32c6); checkpoint=retained; metrics=peak_accuracy=0.333000, final_accuracy=0.333000, step_to_90=870, step_to_95=1523, active_seconds_to_90=785.235, active_seconds_to_95=1366.993, step_auc=0.264529, active_time_auc=0.263994, active_seconds_at_step_horizon=1560.807, cls_path_latency_median_ms=30.857183, cls_path_latency_p90_ms=31.972351; error=none
+<!-- autoresearch-operation:{"content_sha256":"16ba77c5719aae946291c7f667872d1af07a1c3c53cb3e24bf7ba3e062b84fbb","operation_id":"68ccb9d6cb75819c051884c9a2c02c6b"} -->
+
+<!-- study:lejepa-single-view-stopgrad-v1-smoke:phase:no-promotion -->
+## lejepa-single-view-stopgrad-v1-smoke
+
+- Question: Does crop-free, single-view stopped-target MIM complete one train-validation-checkpoint cycle without a teacher or multiview invariance path?
+- Hypothesis: One shared student can consume the same augmented image through full and masked forwards, detach only masked-prediction targets, and retain finite SigREG and patch-residual gradients without crops or an EMA copy.
+- Mechanisms and exact changes:
+  - `single-view-stopgrad-smoke`: Mechanism: Apply one non-cropped augmented image to both shared full-view and masked-context forwards, with prediction targets detached only at their loss boundary. Changes: Disable RandomResizedCrop while preserving the non-spatial single-view augmentations.; Use exactly one global input and zero local inputs.; Disable same-image multiview invariance.; Enable stop_gradient_target without an EMA teacher.
+- Launch code provenance:
+  - `pretrain-single-view-stopgrad-smoke-seed0`: parent=`f1b15cb03c8b92587f89078170d7f97972a9331a` (`codex/research/lejepa-single-view-stopgrad-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-view-stopgrad-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-08-03T17:38:47.107727+00:00; finished=2026-08-03T17:40:31.573813+00:00; terminal_event=168825aa-31af-4785-92f7-81b4c1bfa285; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-smoke/runs/pretrain-single-view-stopgrad-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/6cffe877); checkpoint=retained; metrics=peak_accuracy=0.220800, final_accuracy=0.220800, step_to_90=44, step_to_95=44, active_seconds_to_90=52.259, active_seconds_to_95=52.259, step_auc=0.220800, active_time_auc=0.220800, active_seconds_at_step_horizon=52.259, cls_path_latency_median_ms=31.447552, cls_path_latency_p90_ms=32.113663; error=none

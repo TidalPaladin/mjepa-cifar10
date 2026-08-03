@@ -9,13 +9,13 @@ sources:
   - id: single-view-shared-target-seed0
     role: control
     run_dir: logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-shared-target-seed0
-    online_probe_accuracy: REQUIRED_TERMINAL_VALUE
+    online_probe_accuracy: 0.3174000084400177
     objective_complexity_rank: 0
     objective_cost_rank: 0
   - id: single-view-target-stopgrad-seed0
     role: candidate
     run_dir: logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-target-stopgrad-seed0
-    online_probe_accuracy: REQUIRED_TERMINAL_VALUE
+    online_probe_accuracy: 0.3330000042915344
     objective_complexity_rank: 0
     objective_cost_rank: 0
 
