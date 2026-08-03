@@ -1,0 +1,91 @@
+# One-epoch mechanical check for crop-free single-view stopped-target MIM.
+trainer: !!python/object:mjepa.TrainerConfig
+  batch_size: 512
+  num_workers: 24
+  num_epochs: 1
+  check_val_every_n_epoch: 1
+  accumulate_grad_batches: 2
+
+backbone: !!python/object:vit.ViTConfig
+  in_channels: 3
+  hidden_size: 384
+  ffn_hidden_size: 1536
+  patch_size: [4, 4]
+  img_size: [32, 32]
+  depth: 12
+  num_attention_heads: 12
+  activation: swiglu
+  mlp_bias: true
+  attention_bias: false
+  attention_dropout: 0.0
+  hidden_dropout: 0.0
+  drop_path_rate: 0.0
+  num_register_tokens: 7
+  num_cls_tokens: 1
+  pos_enc: rope
+  rope_base: 100
+  rope_rescale_coords: 2.0
+  rope_shift_coords: null
+  rope_jitter_coords: null
+  rope_normalize_coords: separate
+  layer_scale: 0.00001
+  norm_type: layernorm
+  qk_normalization: true
+  dtype: float32
+  heads:
+    cls: !!python/object:vit.HeadConfig
+      out_features: 10
+      dropout: 0.0
+
+jepa: !!python/object:mjepa.JEPAConfig
+  target_encoder_mode: shared
+  stop_gradient_target: true
+  enable_cls_prediction: true
+  lejepa_lambda: 0.05
+  invariance_loss_weight: 0.0
+  sigreg_views: both
+  sigreg_features: cls_patch_mean
+  sigreg_num_slices: 256
+  sigreg_projector_dims: []
+  patch_residual_sigreg_loss_weight: 0.05
+  patch_residual_sigreg_num_slices: 32
+  momentum: 0.98
+  predictor_depth: 4
+  predictor_attention_mode: cross_attention
+  cls_prediction_mode: partitioned_independent_cross_attention
+  cls_context_tokens: 4
+  context_ratio: 0.5
+  target_ratio: 0.25
+  scale: 2
+  scheduled: false
+  use_gram_anchoring: false
+  gram_teacher_epoch: 300
+  gram_start_epoch: null
+  gram_update_interval_epoch: 100
+  gram_resolution_scale: 1.0
+  gram_remove_neg: false
+  gram_loss_weight: 1.0
+  sigreg_loss_weight: 0.0
+
+multi_crop:
+  global_views: 1
+  local_views: 0
+  global_scale: [0.75, 1.0]
+  local_scale: [0.30, 0.75]
+  use_random_resized_crop: false
+
+optimizer: !!python/object:mjepa.OptimizerConfig
+  lr: 0.002
+  weight_decay: 0.2
+  betas: [0.85, 0.95]
+  fused: true
+  scheduled: false
+  pct_start: 0.05
+  div_factor: 10
+  skip_weight_decay_on_1d: true
+  parameter_groups:
+    - params: [cls_tokens, register_tokens, pos_enc_target, positions]
+      weight_decay: 0.0
+    - params: [heads]
+      lr: 0.01
+      weight_decay: 0.000001

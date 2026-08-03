@@ -296,6 +296,11 @@ LEJEPA_TARGET_STOPGRAD_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-target-stopgrad-40e.yaml": 40,
     REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-target-stopgrad-smoke.yaml": 1,
 }
+LEJEPA_SINGLE_VIEW_STOPGRAD_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-shared-40e.yaml": (False, 40),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-40e.yaml": (True, 40),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-smoke.yaml": (True, 1),
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -691,6 +696,67 @@ def test_lejepa_target_stopgrad_configs_change_only_gradient_boundary_and_horizo
     assert candidate["trainer"].accumulate_grad_batches == baseline["trainer"].accumulate_grad_batches
     for section in ("backbone", "multi_crop", "optimizer"):
         assert candidate[section] == baseline[section]
+
+
+@pytest.mark.parametrize(
+    ("config_path", "expected_stop_gradient", "expected_epochs"),
+    tuple(
+        (config_path, expected[0], expected[1]) for config_path, expected in LEJEPA_SINGLE_VIEW_STOPGRAD_CONFIGS.items()
+    ),
+)
+def test_lejepa_single_view_stopgrad_configs_are_crop_free_mim_controls(
+    config_path: Path,
+    expected_stop_gradient: bool,
+    expected_epochs: int,
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    trainer_config = config["trainer"]
+    jepa_config = config["jepa"]
+
+    assert isinstance(jepa_config, JEPAConfig)
+    assert trainer_config.num_epochs == expected_epochs
+    assert trainer_config.check_val_every_n_epoch == (5 if expected_epochs == 40 else 1)
+    assert trainer_config.batch_size * trainer_config.accumulate_grad_batches == MULTIVIEW_EFFECTIVE_BATCH_SIZE
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.stop_gradient_target is expected_stop_gradient
+    assert jepa_config.enable_cls_prediction
+    assert jepa_config.lejepa_lambda == 0.05
+    assert jepa_config.invariance_loss_weight == 0.0
+    assert jepa_config.sigreg_views == "both"
+    assert jepa_config.sigreg_features == "cls_patch_mean"
+    assert jepa_config.patch_residual_sigreg_loss_weight == 0.05
+    assert jepa_config.context_ratio == 0.5
+    assert jepa_config.target_ratio == 0.25
+    assert jepa_config.scale == 2
+    assert config["multi_crop"] == {
+        "global_views": 1,
+        "local_views": 0,
+        "global_scale": [0.75, 1.0],
+        "local_scale": [0.30, 0.75],
+        "use_random_resized_crop": False,
+    }
+
+
+def test_lejepa_single_view_scientific_configs_change_only_target_gradient_boundary() -> None:
+    shared_config = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-shared-40e.yaml").read_text()
+    )
+    stopped_config = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-40e.yaml").read_text()
+    )
+    shared_jepa = shared_config["jepa"]
+    stopped_jepa = stopped_config["jepa"]
+
+    assert isinstance(shared_jepa, JEPAConfig)
+    assert isinstance(stopped_jepa, JEPAConfig)
+    for field in fields(JEPAConfig):
+        if field.name == "stop_gradient_target":
+            assert not getattr(shared_jepa, field.name)
+            assert getattr(stopped_jepa, field.name)
+        else:
+            assert getattr(shared_jepa, field.name) == getattr(stopped_jepa, field.name)
+    for section in ("trainer", "backbone", "multi_crop", "optimizer"):
+        assert shared_config[section] == stopped_config[section]
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:

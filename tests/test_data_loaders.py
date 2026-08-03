@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 import torch
 from torch.utils.data import Subset
+from torchvision.transforms.v2 import Compose, RandomResizedCrop, Resize
 
 import mjepa_cifar10.data as data
 
@@ -250,6 +251,19 @@ def test_multicrop_transform_returns_independent_global_and_local_views() -> Non
     assert not torch.equal(views[0], views[1])
 
 
+def test_single_view_transform_can_disable_random_resized_crop() -> None:
+    config = data.MultiCropConfig(global_views=1, local_views=0, use_random_resized_crop=False)
+    transform = data.get_train_transforms(IMG_SIZE, multi_crop_config=config)
+    image = torch.randint(0, 256, (3, *IMG_SIZE), dtype=torch.uint8)
+
+    output = transform(image)
+
+    assert output.shape == (3, *IMG_SIZE)
+    assert isinstance(transform, Compose)
+    assert not any(isinstance(step, RandomResizedCrop) for step in transform.transforms)
+    assert any(isinstance(step, Resize) for step in transform.transforms)
+
+
 @pytest.mark.parametrize(
     "kwargs",
     [
@@ -257,6 +271,7 @@ def test_multicrop_transform_returns_independent_global_and_local_views() -> Non
         {"global_views": 1, "local_views": -1},
         {"global_views": 2, "global_scale": (0.0, 1.0)},
         {"global_views": 2, "local_views": 1, "local_scale": (0.8, 0.4)},
+        {"use_random_resized_crop": 0},
     ],
 )
 def test_multicrop_config_rejects_invalid_view_counts_and_scales(kwargs) -> None:

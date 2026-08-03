@@ -59,12 +59,15 @@ class MultiCropConfig:
     local_views: int = 0
     global_scale: tuple[float, float] = DEFAULT_GLOBAL_CROP_SCALE
     local_scale: tuple[float, float] = DEFAULT_LOCAL_CROP_SCALE
+    use_random_resized_crop: bool = True
 
     def __post_init__(self) -> None:
         if isinstance(self.global_views, bool) or not isinstance(self.global_views, int) or self.global_views <= 0:
             raise ValueError("global_views must be a positive integer")
         if isinstance(self.local_views, bool) or not isinstance(self.local_views, int) or self.local_views < 0:
             raise ValueError("local_views must be a non-negative integer")
+        if not isinstance(self.use_random_resized_crop, bool):
+            raise ValueError("use_random_resized_crop must be a boolean")
         object.__setattr__(self, "global_scale", tuple(float(value) for value in self.global_scale))
         object.__setattr__(self, "local_scale", tuple(float(value) for value in self.local_scale))
         _validate_crop_scale("global_scale", self.global_scale)
@@ -178,13 +181,22 @@ def restrict_dataset_to_few_shot(
     return Subset(dataset, sorted(selected_indices))
 
 
-def _get_train_view_transform(size: Sequence[int], crop_scale: tuple[float, float]) -> Compose:
+def _get_train_view_transform(
+    size: Sequence[int],
+    crop_scale: tuple[float, float],
+    use_random_resized_crop: bool,
+) -> Compose:
+    spatial_transform = (
+        RandomResizedCrop(size=size, scale=crop_scale, ratio=TRAIN_CROP_RATIO)
+        if use_random_resized_crop
+        else Resize(size=size)
+    )
     return Compose(
         [
             RandomHorizontalFlip(p=0.5),
             RandomVerticalFlip(p=0.5),
             RandomInvert(p=0.1),
-            RandomResizedCrop(size=size, scale=crop_scale, ratio=TRAIN_CROP_RATIO),
+            spatial_transform,
             RandomApply([RandomRotation(degrees=cast(Any, 15))], p=0.25),
             ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2),
             RandomGrayscale(p=0.1),
@@ -200,10 +212,18 @@ def get_train_transforms(
     multi_crop_config: MultiCropConfig | None = None,
 ) -> Compose | MultiCropTransform:
     selected_config = multi_crop_config or MultiCropConfig()
-    global_transform = _get_train_view_transform(size, selected_config.global_scale)
+    global_transform = _get_train_view_transform(
+        size,
+        selected_config.global_scale,
+        selected_config.use_random_resized_crop,
+    )
     if not selected_config.enabled:
         return global_transform
-    local_transform = _get_train_view_transform(size, selected_config.local_scale)
+    local_transform = _get_train_view_transform(
+        size,
+        selected_config.local_scale,
+        selected_config.use_random_resized_crop,
+    )
     return MultiCropTransform(global_transform, local_transform, selected_config)
 
 

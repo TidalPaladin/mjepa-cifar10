@@ -1,0 +1,73 @@
+id: lejepa-single-view-stopgrad-v1-smoke
+question: Does crop-free, single-view stopped-target MIM complete one train-validation-checkpoint cycle without a teacher or multiview invariance path?
+hypothesis: One shared student can consume the same augmented image through full and masked forwards, detach only masked-prediction targets, and retain finite SigREG and patch-residual gradients without crops or an EMA copy.
+rejection_condition: Reject the implementation if it creates teacher state, emits nonfinite metrics, activates multiview invariance, or fails one recoverable train-validation-checkpoint cycle.
+checkpoint_plan: Retain the smoke checkpoint, backbone, curve, W&B run, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: single-view-stopgrad-smoke
+  config: config/pretrain/vit-small-lejepa-single-view-stopgrad-smoke.yaml
+  hypothesis: One epoch is sufficient to exercise the crop-free transform and stopped prediction-target boundary mechanically.
+  mechanism: Apply one non-cropped augmented image to both shared full-view and masked-context forwards, with prediction targets detached only at their loss boundary.
+  changes:
+    - Disable RandomResizedCrop while preserving the non-spatial single-view augmentations.
+    - Use exactly one global input and zero local inputs.
+    - Disable same-image multiview invariance.
+    - Enable stop_gradient_target without an EMA teacher.
+
+variants: []
+
+methodology:
+  linked_program: lejepa-single-view-stopgrad-v1
+  purpose: Mechanical validation only; accuracy and collapse values are not scientific evidence.
+  invariants:
+    - Exactly one transformed image is used per example; no global or local crop dependency remains.
+    - The full-view and masked-context forwards share student parameters.
+    - Visual and auxiliary CLS prediction targets are detached at the prediction-loss boundary.
+    - Full-view SigREG and patch-residual SigREG retain shared-student gradients.
+    - Final full-view CLS features remain detached at the online-classifier boundary.
+    - No teacher module, EMA update, multiview invariance loss, fine-tuning, or official-test evaluation is allowed.
+  stopping:
+    - Complete the configured cycle unless a safety or mechanical failure requires repair.
+    - Never promote, confirm, or select from smoke metrics.
+  retention: Retain every smoke artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-single-view-stopgrad-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

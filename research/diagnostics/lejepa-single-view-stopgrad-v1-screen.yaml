@@ -1,0 +1,58 @@
+id: lejepa-single-view-stopgrad-v1-diagnostics
+question: Does crop-free stop-gradient preserve label-bearing patch information without multiview invariance?
+hypothesis: Stopping the prediction target will raise late-block patch-mean centroid accuracy over the fresh crop-free control while preserving enough centered patch energy to remain within the fixed multiview tolerance.
+mechanism: Compare every normalized transformer block of both fresh single-view encoders using deterministic cosine nearest-centroid probes and spatial diagnostics.
+
+sources:
+  - id: single-view-shared-target-seed0
+    role: control
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-shared-target-seed0
+  - id: single-view-target-stopgrad-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-target-stopgrad-seed0
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+diagnostics:
+  batch_size: 256
+  num_workers: 24
+  layer_normalization: final-backbone-output-norm
+  centroid_probe: layernorm-cosine-nearest-centroid
+  routes: [cls, patch_mean, cls_patch_mean]
+  patch_metrics:
+    - cls_patch_alignment
+    - mean_within_image_pairwise_cosine
+    - centered_patch_energy_ratio
+    - centered_patch_effective_rank_fraction
+  gradient_mode: torch.inference_mode
+
+decision:
+  source: research/studies/lejepa-single-view-stopgrad-v1-screen.yaml
+  block_transition: block-8-to-final
+  selection: Apply the preregistered mechanism-support and crop-free-equivalence gates only after both frozen-probe and diagnostic results are terminal.
+
+resources:
+  physical_gpus: [1]
+  workers: 1
+  timeout_seconds: 7200
+  retention: Retain results, complete W&B curves, and both source checkpoints. No destructive retention is authorized.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-single-view-stopgrad-v1-diagnostics
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

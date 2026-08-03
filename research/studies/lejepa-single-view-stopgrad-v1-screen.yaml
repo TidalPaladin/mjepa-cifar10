@@ -1,0 +1,143 @@
+id: lejepa-single-view-stopgrad-v1-screen
+question: Can a stopped shared target preserve useful global and patch representations in a crop-free, single-view MIM formulation?
+hypothesis: Removing the target-chasing gradient is sufficient to improve a literal one-view MIM objective over its shared-gradient control, while matching the retained multiview stopped-target result within preregistered representation-quality tolerances.
+rejection_condition: Reject crop-free equivalence if the stopped-target candidate collapses, fails the shared-gradient mechanism gate, or falls more than 0.03 in fixed frozen accuracy, final online accuracy, step AUC, or final patch-mean centroid accuracy below the retained multiview stopped-target reference.
+checkpoint_plan: Retain both fresh checkpoints, backbones, curves, fixed-probe caches, diagnostics, W&B runs, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: single-view-shared-target
+  config: config/pretrain/vit-small-lejepa-single-view-shared-40e.yaml
+  hypothesis: The fresh shared-gradient control measures the target-chasing shortcut with the identical crop-free input and objective.
+  mechanism: Reuse one student for full and masked forwards and allow masked-prediction error to update both sides.
+  changes:
+    - Disable RandomResizedCrop and multiview invariance.
+    - Use one full-view and one masked-context forward of the same transformed image.
+
+variants:
+  - id: single-view-target-stopgrad
+    config: config/pretrain/vit-small-lejepa-single-view-stopgrad-40e.yaml
+    hypothesis: A non-negotiable target will improve early semantic structure and late patch-label utility even when the model receives no crop pairs.
+    mechanism: Detach the full-view visual and auxiliary CLS targets only where they enter masked-prediction losses.
+    changes:
+      - Enable stop_gradient_target.
+      - Preserve full-view gradients through SigREG and patch-residual SigREG.
+      - Do not instantiate or update an EMA teacher.
+
+methodology:
+  linked_program: lejepa-single-view-stopgrad-v1
+  fixed_multiview_reference:
+    source_commit: db26c134dadda811396fe9db554a5a6572b1510f
+    study_id: lejepa-target-stopgrad-v1-screen
+    run_id: pretrain-target-stopgrad-seed0
+    online_first_accuracy: 0.30140000581741333
+    online_final_accuracy: 0.4803999960422516
+    online_step_auc: 0.3967976983712696
+    frozen_accuracy: 0.6034
+    final_patch_centroid_accuracy: 0.3918
+    final_centered_patch_energy_ratio: 0.5532151979391176
+    final_patch_mean_pairwise_cosine: 0.4271479988674417
+    evidence: research/LOG.md#lejepa-target-stopgrad-v1-final
+  scientific_run_allocation:
+    new_pretraining_runs: 2
+    seeds: [0]
+    concurrent_pair: true
+    no_automatic_confirmation: true
+  controls:
+    epochs: 40
+    validation_interval_epochs: 5
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    input: One 32x32 image per example after non-spatial stochastic augmentation and deterministic resize; no RandomResizedCrop, global crop pair, or local crop.
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the sole image.
+    masked_task: Preserve visual-token and partitioned independent CLS masked prediction.
+    regularization: Direct SigREG on masked-context and full-view CLS plus patch mean, with patch-residual SigREG on the full view.
+    multiview_invariance: Disabled with zero weight and no additional views.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, 5% linear warmup followed by a constant rate.
+    probe_boundary: Final full-view CLS enters the online classifier through an explicit detach; only the classifier head uses learning rate 0.01 and weight decay 1e-6.
+    target_boundary: The scientific pair differs only in whether masked visual and auxiliary CLS prediction targets are detached.
+    teacher_state: No teacher parameters, EMA update, or teacher optimizer state.
+    terminal_probe: Freeze both encoders and apply the established normalized final-two-CLS six-rate 100-epoch probe bank.
+    layerwise_diagnostic: Apply deterministic normalized nearest-centroid probes for CLS, patch mean, and their concatenation at every block.
+  primary_endpoints:
+    - First-validation, final, peak, and step-AUC online-probe differences between the fresh stopped-target and shared-gradient runs.
+    - Fixed frozen-probe accuracy at the common 40-epoch horizon versus both the fresh control and fixed multiview reference.
+    - Final patch-mean nearest-centroid accuracy and block-8-to-final change versus both references.
+  secondary_endpoints:
+    - Common-horizon active-time AUC, active seconds, and throughput.
+    - CLS and patch effective rank, variance, top-eigenvalue fraction, pairwise cosine, centered patch energy, and CLS-patch alignment.
+  safety_gate:
+    finite_fraction_required: 1.0
+    target_cls_std_mean_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+  mechanism_support_gate:
+    first_validation_accuracy_gain_minimum: 0.01
+    frozen_accuracy_gain_minimum: 0.01
+    final_patch_centroid_accuracy_gain_minimum: 0.03
+    candidate_to_control_centered_patch_energy_ratio_minimum: 0.80
+    candidate_patch_cosine_maximum_increase: 0.05
+    rule: Support stop-gradient only if every safety, early-accuracy, frozen-quality, patch-label-utility, and spatial-retention threshold passes against the fresh shared-gradient control.
+  crop_free_equivalence_gate:
+    online_final_accuracy_loss_maximum: 0.03
+    online_step_auc_loss_maximum: 0.03
+    frozen_accuracy_loss_maximum: 0.03
+    final_patch_centroid_accuracy_loss_maximum: 0.03
+    candidate_to_multiview_centered_patch_energy_ratio_minimum: 0.80
+    candidate_patch_cosine_maximum_increase: 0.05
+    rule: Conclude crops are unnecessary at this horizon only if every threshold passes against the immutable multiview stopped-target reference.
+  preregistered_follow_up:
+    trigger: The stopped-target candidate passes safety and improves the fresh shared-gradient control, but misses crop-free equivalence.
+    maximum_new_pretraining_runs: 2
+    global_bottleneck_variant: Raise lejepa_lambda from 0.05 to 0.10 while holding the single-view stopped-target design fixed if frozen CLS quality is the dominant deficit.
+    patch_bottleneck_variant: Raise patch_residual_sigreg_loss_weight from 0.05 to 0.10 while holding the single-view stopped-target design fixed if patch centroid or centered patch energy is the dominant deficit.
+    selection: Launch only the variant corresponding to each observed preregistered bottleneck; launch both only if both bottlenecks independently fail their equivalence thresholds.
+  stopping:
+    - Run both fresh scientific controls through the full 40-epoch horizon unless a nonfinite value, safety event, mechanical failure, or timeout intervenes.
+    - Complete the fixed frozen probe and layerwise diagnostic before interpreting the mechanism or crop-free equivalence.
+    - Do not launch confirmation, fine-tuning, or official-test evaluation.
+  retention: Retain every fresh and referenced artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-single-view-stopgrad-v1-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 43200
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []
