@@ -50,7 +50,12 @@ from vit import ViT, ViTFeatures
 import wandb
 
 from .classification import forward_classifier
-from .collapse import EmbeddingCollapseMetric, compute_and_reset_collapse_metrics
+from .collapse import (
+    EmbeddingCollapseMetric,
+    PatchTokenDiversityMetric,
+    compute_and_reset_collapse_metrics,
+    compute_and_reset_patch_token_diversity_metrics,
+)
 from .experiment import append_metric_record, save_safetensors_atomic
 from .train_utils import (
     OptimizerStepResult,
@@ -488,10 +493,22 @@ def compute_visual_target_shuffle_diagnostic(
     """Compare masked predictions with their matched and cross-sample targets."""
     target = jepa._masked_target(output.target_mask, output.teacher_output.visual_tokens)
     shuffled_target = torch.roll(target, shifts=1, dims=0)
+    position_shuffled_target = torch.roll(target, shifts=1, dims=1)
+    broadcast_mean_target = target.mean(dim=1, keepdim=True).expand_as(target)
     true_loss = compute_jepa_prediction_loss(output.pred, target, kind=jepa.config.jepa_loss_kind).item()
     shuffled_loss = compute_jepa_prediction_loss(
         output.pred,
         shuffled_target,
+        kind=jepa.config.jepa_loss_kind,
+    ).item()
+    position_shuffled_loss = compute_jepa_prediction_loss(
+        output.pred,
+        position_shuffled_target,
+        kind=jepa.config.jepa_loss_kind,
+    ).item()
+    broadcast_mean_loss = compute_jepa_prediction_loss(
+        output.pred,
+        broadcast_mean_target,
         kind=jepa.config.jepa_loss_kind,
     ).item()
     gap = shuffled_loss - true_loss
@@ -501,6 +518,10 @@ def compute_visual_target_shuffle_diagnostic(
         "pretrain/validation_visual_target_loss_shuffled": shuffled_loss,
         "pretrain/validation_visual_target_shuffle_gap": gap,
         "pretrain/validation_visual_target_relative_improvement": relative_improvement,
+        "pretrain/validation_visual_target_loss_position_shuffled": position_shuffled_loss,
+        "pretrain/validation_visual_target_position_shuffle_gap": position_shuffled_loss - true_loss,
+        "pretrain/validation_visual_target_loss_broadcast_mean": broadcast_mean_loss,
+        "pretrain/validation_visual_target_broadcast_mean_gap": broadcast_mean_loss - true_loss,
     }
 
 
@@ -756,6 +777,7 @@ def train(
         EmbeddingCollapseMetric(embedding_dim).cuda() if unwrapped_jepa.student.config.num_cls_tokens > 0 else None
     )
     val_target_patch_collapse = EmbeddingCollapseMetric(embedding_dim).cuda()
+    val_target_patch_diversity = PatchTokenDiversityMetric(embedding_dim).cuda()
     val_projected_target_collapse = (
         EmbeddingCollapseMetric(unwrapped_jepa.config.sigreg_projector_dims[-1]).cuda()
         if unwrapped_jepa.config.sigreg_projector_dims
@@ -937,6 +959,7 @@ def train(
             if val_target_cls_collapse is not None:
                 val_target_cls_collapse.reset()
             val_target_patch_collapse.reset()
+            val_target_patch_diversity.reset()
             if val_projected_target_collapse is not None:
                 val_projected_target_collapse.reset()
 
@@ -980,6 +1003,7 @@ def train(
                         if val_projected_target_collapse is not None:
                             val_projected_target_collapse.update(unwrapped_jepa.project_sigreg_embeddings(target_cls))
                     val_target_patch_collapse.update(output.visual_tokens.mean(dim=1))
+                    val_target_patch_diversity.update(output.visual_tokens)
 
             # Validation epoch end
             val_acc_value = val_acc.compute()
@@ -1004,6 +1028,12 @@ def train(
                 compute_and_reset_collapse_metrics(
                     val_target_patch_collapse,
                     prefix="pretrain/collapse/target_patch_mean",
+                )
+            )
+            log_dict.update(
+                compute_and_reset_patch_token_diversity_metrics(
+                    val_target_patch_diversity,
+                    prefix="pretrain/diversity/target_patch",
                 )
             )
             if val_projected_target_collapse is not None:

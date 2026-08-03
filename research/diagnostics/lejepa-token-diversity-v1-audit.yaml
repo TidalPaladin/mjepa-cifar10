@@ -1,0 +1,54 @@
+id: lejepa-token-diversity-v1-audit
+question: Does the teacher-free masked LeJEPA encoder lose spatial token diversity while retaining sample-level global variation?
+hypothesis: The teacher-free encoder will show substantially higher within-image CLS-patch and patch-patch alignment, lower centered patch energy, and lower patch-route label utility than the teacher baseline, with the largest divergence appearing in later transformer blocks.
+mechanism: Compare every normalized transformer block using deterministic cosine nearest-centroid probes on CLS, patch mean, and their concatenation, together with within-image patch diversity and across-sample collapse statistics.
+rejection: Reject spatial token homogenization as the primary bottleneck if the teacher-free final centered patch energy and patch-route centroid accuracy are no worse than the teacher baseline, or if its accuracy deficit is already fully present before the later transformer blocks.
+
+sources:
+  - id: teacher-baseline-seed0
+    role: teacher-baseline
+    run_dir: logs/research/vit-small-baseline-v1/runs/pretrain-baseline-seed0
+  - id: shared-long-horizon-seed0
+    role: shared-student-candidate
+    run_dir: logs/research/lejepa-convergence-v2-long-horizon/runs/pretrain-g2l2-l005-w4-397e-seed0
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+diagnostics:
+  batch_size: 256
+  num_workers: 24
+  layer_normalization: final-backbone-output-norm
+  centroid_probe: layernorm-cosine-nearest-centroid
+  routes: [cls, patch_mean, cls_patch_mean]
+  patch_metrics:
+    - cls_patch_alignment
+    - mean_within_image_pairwise_cosine
+    - centered_patch_energy_ratio
+    - centered_patch_effective_rank_fraction
+  gradient_mode: torch.inference_mode
+
+resources:
+  physical_gpus: [1]
+  workers: 1
+  timeout_seconds: 7200
+  retention: Retain results, complete W&B curves, and source checkpoints. No destructive retention is authorized.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-token-diversity-v1-audit
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 8f9eab6beb6a0e1f9547e90ed8ce0d5e7bde42c6
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

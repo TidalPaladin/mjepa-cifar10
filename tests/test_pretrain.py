@@ -721,6 +721,38 @@ def test_visual_target_shuffle_diagnostic_measures_cross_sample_matching() -> No
     assert metrics["pretrain/validation_visual_target_loss"] == pytest.approx(0.0)
     assert metrics["pretrain/validation_visual_target_loss_shuffled"] > 0
     assert metrics["pretrain/validation_visual_target_relative_improvement"] == pytest.approx(1.0)
+    assert metrics["pretrain/validation_visual_target_loss_position_shuffled"] > 0
+    assert metrics["pretrain/validation_visual_target_position_shuffle_gap"] > 0
+    assert metrics["pretrain/validation_visual_target_loss_broadcast_mean"] > 0
+    assert metrics["pretrain/validation_visual_target_broadcast_mean_gap"] > 0
+
+
+def test_visual_target_shuffle_diagnostic_detects_spatially_homogeneous_targets() -> None:
+    model = make_model(num_cls_tokens=1)
+    target_output = make_features(num_cls_tokens=1)
+    repeated_target = target_output.visual_tokens[:, :1].expand_as(target_output.visual_tokens).clone()
+    target_output = ViTFeatures.from_separate_features(
+        target_output.cls_tokens,
+        target_output.register_tokens,
+        repeated_target,
+    )
+    target_mask = torch.ones(BATCH_SIZE, NUM_VISUAL_TOKENS, dtype=torch.bool)
+    predictions = MJEPAPredictions(
+        pred=repeated_target.clone(),
+        pred_with_cls=None,
+        student_output=make_features(num_cls_tokens=1),
+        teacher_output=target_output,
+        context_mask=torch.zeros_like(target_mask),
+        target_mask=target_mask,
+    )
+
+    metrics = compute_visual_target_shuffle_diagnostic(model, predictions)
+
+    assert metrics["pretrain/validation_visual_target_loss"] == pytest.approx(0.0)
+    assert metrics["pretrain/validation_visual_target_loss_position_shuffled"] == pytest.approx(0.0)
+    assert metrics["pretrain/validation_visual_target_position_shuffle_gap"] == pytest.approx(0.0)
+    assert metrics["pretrain/validation_visual_target_loss_broadcast_mean"] == pytest.approx(0.0)
+    assert metrics["pretrain/validation_visual_target_broadcast_mean_gap"] == pytest.approx(0.0)
 
 
 @pytest.mark.parametrize(
