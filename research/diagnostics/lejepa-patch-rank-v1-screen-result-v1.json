@@ -1,0 +1,108 @@
+{
+  "artifacts": {
+    "diagnostic_manifest_sha256": "2fe605a7733dda2856754010778c19c20a07b508c82e07b2ec2160817a1fe3c0",
+    "managed_summary_sha256": "6334602d576fbebbb2d84b5ed01e725f85a91b968b4474865d37adef0e490661",
+    "probe_manifest_sha256": "89747f7a482b6cd4cc77e09b4207334b58e7bf2f9acd8df994f3f4a15974efa6",
+    "probe_summary_sha256": "72836e9344a4564025a529139f2c3c299b6353523d9e29f45a8ebbf9930c7bea",
+    "screen_manifest_sha256": "4e950b3941a093a260df1a84d33abf65a5ae556d87c0530dd1e8b4f91b163bf5"
+  },
+  "compute": {
+    "diagnostic_active_seconds_sum": 64.91894444823265,
+    "pretraining_active_seconds_sum": 17934.732064720243,
+    "pretraining_wall_finished_at": "2026-08-03T13:51:14.392745+00:00",
+    "pretraining_wall_started_at": "2026-08-03T11:19:00.004830+00:00",
+    "probe_active_seconds_sum": 261.3576819226146,
+    "probe_worker_wall_seconds": 141.49528579227626,
+    "total_gpu_active_hours": 5.072502414191969
+  },
+  "data": {
+    "official_test_set_used": false,
+    "split": "fixed-45000-train-5000-validation"
+  },
+  "decision": "no-candidate-passed-preregistered-gates",
+  "interpretation": "Global or position-wise cross-sample SigREG can spread patch means across more directions without making those directions more label-aligned. The rank response is geometric rather than semantic: every intervention reduced final patch-mean centroid accuracy and frozen CLS accuracy relative to the fresh patch-residual control.",
+  "provenance": {
+    "evaluation_parent": "a6dcbe09c726d112902ef7220655d60c796e6798",
+    "mjepa": "52f898bcc9f44d2f59199da359fa74438f2724ed",
+    "training_parent": "e1647c8d53fa965ef3217c5580fa3df11a2d9805",
+    "vit": "bf15705454975f04912538cdc790d399eea69e67"
+  },
+  "runs": {
+    "patch-residual-control-seed0": {
+      "block8_to_final_patch_centroid_gain": -0.006999999284744263,
+      "final_patch_centroid_accuracy": 0.3124000132083893,
+      "frozen_accuracy": 0.4988,
+      "last_three_patch_mean_rank": 0.022689866901712447,
+      "online_final_accuracy": 0.3898000121116638,
+      "online_step_auc": 0.31841419253032655,
+      "safety_gate_passed": true,
+      "terminal_centered_patch_energy": 0.5875350439892207,
+      "terminal_patch_cosine": 0.3899193798245311
+    },
+    "patch-residual-l010-seed0": {
+      "block8_to_final_patch_centroid_gain": -0.009000003337860107,
+      "candidate_to_control_centered_patch_energy_ratio": 0.9627785659019349,
+      "failure_reasons": [
+        "patch-centroid-accuracy",
+        "frozen-accuracy",
+        "online-step-auc"
+      ],
+      "final_patch_centroid_accuracy": 0.27379998564720154,
+      "final_patch_centroid_accuracy_gain": -0.038600027561187744,
+      "frozen_accuracy": 0.4578,
+      "frozen_accuracy_loss": 0.041000000000000036,
+      "last_three_patch_mean_rank_ratio": 1.816434143544328,
+      "online_final_accuracy": 0.34860000014305115,
+      "online_step_auc": 0.3069245433822895,
+      "online_step_auc_loss": 0.011489649148037018,
+      "patch_cosine_increase": 0.024959899843682798,
+      "qualifies": false,
+      "safety_gate_passed": true
+    },
+    "patch-sample010-seed0": {
+      "block8_to_final_patch_centroid_gain": -0.010399997234344482,
+      "candidate_to_control_centered_patch_energy_ratio": 0.8980227584791997,
+      "failure_reasons": [
+        "patch-mean-rank",
+        "patch-centroid-accuracy",
+        "patch-cosine",
+        "frozen-accuracy",
+        "online-step-auc"
+      ],
+      "final_patch_centroid_accuracy": 0.262800008058548,
+      "final_patch_centroid_accuracy_gain": -0.04960000514984131,
+      "frozen_accuracy": 0.454,
+      "frozen_accuracy_loss": 0.044800000000000006,
+      "last_three_patch_mean_rank_ratio": 1.3284611027198452,
+      "online_final_accuracy": 0.35839998722076416,
+      "online_step_auc": 0.3034824831605268,
+      "online_step_auc_loss": 0.014931709369799762,
+      "patch_cosine_increase": 0.06083740505197527,
+      "qualifies": false,
+      "safety_gate_passed": true
+    },
+    "patch-sample050-seed0": {
+      "block8_to_final_patch_centroid_gain": -0.0014000236988067627,
+      "candidate_to_control_centered_patch_energy_ratio": 0.83100159418866,
+      "failure_reasons": [
+        "patch-centroid-accuracy",
+        "patch-cosine",
+        "frozen-accuracy"
+      ],
+      "final_patch_centroid_accuracy": 0.26159998774528503,
+      "final_patch_centroid_accuracy_gain": -0.05080002546310425,
+      "frozen_accuracy": 0.4536,
+      "frozen_accuracy_loss": 0.04520000000000002,
+      "last_three_patch_mean_rank_ratio": 1.5204049024789694,
+      "online_final_accuracy": 0.3547999858856201,
+      "online_step_auc": 0.31741139315029915,
+      "online_step_auc_loss": 0.001002799380027397,
+      "patch_cosine_increase": 0.11587100907332198,
+      "qualifies": false,
+      "safety_gate_passed": true
+    }
+  },
+  "schema_version": 1,
+  "selected_source": null,
+  "study_id": "lejepa-patch-rank-v1-screen"
+}
