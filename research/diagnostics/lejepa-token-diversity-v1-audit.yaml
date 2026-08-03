@@ -31,6 +31,13 @@ diagnostics:
     - centered_patch_effective_rank_fraction
   gradient_mode: torch.inference_mode
 
+decision:
+  material_centroid_accuracy_gap: 0.05
+  minimum_candidate_cpa_excess: 0.20
+  minimum_candidate_patch_pair_cosine_excess: 0.20
+  maximum_candidate_to_teacher_centered_energy_ratio: 0.75
+  selection: Diagnose spatial homogenization only when both alignment excesses and the centered-energy ratio pass their thresholds. Treat centroid gaps as label-utility diagnostics, not promotion evidence.
+
 resources:
   physical_gpus: [1]
   workers: 1
