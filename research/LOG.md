@@ -2150,3 +2150,46 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Checkpoint disposition: see each run below; deleted weights are not recoverable.
 
 - `pretrain-target-stopgrad-seed0`: attempt=1; status=completed; decision=promoted; started=2026-08-03T15:25:09.922256+00:00; finished=2026-08-03T16:39:47.386245+00:00; terminal_event=5ac711aa-e149-4824-9ea7-a8e27e0153bb; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-target-stopgrad-v1-screen/runs/pretrain-target-stopgrad-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/cc599ea7); checkpoint=retained; metrics=peak_accuracy=0.480400, final_accuracy=0.480400, step_to_90=658, step_to_95=658, active_seconds_to_90=1675.322, active_seconds_to_95=1675.322, step_auc=0.396798, active_time_auc=0.396487, active_seconds_at_step_horizon=4446.773, cls_path_latency_median_ms=31.461888, cls_path_latency_p90_ms=32.154625; error=none
+
+<!-- autoresearch-operation:{"operation_id":"lejepa-target-stopgrad-v1-final-v1"} -->
+
+## 2026-08-03 result: shared target stop-gradient without EMA
+
+- Scope: The one-epoch mechanical smoke and the single preregistered 40-epoch candidate completed successfully. The candidate reached all eight scheduled validation checkpoints and 1,755 optimizer steps. The immutable control curve retained its committed SHA-256. The fixed normalized final-two-CLS, six-rate, 100-epoch frozen probe and all-layer deterministic centroid diagnostics evaluated both retained encoders on the fixed 45,000/5,000 split. No confirmation, fine-tuning, new variant, or official-test evaluation was launched.
+
+| Endpoint | Shared-gradient control | Stopped-target candidate | Candidate difference |
+| --- | ---: | ---: | ---: |
+| First online accuracy, step 219 | `0.2586` | `0.3014` | `+0.0428` |
+| Final online accuracy, step 1,755 | `0.3898` | `0.4804` | `+0.0906` |
+| Step AUC | `0.310950` | `0.396798` | `+0.085848` |
+| Active-time AUC | `0.310411` | `0.396487` | `+0.086076` |
+| Step to 95% of own peak | `1,755` | `658` | `-1,097` steps |
+| Fixed frozen accuracy | `0.4988` | `0.6034` | `+0.1046` |
+| Final CLS centroid accuracy | `0.3294` | `0.3846` | `+0.0552` |
+| Final patch-mean centroid accuracy | `0.3124` | `0.3918` | `+0.0794` |
+| Final CLS-plus-patch centroid accuracy | `0.3268` | `0.3886` | `+0.0618` |
+| Patch-mean centroid change, block 8 to 12 | `-0.0070` | `+0.0210` | `+0.0280` |
+
+| Preregistered gate | Observed candidate statistic | Required | Result |
+| --- | ---: | ---: | --- |
+| CLS and patch finite fractions, minimum across checkpoints | `1.0000` | `=1.0000` | pass |
+| Target CLS standard-deviation mean, minimum | `0.532765` | `>=0.10` | pass |
+| Target CLS top-eigenvalue fraction, maximum | `0.191235` | `<=0.50` | pass |
+| Target CLS pairwise cosine, maximum | `0.010299` | `<=0.90` | pass |
+| Target patch-mean standard-deviation mean, minimum | `0.475077` | `>=0.10` | pass |
+| Target patch-mean top-eigenvalue fraction, maximum | `0.235045` | `<=0.50` | pass |
+| Target patch-mean pairwise cosine, maximum | `0.014383` | `<=0.90` | pass |
+| Visual-target relative improvement, minimum | `0.608325` | `>=0.01` | pass |
+| First-validation accuracy gain | `+0.042800` | `>=+0.01` | pass |
+| Fixed frozen-accuracy gain | `+0.104600` | `>=+0.01` | pass |
+| Final patch-centroid accuracy gain | `+0.079400` | `>=+0.03` | pass |
+| Candidate-to-control centered patch-energy ratio | `0.941587x` | `>=0.80x` | pass |
+| Candidate patch-cosine increase | `+0.037229` | `<=+0.05` | pass |
+
+- Frozen-probe response: Both sources selected the preregistered `0.03` learning rate from the fixed bank. The control reached `0.4988`; the stopped-target candidate reached `0.6034`. The candidate's gain over its online probe was `0.1230`, but its `+0.1046` advantage over the identically calibrated control shows that probe convergence alone does not explain the result.
+- Layerwise response: Candidate patch-mean accuracy exceeded control at every block. The gain reached `+0.0584` at block 6, `+0.0792` at block 9, and `+0.0794` at the final block. Final centered patch energy was `0.553215` versus `0.587535` control, while within-image patch cosine was `0.427148` versus `0.389919`. Both spatial-retention limits passed.
+- Interpretation: The single-seed evidence supports the target-chasing hypothesis. Allowing the shared full-view target to follow masked-prediction error was suppressing both global and patch-level label utility. Detaching only the features consumed by JEPA prediction losses improved early convergence, final online accuracy, independently trained frozen accuracy, and late-block patch semantics without an EMA parameter copy or a spatial-collapse violation. This does not establish multi-seed robustness; confirmation is a separate promotion decision and was prohibited in this study.
+- Decision: `mechanism-supported-single-seed`. Every safety and mechanism-support gate passed. Stop without confirmation, fine-tuning, official-test evaluation, or a post-hoc variant, as preregistered.
+- Provenance: Pretraining parent `e193f5bd55cb7bac444833d6bfa90b877887c9ea`; probe parent `8939d4627186b65746803b8d245388ad4a4e4689`; diagnostic parent `bee334a4170420307650c9aca5aece142003d086`; `mjepa=578a2f92441394f232732348b6e9f569237b2744`; `vit=bf15705454975f04912538cdc790d399eea69e67`. Screen manifest SHA-256 `69b5ca372633754d97110464d7c696d898d0488f200487850cdb2f249f83a84e`; immutable control curve `c6608eacb35312fe331698cde4714e73c241996fc0d415c523c6ccfd2f4cff0d`; managed summary `0065494140d1ae9e5a2c839d74b47bb1b679b775039243c8c026f92021361971`; probe manifest `6efa42b9312fff3c0a7f123bfbe0924965d4f88d04c16238c19f7eb89884b5b4`; probe summary `deeeefa2d6d01f6adde8c5f4952699fc8bd3caf2f403b44d5ba8a00cc37cd4bb`; diagnostic manifest `50fc867e8d23ec30e52f7e19197e169306ee17e6fa8e8882822fb0d9314a2234`; diagnostic summary `eeb238a8f6c5adc41de08493a69c1fffc94c1ac6cca76a28cd55f7d24de3f122`.
+- Tracking: Smoke W&B run `09e9c50e`; scientific pretraining `cc599ea7`; probe runs `ksp56w50` and `y07x4y1y`; diagnostic runs `54ubqyw4` and `4clow34z`. New measured GPU-active time was `1.316` hours: `125.432` smoke seconds, `4,446.773` candidate-pretraining seconds, `132.476` summed probe seconds, and `32.984` summed diagnostic seconds.
+- Recovery and retention: The managed controllers delivered the smoke and scientific first-cycle and terminal events. Probe watch `dbe20d22-4341-4210-a675-6625e067929f` and diagnostic watch `e1257863-4ed3-436c-92ca-9400636de06c` observed successful exact-process exits. An earlier diagnostic watch, `045a16a5-dd10-438d-92b4-fd523cdd99fd`, caught an indexless CUDA launch argument before any checkpoint evaluation or W&B initialization; the corrected logical `cuda:0` launch completed. Both checkpoints, backbones, feature caches, complete curves, summaries, W&B records, lifecycle events, and notification evidence remain retained. No destructive retention was applied.

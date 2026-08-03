@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -80,3 +82,27 @@ def test_summary_rejects_homogenization_when_centered_energy_is_preserved() -> N
 
     assert summary["spatial_homogenization_supported"] is False
     assert summary["decision"] == "representation-gap-without-spatial-homogenization"
+
+
+def test_summary_compares_control_and_candidate_layers() -> None:
+    script = load_script_module()
+    control_candidate_manifest = {
+        "id": "control-candidate-diagnostic",
+        "sources": [
+            {"id": "control", "role": "control"},
+            {"id": "candidate", "role": "candidate"},
+        ],
+        "decision": {"selection": "Apply preregistered gates in the parent study."},
+    }
+    results = {
+        "control": result("control", 0.40, 0.30, 0.40, 0.30, 0.80),
+        "candidate": result("candidate", 0.45, 0.40, 0.50, 0.34, 0.72),
+    }
+
+    summary = script._build_summary(control_candidate_manifest, "manifest-hash", results)
+
+    assert summary["control_source"] == "control"
+    assert summary["candidate_source"] == "candidate"
+    assert summary["layers"][-1]["centroid_accuracy_gain"]["patch_mean"] == pytest.approx(0.1)
+    assert summary["layers"][-1]["candidate_to_control_centered_energy_ratio"] == pytest.approx(0.9)
+    assert summary["decision"] == "candidate-higher-final-patch-mean"
