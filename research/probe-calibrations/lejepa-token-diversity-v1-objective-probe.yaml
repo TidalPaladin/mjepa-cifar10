@@ -1,0 +1,81 @@
+id: lejepa-token-diversity-v1-objective-probe
+question: Which teacher-free spatial-objective intervention improves frozen representation quality at the common 40-epoch horizon while passing the preregistered spatial and collapse gates?
+hypothesis: Patch-residual SigREG will retain its large spatial-diversity advantage under fixed probing and improve frozen accuracy by at least 0.02 over the fresh control.
+mechanism: Freeze the four preregistered encoders, extract normalized final-two-layer CLS features, and train the established six-rate 100-epoch probe bank without backbone gradients.
+screen_study: research/studies/lejepa-token-diversity-v1-objective-screen.yaml
+
+sources:
+  - id: g2l2-control-seed0
+    role: control
+    run_dir: logs/research/lejepa-token-diversity-v1-objective-screen/runs/pretrain-g2l2-control-seed0
+    online_probe_accuracy: 0.34459999203681946
+    objective_complexity_rank: 0
+  - id: g2l2-cls-only-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-token-diversity-v1-objective-screen/runs/pretrain-g2l2-cls-only-seed0
+    online_probe_accuracy: 0.4171999990940094
+    objective_complexity_rank: 0
+  - id: g2l2-patch-residual-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-token-diversity-v1-objective-screen/runs/pretrain-g2l2-patch-residual-seed0
+    online_probe_accuracy: 0.3898000121116638
+    objective_complexity_rank: 1
+  - id: g2l2-mim025-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-token-diversity-v1-objective-screen/runs/pretrain-g2l2-mim025-seed0
+    online_probe_accuracy: 0.3612000048160553
+    objective_complexity_rank: 0
+
+recipes:
+  - id: last-two-cls-layernorm
+    mode: last_two_cls
+    normalize: true
+    purpose: Reuse the fixed recipe without retuning it on this screen.
+
+probe:
+  seed: 0
+  epochs: 100
+  feature_batch_size: 512
+  probe_batch_size: 4096
+  num_workers: 24
+  learning_rates: [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.000001
+  warmup_fraction: 0.10
+  start_factor: 0.10
+  schedule: linear-warmup-cosine
+  final_factor: 0.001
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+resources:
+  physical_gpus: [1, 2]
+  workers: 2
+  timeout_seconds: 7200
+  retention: Retain feature caches, complete curves, results, summaries, and all source checkpoints.
+
+decision:
+  source: research/studies/lejepa-token-diversity-v1-objective-screen.yaml
+  selection: Apply the committed last-three collapse, terminal spatial, frozen-accuracy, and online-step-AUC gates exactly; rank qualifying candidates by frozen accuracy, step AUC, active-time AUC, then lower objective complexity; select at most one.
+  next_step: Create a separate preregistered long-horizon specification only if one candidate passes every gate. Otherwise close this branch without a longer run.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-token-diversity-v1-objective-probe
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: ef0ba60ab55eded71e665fb8cf2b1de0b493cce4
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

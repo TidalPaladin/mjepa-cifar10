@@ -1980,3 +1980,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Integration gate: Both validation cycles and the terminal checkpoint completed; target CLS, patch-mean, and within-image patch finite fractions were all `1.0`. The official test set was not used. Smoke accuracies are excluded from scientific evidence.
 - Lifecycle: First-cycle event `9ca1f305-ed29-5a09-8318-e3dac02e4d7d` and terminal event `b40d1216-16cf-45e1-85b9-6771ab36fbd9` were each accepted on their first delivery attempt. W&B run: https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/dca31c76.
 - Decision: The mechanical gate passes. Launch the preregistered four-run `lejepa-token-diversity-v1-objective-screen` without changing candidates, hyperparameters, endpoints, or selection thresholds.
+<!-- autoresearch-operation:{"content_sha256":"ea81d6ee632f483c4a58243b36c92e292c772fa4a35ca03961df191641acddf6","operation_id":"lejepa-token-diversity-v1-objective-probe-protocol-v1"} -->
+
+
+## 2026-08-03 protocol execution: LeJEPA spatial-objective fixed probes
+
+- Probe study: `lejepa-token-diversity-v1-objective-probe`; parent screen: `lejepa-token-diversity-v1-objective-screen`. This manifest operationalizes the already-preregistered terminal probe and adds no source, candidate, hyperparameter, or scientific threshold.
+- Sources: The fresh control, CLS-only, patch-residual SigREG, and reduced-MIM encoders at their common 40-epoch terminal checkpoints. Freeze every backbone in evaluation mode and extract deterministic normalized final-two-layer CLS features on the fixed 45,000/5,000 split.
+- Calibration: Train the established seed-0 AdamW bank for 100 epochs at learning rates `[0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]`; weight decay `1e-6`, 10% warmup, and cosine decay. The official test set remains prohibited.
+- Structured decision: Step and active-time AUC are the normalized trapezoidal mean accuracy between the first and last of the eight scheduled validation records. Apply every committed last-three collapse gate, both terminal spatial gates, and the frozen-accuracy-or-equivalent-AUC rule. Rank only qualifying candidates and select at most one.
+- Boundary: If no candidate passes every gate, close this branch without a longer run. Frozen-probe output cannot retroactively change the thresholds or admit a post-hoc candidate.
