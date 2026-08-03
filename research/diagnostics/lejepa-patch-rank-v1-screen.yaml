@@ -1,0 +1,64 @@
+id: lejepa-patch-rank-v1-diagnostics
+question: Which patch-rank intervention improves late-block patch label utility while preserving the fresh patch-residual control's spatial diversity?
+hypothesis: Cross-sample patch SigREG will increase final patch-mean centroid accuracy and the block-8-to-12 patch-accuracy gain in proportion to its patch-rank response.
+mechanism: Compare every normalized transformer block of all four preregistered encoders using deterministic cosine nearest-centroid probes and spatial/across-sample diagnostics.
+
+sources:
+  - id: patch-residual-control-seed0
+    role: control
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-residual-control-seed0
+  - id: patch-residual-l010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-residual-l010-seed0
+  - id: patch-sample010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-sample010-seed0
+  - id: patch-sample050-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-sample050-seed0
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+diagnostics:
+  batch_size: 256
+  num_workers: 24
+  layer_normalization: final-backbone-output-norm
+  centroid_probe: layernorm-cosine-nearest-centroid
+  routes: [cls, patch_mean, cls_patch_mean]
+  patch_metrics:
+    - cls_patch_alignment
+    - mean_within_image_pairwise_cosine
+    - centered_patch_energy_ratio
+    - centered_patch_effective_rank_fraction
+  gradient_mode: torch.inference_mode
+
+decision:
+  source: research/studies/lejepa-patch-rank-v1-screen.yaml
+  block_transition: block-8-to-final
+  selection: Defer selection until these results are combined with the fixed probe bank and every committed terminal gate.
+
+resources:
+  physical_gpus: [1]
+  workers: 1
+  timeout_seconds: 7200
+  retention: Retain results, complete W&B curves, and every source checkpoint. No destructive retention is authorized.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-patch-rank-v1-diagnostics
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 52f898bcc9f44d2f59199da359fa74438f2724ed
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

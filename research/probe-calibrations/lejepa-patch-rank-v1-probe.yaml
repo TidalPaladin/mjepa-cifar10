@@ -1,0 +1,86 @@
+id: lejepa-patch-rank-v1-probe
+question: Which patch-rank intervention preserves frozen representation quality while improving patch-level rank and label utility at the common 40-epoch horizon?
+hypothesis: Cross-sample patch SigREG will improve patch rank and patch-mean label utility without reducing fixed frozen accuracy by more than 0.005 relative to the fresh patch-residual control.
+mechanism: Freeze the four preregistered encoders, extract normalized final-two-layer CLS features, and train the established six-rate 100-epoch probe bank without backbone gradients.
+screen_study: research/studies/lejepa-patch-rank-v1-screen.yaml
+diagnostic_manifest: research/diagnostics/lejepa-patch-rank-v1-screen.yaml
+
+sources:
+  - id: patch-residual-control-seed0
+    role: control
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-residual-control-seed0
+    online_probe_accuracy: 0.3898000121116638
+    objective_complexity_rank: 0
+    objective_cost_rank: 0
+  - id: patch-residual-l010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-residual-l010-seed0
+    online_probe_accuracy: 0.34860000014305115
+    objective_complexity_rank: 0
+    objective_cost_rank: 0
+  - id: patch-sample010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-sample010-seed0
+    online_probe_accuracy: 0.35839998722076416
+    objective_complexity_rank: 1
+    objective_cost_rank: 1
+  - id: patch-sample050-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-patch-rank-v1-screen/runs/pretrain-patch-sample050-seed0
+    online_probe_accuracy: 0.3547999858856201
+    objective_complexity_rank: 1
+    objective_cost_rank: 1
+
+recipes:
+  - id: last-two-cls-layernorm
+    mode: last_two_cls
+    normalize: true
+    purpose: Reuse the fixed recipe without retuning it on this screen.
+
+probe:
+  seed: 0
+  epochs: 100
+  feature_batch_size: 512
+  probe_batch_size: 4096
+  num_workers: 24
+  learning_rates: [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.000001
+  warmup_fraction: 0.10
+  start_factor: 0.10
+  schedule: linear-warmup-cosine
+  final_factor: 0.001
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+resources:
+  physical_gpus: [1, 2]
+  workers: 2
+  timeout_seconds: 7200
+  retention: Retain feature caches, complete curves, results, summaries, and every source checkpoint.
+
+decision:
+  source: research/studies/lejepa-patch-rank-v1-screen.yaml
+  selection: Apply every committed safety, patch-rank, patch-centroid, spatial-retention, frozen-accuracy, and step-AUC gate; rank qualifying candidates by the committed order and select at most one.
+  next_step: Create a separate preregistered long-horizon specification only if one candidate passes every gate. Otherwise close the study without a longer run.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-patch-rank-v1-probe
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 52f898bcc9f44d2f59199da359fa74438f2724ed
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research
