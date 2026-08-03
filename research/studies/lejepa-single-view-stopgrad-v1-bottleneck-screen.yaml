@@ -1,0 +1,176 @@
+id: lejepa-single-view-stopgrad-v1-bottleneck-screen
+question: Can stronger global or patch-residual SigREG close the measured representation gap of crop-free single-view stopped-target MIM?
+hypothesis: The retained crop-free stopped-target run is limited by regularization strength rather than view diversity, so one of two isolated weight increases will materially improve its corresponding frozen-global or patch-level endpoint without sacrificing the other representation path.
+rejection_condition: Reject the bottleneck hypothesis if neither isolated candidate passes its pathway-specific response gate, or if both remain outside any preregistered crop-free equivalence threshold versus the immutable multiview reference.
+checkpoint_plan: Retain both candidate checkpoints, backbones, curves, probe caches, diagnostics, W&B runs, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: single-view-target-stopgrad-control
+  config: config/pretrain/vit-small-lejepa-single-view-stopgrad-40e.yaml
+  hypothesis: The completed seed-0 crop-free stopped-target run defines the exact one-view reference without spending a third pretraining trial.
+  mechanism: Reuse the immutable validation curve and retained checkpoint from the completed crop-free screen.
+  changes: []
+
+baseline_reference:
+  study_id: lejepa-single-view-stopgrad-v1-screen
+  run_id: pretrain-single-view-target-stopgrad-seed0
+  metrics: research/baselines/lejepa-single-view-stopgrad-v1-control-seed0.metrics.jsonl
+  metrics_sha256: 68def35771f8f583b4a2964a55633c042a0c268cd3ebc71a711167da4bc99254
+
+variants:
+  - id: single-view-stopgrad-lambda010
+    config: config/pretrain/vit-small-lejepa-single-view-stopgrad-lambda010-40e.yaml
+    hypothesis: The dominant frozen-CLS deficit reflects insufficient direct SigREG pressure on the single full/masked image pair.
+    mechanism: Double the direct LeJEPA regularization coefficient while preserving the crop-free stopped-target MIM formulation.
+    changes:
+      - Raise lejepa_lambda from 0.05 to 0.10.
+      - Hold every other trainer, backbone, objective, view, mask, and optimizer field fixed.
+  - id: single-view-stopgrad-patch-residual010
+    config: config/pretrain/vit-small-lejepa-single-view-stopgrad-patch-residual010-40e.yaml
+    hypothesis: The patch-centroid and patch-cosine deficits reflect insufficient pressure to preserve information after subtracting each image global mean.
+    mechanism: Double patch-residual SigREG while preserving the crop-free stopped-target MIM formulation.
+    changes:
+      - Raise patch_residual_sigreg_loss_weight from 0.05 to 0.10.
+      - Hold every other trainer, backbone, objective, view, mask, and optimizer field fixed.
+
+methodology:
+  linked_program: lejepa-single-view-stopgrad-v1
+  trigger:
+    source_study: lejepa-single-view-stopgrad-v1-screen
+    source_run: pretrain-single-view-target-stopgrad-seed0
+    safety_passed: true
+    fresh_control_improvement:
+      online_final_accuracy_gain: 0.015599995851516724
+      frozen_accuracy_gain: 0.019000000000000017
+      final_patch_centroid_accuracy_gain: 0.02279999852180481
+    missed_crop_free_equivalence:
+      online_final_accuracy_loss: 0.14739999175071716
+      online_step_auc_loss: 0.13226902166838434
+      frozen_accuracy_loss: 0.17559999999999998
+      final_patch_centroid_accuracy_loss: 0.06199999027252201
+      patch_cosine_increase: 0.08145977587219463
+    evidence: research/LOG.md#2026-08-03-result-crop-free-single-view-stop-gradient-gate
+  fixed_references:
+    crop_free_control:
+      online_first_accuracy: 0.18459999561309814
+      online_final_accuracy: 0.3330000042915344
+      online_step_auc: 0.26452867670288527
+      frozen_accuracy: 0.4278
+      final_patch_centroid_accuracy: 0.329800009727478
+      final_centered_patch_energy_ratio: 0.4840557547612602
+      final_patch_mean_pairwise_cosine: 0.5086077747396363
+    multiview_stopgrad:
+      source_commit: db26c134dadda811396fe9db554a5a6572b1510f
+      study_id: lejepa-target-stopgrad-v1-screen
+      run_id: pretrain-target-stopgrad-seed0
+      online_final_accuracy: 0.4803999960422516
+      online_step_auc: 0.3967976983712696
+      frozen_accuracy: 0.6034
+      final_patch_centroid_accuracy: 0.3918
+      final_centered_patch_energy_ratio: 0.5532151979391176
+      final_patch_mean_pairwise_cosine: 0.4271479988674417
+  scientific_run_allocation:
+    new_pretraining_runs: 2
+    seeds: [0]
+    concurrent_pair: true
+    no_automatic_confirmation: true
+    remaining_after_pair: 0
+  controls:
+    epochs: 40
+    validation_interval_epochs: 5
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    input: One 32x32 image per example after non-spatial stochastic augmentation and deterministic resize; no RandomResizedCrop, global crop pair, or local crop.
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the sole image.
+    masked_task: Preserve visual-token and partitioned independent CLS masked prediction with stopped shared targets.
+    regularization: Direct SigREG on masked-context and full-view CLS plus patch mean, with patch-residual SigREG on the full view.
+    multiview_invariance: Disabled with zero weight and no additional views.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, 5% linear warmup followed by a constant rate.
+    probe_boundary: Final full-view CLS enters the online classifier through an explicit detach; only the classifier head uses learning rate 0.01 and weight decay 1e-6.
+    teacher_state: No teacher parameters, EMA update, or teacher optimizer state.
+    terminal_probe: Freeze all three encoders and apply the established normalized final-two-CLS six-rate 100-epoch probe bank.
+    layerwise_diagnostic: Apply deterministic normalized nearest-centroid probes for CLS, patch mean, and their concatenation at every block.
+  safety_gate:
+    finite_fraction_required: 1.0
+    target_cls_std_mean_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+  global_bottleneck_response_gate:
+    frozen_accuracy_gain_over_crop_free_control_minimum: 0.01
+    online_final_accuracy_loss_maximum: 0.005
+    online_step_auc_loss_maximum: 0.005
+    final_patch_centroid_accuracy_loss_maximum: 0.01
+    candidate_to_control_centered_patch_energy_ratio_minimum: 0.80
+    candidate_patch_cosine_maximum_increase: 0.05
+    rule: The lambda candidate must pass safety, improve frozen accuracy materially, and preserve online and patch endpoints.
+  patch_bottleneck_response_gate:
+    final_patch_centroid_accuracy_gain_over_crop_free_control_minimum: 0.01
+    frozen_accuracy_loss_maximum: 0.005
+    online_final_accuracy_loss_maximum: 0.005
+    online_step_auc_loss_maximum: 0.005
+    candidate_to_control_centered_patch_energy_ratio_minimum: 0.80
+    candidate_patch_cosine_maximum_increase: 0.05
+    rule: The patch-residual candidate must pass safety, improve patch-label utility materially, and preserve frozen and online endpoints.
+  crop_free_equivalence_gate:
+    online_final_accuracy_loss_maximum: 0.03
+    online_step_auc_loss_maximum: 0.03
+    frozen_accuracy_loss_maximum: 0.03
+    final_patch_centroid_accuracy_loss_maximum: 0.03
+    candidate_to_multiview_centered_patch_energy_ratio_minimum: 0.80
+    candidate_patch_cosine_maximum_increase: 0.05
+    rule: Conclude crops are unnecessary only if one candidate passes every threshold against the immutable multiview reference.
+  selection:
+    - Prefer any candidate that passes crop-free equivalence.
+    - Otherwise report each pathway-specific response independently; do not combine weights or launch another pretraining run.
+    - If both pathway gates pass, select the candidate with the higher frozen accuracy, then final patch-centroid accuracy, then online step AUC.
+  stopping:
+    - Run both candidates through the full 40-epoch horizon unless a nonfinite value, safety event, mechanical failure, or timeout intervenes.
+    - Complete the fixed frozen probe and layerwise diagnostic before interpreting either pathway gate.
+    - Do not launch confirmation, a combined-weight candidate, fine-tuning, or official-test evaluation.
+  retention: Retain every fresh and referenced artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-single-view-stopgrad-v1-bottleneck-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 43200
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+  confirmation_enabled: false
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

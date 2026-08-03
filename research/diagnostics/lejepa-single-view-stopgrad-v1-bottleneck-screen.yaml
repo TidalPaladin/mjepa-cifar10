@@ -1,0 +1,61 @@
+id: lejepa-single-view-stopgrad-v1-bottleneck-diagnostics
+question: Does either isolated SigREG-weight increase restore label-bearing patch information in crop-free stopped-target MIM?
+hypothesis: Stronger patch-residual SigREG will improve late-block patch-mean centroid accuracy, while stronger direct SigREG will primarily affect CLS quality.
+mechanism: Compare every normalized transformer block of the retained control and both candidates using deterministic cosine nearest-centroid probes and spatial diagnostics.
+
+sources:
+  - id: single-view-target-stopgrad-control-seed0
+    role: control
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-target-stopgrad-seed0
+  - id: single-view-stopgrad-lambda010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-lambda010-seed0
+  - id: single-view-stopgrad-patch-residual010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-patch-residual010-seed0
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+diagnostics:
+  batch_size: 256
+  num_workers: 24
+  layer_normalization: final-backbone-output-norm
+  centroid_probe: layernorm-cosine-nearest-centroid
+  routes: [cls, patch_mean, cls_patch_mean]
+  patch_metrics:
+    - cls_patch_alignment
+    - mean_within_image_pairwise_cosine
+    - centered_patch_energy_ratio
+    - centered_patch_effective_rank_fraction
+  gradient_mode: torch.inference_mode
+
+decision:
+  source: research/studies/lejepa-single-view-stopgrad-v1-bottleneck-screen.yaml
+  block_transition: block-8-to-final
+  selection: Apply the preregistered pathway-response and crop-free-equivalence gates only after every frozen-probe and diagnostic result is terminal.
+
+resources:
+  physical_gpus: [1, 2]
+  workers: 2
+  timeout_seconds: 7200
+  retention: Retain results, complete W&B curves, and every source checkpoint. No destructive retention is authorized.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-single-view-stopgrad-v1-bottleneck-diagnostics
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

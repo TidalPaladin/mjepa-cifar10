@@ -1,0 +1,81 @@
+id: lejepa-single-view-stopgrad-v1-bottleneck-probe
+question: Does either isolated SigREG-weight increase close the frozen representation gap of crop-free stopped-target MIM?
+hypothesis: Stronger direct SigREG will improve frozen global quality, while stronger patch-residual SigREG will preserve that quality and improve patch information.
+mechanism: Freeze the retained control and both candidate encoders, extract normalized final-two-layer CLS features, and train the established six-rate 100-epoch probe bank without backbone gradients.
+screen_study: research/studies/lejepa-single-view-stopgrad-v1-bottleneck-screen.yaml
+diagnostic_manifest: research/diagnostics/lejepa-single-view-stopgrad-v1-bottleneck-screen.yaml
+
+sources:
+  - id: single-view-target-stopgrad-control-seed0
+    role: control
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-screen/runs/pretrain-single-view-target-stopgrad-seed0
+    online_probe_accuracy: 0.3330000042915344
+    objective_complexity_rank: 0
+    objective_cost_rank: 0
+  - id: single-view-stopgrad-lambda010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-lambda010-seed0
+    online_probe_accuracy: REQUIRED_TERMINAL_VALUE
+    objective_complexity_rank: 0
+    objective_cost_rank: 0
+  - id: single-view-stopgrad-patch-residual010-seed0
+    role: candidate
+    run_dir: logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-patch-residual010-seed0
+    online_probe_accuracy: REQUIRED_TERMINAL_VALUE
+    objective_complexity_rank: 0
+    objective_cost_rank: 0
+
+recipes:
+  - id: last-two-cls-layernorm
+    mode: last_two_cls
+    normalize: true
+    purpose: Reuse the fixed recipe without retuning it on this comparison.
+
+probe:
+  seed: 0
+  epochs: 100
+  feature_batch_size: 512
+  probe_batch_size: 4096
+  num_workers: 24
+  learning_rates: [0.0001, 0.0003, 0.001, 0.003, 0.01, 0.03]
+  optimizer: adamw
+  betas: [0.9, 0.999]
+  weight_decay: 0.000001
+  warmup_fraction: 0.10
+  start_factor: 0.10
+  schedule: linear-warmup-cosine
+  final_factor: 0.001
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+resources:
+  physical_gpus: [1, 2]
+  workers: 2
+  timeout_seconds: 7200
+  retention: Retain feature caches, complete curves, results, summaries, and every source checkpoint.
+
+decision:
+  source: research/studies/lejepa-single-view-stopgrad-v1-bottleneck-screen.yaml
+  preregistered_resolution: Replace REQUIRED_TERMINAL_VALUE only with each candidate's exact terminal online probe accuracy before launch; do not alter the recipe or learning-rate bank.
+  selection: Apply the committed safety, pathway-response, and crop-free-equivalence gates only after the diagnostic is terminal.
+  next_step: Stop after the bounded pair; do not combine weights, confirm, fine-tune, or use the official test set.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-single-view-stopgrad-v1-bottleneck-probe
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research

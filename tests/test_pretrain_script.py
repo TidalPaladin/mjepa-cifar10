@@ -301,6 +301,16 @@ LEJEPA_SINGLE_VIEW_STOPGRAD_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-40e.yaml": (True, 40),
     REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-smoke.yaml": (True, 1),
 }
+LEJEPA_SINGLE_VIEW_BOTTLENECK_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-lambda010-40e.yaml": (
+        "lejepa_lambda",
+        0.10,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-patch-residual010-40e.yaml": (
+        "patch_residual_sigreg_loss_weight",
+        0.10,
+    ),
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -757,6 +767,35 @@ def test_lejepa_single_view_scientific_configs_change_only_target_gradient_bound
             assert getattr(shared_jepa, field.name) == getattr(stopped_jepa, field.name)
     for section in ("trainer", "backbone", "multi_crop", "optimizer"):
         assert shared_config[section] == stopped_config[section]
+
+
+@pytest.mark.parametrize(
+    ("config_path", "changed_field", "expected_value"),
+    tuple(
+        (config_path, expected[0], expected[1])
+        for config_path, expected in LEJEPA_SINGLE_VIEW_BOTTLENECK_CONFIGS.items()
+    ),
+)
+def test_lejepa_single_view_bottleneck_configs_change_exactly_one_objective_weight(
+    config_path: Path,
+    changed_field: str,
+    expected_value: float,
+) -> None:
+    control = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-single-view-stopgrad-40e.yaml").read_text()
+    )
+    candidate = yaml.full_load(config_path.read_text())
+    control_jepa = control["jepa"]
+    candidate_jepa = candidate["jepa"]
+
+    assert isinstance(control_jepa, JEPAConfig)
+    assert isinstance(candidate_jepa, JEPAConfig)
+    assert getattr(candidate_jepa, changed_field) == expected_value
+    for field in fields(JEPAConfig):
+        if field.name != changed_field:
+            assert getattr(candidate_jepa, field.name) == getattr(control_jepa, field.name)
+    for section in ("trainer", "backbone", "multi_crop", "optimizer"):
+        assert candidate[section] == control[section]
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:
