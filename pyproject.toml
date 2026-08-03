@@ -33,7 +33,7 @@ dynamic = [
 
 [tool.uv.sources]
 vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "bf15705454975f04912538cdc790d399eea69e67" }
-mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "ef0ba60ab55eded71e665fb8cf2b1de0b493cce4" }
+mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "52f898bcc9f44d2f59199da359fa74438f2724ed" }
 notify-wake-runtime = { git = "https://github.com/TidalPaladin/skills.git", rev = "61a4a819c58243d54e3c99c684ec23ad88e6dfef", subdirectory = "notify-wake" }
 
 # For local sibling-repo testing, comment the git sources above and uncomment these:

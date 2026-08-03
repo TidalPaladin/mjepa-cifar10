@@ -1,0 +1,132 @@
+id: lejepa-patch-rank-v1-screen
+question: Can direct cross-sample patch regularization improve label-bearing patch information while preserving the spatial diversity and representation quality of patch-residual LeJEPA?
+hypothesis: Applying SigREG across image examples independently at each patch position will raise patch-mean effective rank and late-block patch label utility without undoing the spatial recovery from patch-residual SigREG; stronger existing global SigREG will test whether added global pressure alone explains any gain.
+
+baseline:
+  id: patch-residual-control
+  config: config/pretrain/vit-small-lejepa-token-patch-residual-40e.yaml
+  hypothesis: A fresh 40-epoch run reproduces the prior spatially diverse control after the sibling-library change.
+  mechanism: Preserve lambda 0.05, invariance weight 4, and patch-residual SigREG weight 0.05 with no cross-sample patch term.
+  changes:
+    - No scientific mechanism change; rerun the retained configuration under the new code provenance.
+
+variants:
+  - id: patch-residual-l010
+    config: config/pretrain/vit-small-lejepa-patch-rank-l010-40e.yaml
+    hypothesis: The low patch-mean rank reflects insufficient existing global SigREG pressure rather than its feature distribution.
+    mechanism: Double only the convex CLS-plus-patch-mean SigREG weight while preserving patch-residual regularization.
+    changes:
+      - Raise lejepa_lambda from 0.05 to 0.10.
+  - id: patch-sample010
+    config: config/pretrain/vit-small-lejepa-patch-rank-sample010-40e.yaml
+    hypothesis: A small additive cross-sample constraint can improve patch rank and label utility without competing materially with masked prediction.
+    mechanism: Apply SigREG across image examples separately at every full-view patch position.
+    changes:
+      - Add patch-sample SigREG at weight 0.01 with 32 deterministic slices.
+  - id: patch-sample050
+    config: config/pretrain/vit-small-lejepa-patch-rank-sample050-40e.yaml
+    hypothesis: Matching the within-image and cross-sample patch weights will produce a larger rank response, revealing whether the mechanism is dose-limited.
+    mechanism: Apply the same cross-sample patch distribution as patch-sample010 at five times the additive weight.
+    changes:
+      - Add patch-sample SigREG at weight 0.05 with 32 deterministic slices.
+
+methodology:
+  linked_program: lejepa-patch-rank-v1
+  trigger:
+    audit_study: lejepa-patch-rank-v1-audit
+    decision: representation-gap-without-spatial-homogenization
+    evidence:
+      - Patch-residual centered energy was 0.58754 versus 0.53324 for the teacher, and patch cosine was 0.38992 versus 0.45782.
+      - Patch-residual patch-mean effective rank was 0.02376 versus 0.45390 for the teacher.
+      - Patch-residual patch-mean centroid accuracy was 0.3124 versus 0.8512 for the teacher.
+  scientific_run_allocation:
+    seed_zero_runs: 4
+    maximum_pretraining_runs: 4
+    maximum_candidates: 3
+    maximum_long_horizon_promotions: 1
+    mechanical_smoke_excluded: true
+  controls:
+    epochs: 40
+    validation_interval_epochs: 5
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the first global view.
+    views: Two global and two local crops; the first global view remains the masked-prediction anchor.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, 5% linear warmup followed by a constant rate.
+    probe_boundary: Final CLS enters the online classifier through an explicit detach; only the classifier head uses learning rate 0.01 and weight decay 1e-6.
+    gradient_boundary: Shared-student targets, additional views, patch-residual SigREG, and patch-sample SigREG retain self-supervised gradients.
+    terminal_probe: Freeze every encoder and apply the established normalized final-two-CLS six-rate 100-epoch probe bank before selection.
+    layerwise_diagnostic: Run deterministic normalized nearest-centroid probes for CLS, patch mean, and their concatenation at every block before selection.
+  primary_endpoints:
+    - Final and last-three patch-mean effective-rank fraction relative to the fresh control.
+    - Final patch-mean nearest-centroid accuracy and the block-8-to-12 patch-accuracy change relative to the fresh control.
+    - Fixed frozen-probe accuracy after the common 40-epoch horizon.
+  secondary_endpoints:
+    - Online probe intercept, step slope, step AUC, active-time AUC, and final accuracy.
+    - Within-image patch cosine, centered patch energy/rank, CLS-patch alignment, CLS rank, and objective cost.
+  safety_gate:
+    finite_fraction_required: 1.0
+    target_cls_std_mean_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+  terminal_selection_gate:
+    last_three_patch_mean_rank_ratio_minimum: 1.50
+    final_patch_centroid_accuracy_gain_minimum: 0.03
+    candidate_to_control_centered_patch_energy_ratio_minimum: 0.80
+    candidate_patch_cosine_maximum_increase: 0.05
+    frozen_accuracy_loss_maximum: 0.005
+    online_step_auc_loss_maximum: 0.01
+    rule: A candidate must pass every safety and spatial-retention threshold, improve both patch-rank and patch-label-utility thresholds, and remain within the frozen-accuracy and step-AUC loss limits of the fresh control.
+    ranking: Frozen accuracy, final patch-mean centroid accuracy, last-three patch-mean rank ratio, step AUC, active-time AUC, then lower objective complexity and cost.
+  stopping:
+    - Complete the fresh control and all three preregistered candidates unless a safety or mechanical failure requires repair.
+    - Diagnose and frozen-probe all four encoders before selection; managed online promotion is not the scientific decision.
+    - Select at most one qualifying candidate. If none qualifies, stop without a longer run.
+    - Any qualifying candidate requires a new preregistered long-horizon specification.
+    - Do not add post-hoc lambda, patch-sample weight, slice-count, crop, or residual variants after observing this screen.
+  retention: Retain every checkpoint, backbone, curve, diagnostic, fixed-probe cache, W&B run, and notification artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-patch-rank-v1-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 52f898bcc9f44d2f59199da359fa74438f2724ed
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 43200
+  max_pretraining_trials: 4
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

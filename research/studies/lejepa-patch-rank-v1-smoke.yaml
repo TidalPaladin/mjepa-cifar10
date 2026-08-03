@@ -1,0 +1,67 @@
+id: lejepa-patch-rank-v1-smoke
+question: Does cross-sample patch SigREG complete one teacher-free masked multiview training cycle with connected shared-student gradients?
+hypothesis: The new patch-sample loss will train, validate, and checkpoint while treating the image batch as the SigREG token axis at each full-view patch position.
+
+baseline:
+  id: patch-sample050-smoke
+  config: config/pretrain/vit-small-lejepa-patch-rank-sample050-smoke.yaml
+  hypothesis: One epoch is sufficient to validate the new opt-in computation and reduction path before scientific screening.
+  mechanism: Combine the established within-image patch-residual term with cross-sample patch SigREG at weight 0.05.
+  changes:
+    - Add patch-sample SigREG with 32 deterministic slices and weight 0.05.
+    - Shorten training from 40 epochs to one mechanical epoch.
+
+variants: []
+
+methodology:
+  linked_program: lejepa-patch-rank-v1
+  purpose: Mechanical validation only; accuracy and collapse values are not scientific evidence.
+  invariants:
+    - The target encoder mode remains shared and no teacher is instantiated.
+    - Masked-target, additional-view, patch-residual, and patch-sample objectives retain student gradients.
+    - The online classifier receives detached CLS features and cannot update the encoder.
+    - The official test set is prohibited.
+  stopping:
+    - Complete the configured cycle unless a safety or mechanical failure requires repair.
+    - Never promote, confirm, or select from smoke metrics.
+  retention: Retain the smoke checkpoint, metrics, W&B record, and lifecycle artifacts.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-patch-rank-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 52f898bcc9f44d2f59199da359fa74438f2724ed
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

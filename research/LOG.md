@@ -2054,3 +2054,14 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Interpretation: Within-image patch variation is insufficient. The next screen will preserve patch-residual SigREG and add regularization whose sample axis is the image batch at each patch position, testing whether cross-sample patch diversity improves label utility without sacrificing spatial energy or frozen accuracy.
 - Provenance: Parent `150385d`; audit manifest SHA-256 `9e8307f3cecb7c6ed552cf0f2b16fcf7b973554b972c24c5f0176efa6458ee4e`; structured summary SHA-256 `7c170f8a2cbb95c3609f6e6e7ee4a0f01e6a72ed00c40520fc809ba1d2b1b60e`.
 - Tracking and retention: W&B runs `ysh3zfl5` and `p5usfhpu` completed in `17.85` and `16.49` active seconds. Results, tracker records, and both source checkpoints remain retained.
+
+<!-- autoresearch-operation:{"operation_id":"lejepa-patch-rank-v1-screen-protocol-v1"} -->
+
+## 2026-08-03 protocol: cross-sample patch-rank screen
+
+- Question: Can direct cross-sample patch regularization improve label-bearing patch information while preserving the spatial diversity and representation quality of patch-residual LeJEPA?
+- Hypothesis: SigREG across image examples at each full-view patch position will raise patch-mean effective rank and late-block patch label utility without undoing patch-residual spatial recovery. A stronger lambda-`0.10` control tests whether added existing global pressure is sufficient.
+- Runs: One excluded one-epoch mechanical smoke, then four fresh seed-0 40-epoch runs: patch-residual control, lambda `0.10`, patch-sample weight `0.01`, and patch-sample weight `0.05`. All use G2L2 crops, invariance weight `4`, masked visual and auxiliary CLS prediction, shared-student target gradients, and an explicit probe detach.
+- Primary evaluation: Last-three patch-mean rank, final patch-mean nearest-centroid accuracy, fixed frozen CLS probe, and spatial-retention metrics at the common horizon. A candidate must improve patch rank by `1.5x` and patch centroid accuracy by `0.03`, retain at least `80%` of control centered energy, add no more than `0.05` patch cosine, and lose no more than `0.005` frozen accuracy or `0.01` step AUC.
+- Resources and stopping: At most four scientific pretraining runs, two concurrent jobs on physical GPUs 1 and 2, 12-hour timeout per run, and one possible later promotion. No post-hoc variants are allowed, and all artifacts are retained.
+- W&B emission: Online to `tidalpaladin/mjepa-cifar10`; approved and emitted classes are metrics, configs, and provenance.

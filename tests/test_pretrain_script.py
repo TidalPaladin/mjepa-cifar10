@@ -285,6 +285,13 @@ LEJEPA_TOKEN_DIVERSITY_CONFIGS = {
         2,
     ),
 }
+LEJEPA_PATCH_RANK_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-patch-residual-40e.yaml": (0.05, 0.0, 40),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-patch-rank-l010-40e.yaml": (0.10, 0.0, 40),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-patch-rank-sample010-40e.yaml": (0.05, 0.01, 40),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-patch-rank-sample050-40e.yaml": (0.05, 0.05, 40),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-patch-rank-sample050-smoke.yaml": (0.05, 0.05, 1),
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -619,6 +626,38 @@ def test_lejepa_token_diversity_configs_isolate_preregistered_objectives(
         "params": ["heads"],
         "lr": 0.01,
         "weight_decay": 0.000001,
+    }
+
+
+@pytest.mark.parametrize(("config_path", "expected"), LEJEPA_PATCH_RANK_CONFIGS.items())
+def test_lejepa_patch_rank_configs_isolate_cross_sample_regularization(
+    config_path: Path,
+    expected: tuple[float, float, int],
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    trainer_config = config["trainer"]
+    jepa_config = config["jepa"]
+    expected_lambda, expected_sample_weight, expected_epochs = expected
+
+    assert isinstance(jepa_config, JEPAConfig)
+    assert trainer_config.num_epochs == expected_epochs
+    assert trainer_config.check_val_every_n_epoch == (5 if expected_epochs == 40 else 1)
+    assert trainer_config.batch_size * trainer_config.accumulate_grad_batches == MULTIVIEW_EFFECTIVE_BATCH_SIZE
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.lejepa_lambda == expected_lambda
+    assert jepa_config.invariance_loss_weight == 4.0
+    assert jepa_config.sigreg_views == "both"
+    assert jepa_config.sigreg_features == "cls_patch_mean"
+    assert jepa_config.sigreg_projector_dims == ()
+    assert jepa_config.patch_residual_sigreg_loss_weight == 0.05
+    assert jepa_config.patch_residual_sigreg_num_slices == 32
+    assert jepa_config.patch_sample_sigreg_loss_weight == expected_sample_weight
+    assert jepa_config.patch_sample_sigreg_num_slices == 32
+    assert config["multi_crop"] == {
+        "global_views": 2,
+        "local_views": 2,
+        "global_scale": [0.75, 1.0],
+        "local_scale": [0.30, 0.75],
     }
 
 
