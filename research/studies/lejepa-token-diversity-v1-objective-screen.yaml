@@ -1,0 +1,130 @@
+id: lejepa-token-diversity-v1-objective-screen
+question: "Which late-block mechanism limits teacher-free masked LeJEPA convergence: pooled-feature coupling, missing spatial regularization, or shared-target MIM pressure?"
+hypothesis: Explicit patch-residual SigREG or reducing MIM weight will preserve the semantic gains through block 8 while preventing the block-9-to-12 spatial homogenization observed at long horizon; CLS-only global regularization will determine whether patch-mean invariance itself causes the coupling.
+
+baseline:
+  id: g2l2-control
+  config: config/pretrain/vit-small-lejepa-token-control-40e.yaml
+  hypothesis: A fresh 40-epoch control reproduces the initial intercept and slope of the prior lambda-0.05, invariance-weight-4 trajectory under the new diagnostics.
+  mechanism: Preserve the strongest teacher-free G2L2 objective and change only the horizon and validation cadence.
+  changes:
+    - Train for 40 epochs with validation every 5 epochs to resolve initial probe intercept and slope.
+
+variants:
+  - id: g2l2-cls-only
+    config: config/pretrain/vit-small-lejepa-token-cls-only-40e.yaml
+    hypothesis: Applying global SigREG and same-image invariance to patch means couples them to CLS and contributes to late spatial homogenization.
+    mechanism: Remove only patch-mean features from global SigREG and invariance while retaining masked visual prediction and every shared-target gradient.
+    changes:
+      - Change sigreg_features from cls_patch_mean to cls.
+  - id: g2l2-patch-residual
+    config: config/pretrain/vit-small-lejepa-token-patch-residual-40e.yaml
+    hypothesis: Global SigREG prevents sample collapse but leaves within-image patch residuals unconstrained, allowing later blocks to broadcast an image-level code.
+    mechanism: Apply a second SigREG term independently to centered patch tokens from every unmasked full view.
+    changes:
+      - Add patch-residual SigREG at weight 0.05 with 32 deterministic random slices.
+  - id: g2l2-mim025
+    config: config/pretrain/vit-small-lejepa-token-mim025-40e.yaml
+    hypothesis: Full-strength prediction against a gradient-carrying target encourages the shared encoder to make spatial targets easier by homogenizing them.
+    mechanism: Retain visual and auxiliary CLS masked prediction but reduce only their common weight to 0.25; invariance and SigREG coefficients remain unchanged.
+    changes:
+      - Set jepa_loss_weight to 0.25 inside the LeJEPA prediction term.
+
+methodology:
+  linked_program: lejepa-token-diversity-v1
+  trigger:
+    audit_study: lejepa-token-diversity-v1-audit
+    probe_study: lejepa-token-diversity-v1-long-probe
+    decision: spatial-homogenization-with-representation-gap
+    evidence:
+      - Probe calibration left a 0.0734 teacher gap, so classifier convergence is not primary.
+      - The shared patch route was competitive through block 8, then lost 0.0742 accuracy at block 9 and 0.1074 by block 12.
+      - Final patch cosine was 0.99665 and centered patch energy was 0.00247, versus 0.45782 and 0.53324 for the teacher.
+  scientific_run_allocation:
+    seed_zero_runs: 4
+    maximum_pretraining_runs: 4
+    maximum_candidates: 3
+    maximum_long_horizon_promotions: 1
+    mechanical_smoke_excluded: true
+  controls:
+    epochs: 40
+    validation_interval_epochs: 5
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the first global view.
+    views: Two global and two local crops; the first global view remains the masked-prediction anchor.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, 5% linear warmup followed by a constant rate.
+    probe_boundary: Final CLS enters the online classifier through an explicit detach; only the classifier head uses learning rate 0.01 and weight decay 1e-6.
+    gradient_boundary: Shared-student targets, additional views, and patch-residual regularization retain self-supervised gradients.
+    terminal_probe: Freeze all four encoders and apply the established normalized final-two-CLS six-rate 100-epoch probe bank before selection.
+  primary_endpoints:
+    - Online probe accuracy at every 5-epoch validation, early intercept, step slope, step AUC, and active-time AUC.
+    - Fixed frozen-probe accuracy after the common 40-epoch horizon.
+    - Final and last-three within-image patch cosine, centered patch energy, centered patch effective rank, CLS-patch alignment, and across-sample collapse metrics.
+  last_three_validation_gate:
+    target_cls_std_mean_minimum: 0.10
+    target_cls_effective_rank_fraction_minimum: 0.07
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_effective_rank_fraction_minimum: 0.07
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+    finite_fraction_required: 1.0
+  terminal_selection_gate:
+    candidate_to_control_centered_patch_energy_ratio_minimum: 1.50
+    candidate_patch_pair_cosine_improvement_minimum: 0.05
+    frozen_accuracy_gain_minimum: 0.02
+    frozen_equivalence_accuracy_loss_maximum: 0.005
+    online_step_auc_gain_if_frozen_equivalent: 0.10
+    rule: A candidate must improve both spatial thresholds and either gain 0.02 frozen accuracy or remain within 0.005 frozen accuracy while improving step AUC by 10%.
+    ranking: Every finite and collapse gate, terminal selection rule, frozen accuracy, step AUC, active-time AUC, then lower objective complexity.
+  stopping:
+    - Complete the fresh control and all three preregistered candidates unless a safety or mechanical failure requires repair.
+    - Do not use managed online promotion as the scientific decision; calibrate every frozen encoder first.
+    - Select at most one qualifying candidate. If none qualifies, stop this branch without a longer run.
+    - Any qualifying candidate requires a new preregistered long-horizon specification; never launch it directly from this screen.
+    - Do not add post-hoc feature-route, residual-weight, slice-count, or MIM-weight variants after observing this screen.
+  retention: Retain every checkpoint, backbone, curve, fixed-probe cache, W&B run, and notification artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-token-diversity-v1-objective-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: ef0ba60ab55eded71e665fb8cf2b1de0b493cce4
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 43200
+  max_pretraining_trials: 4
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

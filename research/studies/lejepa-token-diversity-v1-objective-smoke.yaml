@@ -1,0 +1,67 @@
+id: lejepa-token-diversity-v1-objective-smoke
+question: Do reduced masked-prediction weighting and patch-residual SigREG complete one managed teacher-free multiview cycle?
+hypothesis: The combined mechanical path will train, validate, checkpoint, log both raw and weighted patch-residual SigREG, retain gradients through every shared-student full view, and preserve the detached online-probe boundary.
+
+baseline:
+  id: combined-objective-smoke
+  config: config/pretrain/vit-small-lejepa-token-mechanical-smoke.yaml
+  hypothesis: One epoch is sufficient to validate the new opt-in loss paths before scientific screening.
+  mechanism: Exercise reduced MIM weight and full-view centered-patch SigREG together at the scientific batch and view topology.
+  changes:
+    - Shorten training from 40 epochs to one mechanical epoch.
+    - Enable both new objective controls so one run covers their reduction, gradient, logging, validation, and checkpoint paths.
+
+variants: []
+
+methodology:
+  linked_program: lejepa-token-diversity-v1
+  purpose: Mechanical validation only; accuracy and collapse values are not scientific evidence.
+  invariants:
+    - The target encoder mode remains shared and no teacher is instantiated.
+    - Masked-target, additional-view, and patch-residual objectives retain student gradients.
+    - The online classifier receives detached CLS features and cannot update the encoder.
+    - The official test set is prohibited.
+  stopping:
+    - Complete the configured cycle unless a safety or mechanical failure requires repair.
+    - Never promote, confirm, or select from smoke metrics.
+  retention: Retain the smoke checkpoint, metrics, W&B record, and lifecycle artifacts.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-token-diversity-v1-objective-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: ef0ba60ab55eded71e665fb8cf2b1de0b493cce4
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

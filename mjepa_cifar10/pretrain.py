@@ -762,10 +762,12 @@ def train(
     train_loss_cls_global_pool = tm.RunningMean(window=WINDOW).cuda()
     train_loss_sigreg = tm.RunningMean(window=WINDOW).cuda()
     train_loss_invariance = tm.RunningMean(window=WINDOW).cuda()
+    train_loss_patch_residual_sigreg = tm.RunningMean(window=WINDOW).cuda()
     train_loss_gram = tm.RunningMean(window=WINDOW).cuda()
     has_jepa_loss_cls = False
     has_sigreg_loss = False
     has_invariance_loss = False
+    has_patch_residual_sigreg_loss = False
     has_gram_loss = False
     train_acc = Running(tm.Accuracy(task="multiclass", num_classes=NUM_CLASSES), window=WINDOW).cuda()
     train_grad_clip_trigger_pct = tm.MeanMetric().cuda() if max_grad_norm is not None else None
@@ -836,6 +838,11 @@ def train(
                 if isinstance(invariance_loss, Tensor):
                     train_loss_invariance.update(invariance_loss)
                     has_invariance_loss = True
+
+                patch_residual_sigreg_loss = getattr(ssl_losses, "patch_residual_sigreg_loss", None)
+                if isinstance(patch_residual_sigreg_loss, Tensor):
+                    train_loss_patch_residual_sigreg.update(patch_residual_sigreg_loss)
+                    has_patch_residual_sigreg_loss = True
 
                 gram_loss = getattr(ssl_losses, "gram_loss", None)
                 if gram_loss is not None:
@@ -935,6 +942,12 @@ def train(
                     log_dict["pretrain/loss_sigreg"] = train_loss_sigreg.compute().item()
                 if has_invariance_loss:
                     log_dict["pretrain/loss_invariance"] = train_loss_invariance.compute().item()
+                if has_patch_residual_sigreg_loss:
+                    patch_residual_sigreg_loss_value = train_loss_patch_residual_sigreg.compute().item()
+                    log_dict["pretrain/loss_patch_residual_sigreg"] = patch_residual_sigreg_loss_value
+                    log_dict["pretrain/loss_patch_residual_sigreg_weighted"] = (
+                        patch_residual_sigreg_loss_value * unwrapped_jepa.config.patch_residual_sigreg_loss_weight
+                    )
                 if has_gram_loss:
                     log_dict["pretrain/loss_gram"] = train_loss_gram.compute().item()
                 if train_cpa is not None:

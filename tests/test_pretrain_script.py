@@ -247,6 +247,38 @@ LEJEPA_LOSS_VIEW_CONFIGS = {
         [0.50, 0.75],
     ),
 }
+LEJEPA_TOKEN_DIVERSITY_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-control-40e.yaml": (
+        "cls_patch_mean",
+        0.0,
+        1.0,
+        40,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-cls-only-40e.yaml": (
+        "cls",
+        0.0,
+        1.0,
+        40,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-patch-residual-40e.yaml": (
+        "cls_patch_mean",
+        0.05,
+        1.0,
+        40,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-mim025-40e.yaml": (
+        "cls_patch_mean",
+        0.0,
+        0.25,
+        40,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-mechanical-smoke.yaml": (
+        "cls_patch_mean",
+        0.05,
+        0.25,
+        1,
+    ),
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -529,6 +561,50 @@ def test_lejepa_loss_view_configs_preserve_optimizer_and_factorial_boundaries(
         "local_views": expected_locals,
         "global_scale": [0.75, 1.0],
         "local_scale": expected_local_scale,
+    }
+    assert optimizer_config.lr == 0.002
+    assert optimizer_config.weight_decay == 0.2
+    assert not optimizer_config.scheduled
+    assert optimizer_config.parameter_groups[-1] == {
+        "params": ["heads"],
+        "lr": 0.01,
+        "weight_decay": 0.000001,
+    }
+
+
+@pytest.mark.parametrize(("config_path", "expected"), LEJEPA_TOKEN_DIVERSITY_CONFIGS.items())
+def test_lejepa_token_diversity_configs_isolate_preregistered_objectives(
+    config_path: Path,
+    expected: tuple[str, float, float, int],
+) -> None:
+    config = yaml.full_load(config_path.read_text())
+    trainer_config = config["trainer"]
+    backbone_config = config["backbone"]
+    jepa_config = config["jepa"]
+    optimizer_config = config["optimizer"]
+    expected_features, expected_residual_weight, expected_jepa_weight, expected_epochs = expected
+
+    assert isinstance(backbone_config, ViTConfig)
+    assert isinstance(jepa_config, JEPAConfig)
+    assert isinstance(optimizer_config, OptimizerConfig)
+    assert trainer_config.num_epochs == expected_epochs
+    assert trainer_config.check_val_every_n_epoch == (1 if expected_epochs == 1 else 5)
+    assert trainer_config.batch_size * trainer_config.accumulate_grad_batches == MULTIVIEW_EFFECTIVE_BATCH_SIZE
+    assert jepa_config.target_encoder_mode == "shared"
+    assert jepa_config.enable_cls_prediction
+    assert jepa_config.cls_prediction_mode == SELECTED_CLS_PREDICTION_MODE
+    assert jepa_config.lejepa_lambda == 0.05
+    assert jepa_config.invariance_loss_weight == 4.0
+    assert jepa_config.sigreg_views == "both"
+    assert jepa_config.sigreg_features == expected_features
+    assert jepa_config.patch_residual_sigreg_loss_weight == expected_residual_weight
+    assert jepa_config.patch_residual_sigreg_num_slices == 32
+    assert jepa_config.jepa_loss_weight == expected_jepa_weight
+    assert config["multi_crop"] == {
+        "global_views": 2,
+        "local_views": 2,
+        "global_scale": [0.75, 1.0],
+        "local_scale": [0.30, 0.75],
     }
     assert optimizer_config.lr == 0.002
     assert optimizer_config.weight_decay == 0.2
