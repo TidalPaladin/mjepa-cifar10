@@ -2044,3 +2044,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Evaluation: Deterministic layer-normalized cosine nearest-centroid probes on CLS, patch mean, and their concatenation for every block, plus CLS-patch alignment, within-image patch cosine, centered patch energy/rank, and across-sample CLS/patch-mean collapse metrics.
 - Decision: Reject the proposed cross-sample patch bottleneck only if final patch-mean centroid accuracy is within `0.05` of the teacher and patch-mean effective rank reaches at least `75%` of the teacher. Retain all results and source checkpoints.
 - W&B emission: Online to `tidalpaladin/mjepa-cifar10`, group `lejepa-patch-rank-v1-audit`; approved and emitted classes are metrics, configs, and provenance.
+
+<!-- autoresearch-operation:{"operation_id":"lejepa-patch-rank-v1-audit-result-v1"} -->
+
+## 2026-08-03 result: patch-residual label-utility audit
+
+- Decision: `representation-gap-without-spatial-homogenization`. Patch-residual SigREG restored final centered patch energy to `0.58754` versus `0.53324` for the teacher and lowered within-image patch cosine to `0.38992` versus `0.45782`; spatial homogenization is therefore not present in this checkpoint.
+- Remaining gap: Final patch-mean centroid accuracy was `0.3124` versus `0.8512` for the teacher, while patch-mean effective-rank fraction was `0.02376` versus `0.45390`. Final CLS centroid accuracy was `0.3294` versus `0.8498`, and the first material CLS gap appeared at block 2.
+- Interpretation: Within-image patch variation is insufficient. The next screen will preserve patch-residual SigREG and add regularization whose sample axis is the image batch at each patch position, testing whether cross-sample patch diversity improves label utility without sacrificing spatial energy or frozen accuracy.
+- Provenance: Parent `150385d`; audit manifest SHA-256 `9e8307f3cecb7c6ed552cf0f2b16fcf7b973554b972c24c5f0176efa6458ee4e`; structured summary SHA-256 `7c170f8a2cbb95c3609f6e6e7ee4a0f01e6a72ed00c40520fc809ba1d2b1b60e`.
+- Tracking and retention: W&B runs `ysh3zfl5` and `p5usfhpu` completed in `17.85` and `16.49` active seconds. Results, tracker records, and both source checkpoints remain retained.
