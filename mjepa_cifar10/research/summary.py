@@ -241,7 +241,7 @@ def calculate_pretraining_aggregates(
             for baseline, winner in zip(baseline_summaries, winner_summaries, strict=True)
         ]
         seed_zero = promotion_decision(baseline_summaries[0], winner_summaries[0], spec.promotion)
-        if seed_zero.criterion is not None:
+        if seed_zero.criterion is not None and spec.promotion.confirmation_enabled:
             aggregates["confirmation"] = asdict(
                 confirmation_decision(
                     baseline_summaries,
@@ -370,6 +370,8 @@ def advance_study(state: StudyState, spec: StudySpec, summaries: Mapping[str, Co
             state.winner = winner
             if spec.baseline_reference is not None:
                 state.phase = "reference-promotion"
+            elif not spec.promotion.confirmation_enabled:
+                state.phase = "screening-promotion"
             else:
                 _add_replication_runs(state, spec, winner)
                 state.phase = "confirmation"
@@ -666,6 +668,7 @@ def append_research_log(spec: StudySpec, summary: Mapping[str, Any], repo_root: 
             f"{winner} met a promotion threshold against the fixed seed-0 baseline reference; "
             "paired AdamW confirmation was outside this Muon-only sweep."
         ),
+        "screening-promotion": f"{winner} met a seed-0 promotion threshold; confirmation was disabled by protocol.",
         "complete": f"{winner} completed confirmation and downstream evaluation.",
         "evaluation": f"{winner} passed confirmation; downstream evaluation is still running.",
         "not-confirmed": f"{winner} did not meet the three-seed confirmation rule.",

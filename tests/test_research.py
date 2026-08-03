@@ -493,6 +493,41 @@ def test_screening_promotion_adds_only_four_replication_trials(tmp_path: Path) -
     assert sum(run.spec.kind == "pretrain" for run in state.runs.values()) == 8
 
 
+def test_screening_promotion_can_stop_without_confirmation(tmp_path: Path) -> None:
+    spec = replace(
+        make_spec(tmp_path, variants=1),
+        seeds=(0,),
+        promotion=PromotionRules(confirmation_enabled=False),
+        resources=ResourceLimits(max_pretraining_trials=2),
+    )
+    now = "2026-01-01T00:00:00+00:00"
+    state = StudyState(
+        study_id=spec.id,
+        spec_path="study.yaml",
+        created_at=now,
+        updated_at=now,
+        runs={run.id: RunState(run, status="completed") for run in spec.initial_runs()},
+    )
+    summaries = {
+        "pretrain-baseline-seed0": make_summary(peak=0.80, time_to_95=100, time_auc=0.50),
+        "pretrain-variant-0-seed0": make_summary(peak=0.82, time_to_95=100, time_auc=0.51),
+    }
+
+    advance_study(state, spec, summaries)
+    aggregates = calculate_pretraining_aggregates(state, spec, summaries)
+
+    assert state.phase == "screening-promotion"
+    assert state.winner == "variant-0"
+    assert len(state.runs) == 2
+    assert state.runs["pretrain-variant-0-seed0"].decision == "promoted"
+    assert "confirmation" not in aggregates
+
+
+def test_promotion_confirmation_flag_requires_a_boolean() -> None:
+    with pytest.raises(ValueError, match="confirmation_enabled must be a boolean"):
+        PromotionRules.from_mapping({"confirmation_enabled": 0})
+
+
 def test_screening_control_gate_requires_peak_gain_before_cost_promotion(tmp_path: Path) -> None:
     spec = replace(
         make_spec(tmp_path),

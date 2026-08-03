@@ -107,6 +107,7 @@ class PromotionRules:
     convergence_gain: float = 0.15
     auc_gain: float = 0.10
     maximum_accuracy_loss: float = 0.005
+    confirmation_enabled: bool = True
     cost_gain: float | None = None
     equivalence_convergence_ratio: float | None = None
     equivalence_auc_loss: float | None = None
@@ -116,11 +117,15 @@ class PromotionRules:
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any] | None) -> Self:
         value = value or {}
+        confirmation_enabled = value.get("confirmation_enabled", True)
+        if not isinstance(confirmation_enabled, bool):
+            raise ValueError("promotion confirmation_enabled must be a boolean")
         return cls(
             accuracy_gain=float(value.get("accuracy_gain", 0.01)),
             convergence_gain=float(value.get("convergence_gain", 0.15)),
             auc_gain=float(value.get("auc_gain", 0.10)),
             maximum_accuracy_loss=float(value.get("maximum_accuracy_loss", 0.005)),
+            confirmation_enabled=confirmation_enabled,
             cost_gain=float(value["cost_gain"]) if value.get("cost_gain") is not None else None,
             equivalence_convergence_ratio=(
                 float(value["equivalence_convergence_ratio"])

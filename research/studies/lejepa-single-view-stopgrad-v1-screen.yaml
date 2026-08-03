@@ -135,6 +135,7 @@ promotion:
   convergence_gain: 0.15
   auc_gain: 0.10
   maximum_accuracy_loss: 0.005
+  confirmation_enabled: false
 
 evaluation:
   finetune_config: null
