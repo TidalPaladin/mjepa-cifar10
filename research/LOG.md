@@ -2034,3 +2034,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Provenance: Parent `902b65b3082a7d568828603bef707ecf5052475d`; probe manifest SHA-256 `3483629a963fac0eebfa44d224ea42312241838c17192445fffba54eb8ecaef9`; structured decision SHA-256 `09107f735ac5d0b4e5a8df11c34eef9c9b6aa17aaf99e627660bbfdc13ff8974`; managed summary SHA-256 `64355c37fbd9497194fabc22d2ff32e3399885693f21a727ada2078b6a2a87ce`.
 - Tracking and cost: Pretraining used `17,512.02` summed active seconds (`4.864` GPU-hours) across four runs over a `2h 28m` wall span. The two probe workers completed in `215.94` wall seconds. W&B runs: control `1ypdcaxg`, CLS-only `bjusx3wz`, patch-residual `gkcu4f04`, and reduced-MIM `k684b3g0`.
 - Recovery and retention: notify-wake watch `bdc91e30-095e-4211-93b5-d9c1afd53abe` validated PID `2470520` with start ticks `1253890838`, observed both worker exit codes as `0`, released the owned wait, and delivered the terminal event. Every checkpoint, feature cache, curve, result, summary, and tracker record remains retained.
+<!-- autoresearch-operation:{"operation_id":"lejepa-patch-rank-v1-audit-protocol-v1"} -->
+
+## 2026-08-03 protocol: patch-residual label-utility audit
+
+- Question: Does patch-residual SigREG restore label-bearing patch information, or only within-image spatial variation?
+- Hypothesis: The retained 40-epoch patch-residual checkpoint restores spatial energy but remains deficient in patch-mean centroid accuracy and across-sample rank because its extra SigREG distribution is formed over patches within each image.
+- Sources: The immutable seed-0 teacher baseline and retained seed-0 G2L2 patch-residual checkpoint. No pretraining occurs in this audit, and the official CIFAR-10 test set is prohibited.
+- Evaluation: Deterministic layer-normalized cosine nearest-centroid probes on CLS, patch mean, and their concatenation for every block, plus CLS-patch alignment, within-image patch cosine, centered patch energy/rank, and across-sample CLS/patch-mean collapse metrics.
+- Decision: Reject the proposed cross-sample patch bottleneck only if final patch-mean centroid accuracy is within `0.05` of the teacher and patch-mean effective rank reaches at least `75%` of the teacher. Retain all results and source checkpoints.
+- W&B emission: Online to `tidalpaladin/mjepa-cifar10`, group `lejepa-patch-rank-v1-audit`; approved and emitted classes are metrics, configs, and provenance.

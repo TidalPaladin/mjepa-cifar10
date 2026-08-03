@@ -1,0 +1,63 @@
+id: lejepa-patch-rank-v1-audit
+question: Does patch-residual SigREG restore label-bearing patch information, or only within-image spatial variation?
+hypothesis: Patch-residual SigREG will restore final centered patch energy and patch-pair diversity near the teacher baseline, but final patch-mean centroid accuracy and across-sample effective rank will remain materially lower because the loss regularizes patches within each image rather than patches across images.
+mechanism: Compare every normalized transformer block of the retained teacher baseline and retained 40-epoch patch-residual checkpoint using deterministic cosine nearest-centroid probes and spatial/across-sample diagnostics.
+rejection: Reject the cross-sample patch bottleneck if the patch-residual checkpoint is within 0.05 of the teacher's final patch-mean centroid accuracy and within 25% of its final patch-mean effective-rank fraction.
+
+sources:
+  - id: teacher-baseline-seed0
+    role: teacher-baseline
+    run_dir: logs/research/vit-small-baseline-v1/runs/pretrain-baseline-seed0
+  - id: patch-residual-40e-seed0
+    role: patch-residual-candidate
+    run_dir: logs/research/lejepa-token-diversity-v1-objective-screen/runs/pretrain-g2l2-patch-residual-seed0
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+diagnostics:
+  batch_size: 256
+  num_workers: 24
+  layer_normalization: final-backbone-output-norm
+  centroid_probe: layernorm-cosine-nearest-centroid
+  routes: [cls, patch_mean, cls_patch_mean]
+  patch_metrics:
+    - cls_patch_alignment
+    - mean_within_image_pairwise_cosine
+    - centered_patch_energy_ratio
+    - centered_patch_effective_rank_fraction
+  gradient_mode: torch.inference_mode
+
+decision:
+  material_centroid_accuracy_gap: 0.05
+  minimum_candidate_cpa_excess: 0.20
+  minimum_candidate_patch_pair_cosine_excess: 0.20
+  maximum_candidate_to_teacher_centered_energy_ratio: 0.75
+  maximum_final_patch_centroid_gap_to_reject: 0.05
+  minimum_final_patch_rank_ratio_to_reject: 0.75
+  selection: Support an across-sample patch bottleneck when spatial diversity is recovered but either final patch-mean label utility trails the teacher by at least 0.05 or final patch-mean effective rank is below 75% of the teacher.
+
+resources:
+  physical_gpus: [1]
+  workers: 1
+  timeout_seconds: 7200
+  retention: Retain results, complete W&B curves, and source checkpoints. No destructive retention is authorized.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-patch-rank-v1-audit
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: ef0ba60ab55eded71e665fb8cf2b1de0b493cce4
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+log_root: logs/research
