@@ -66,6 +66,9 @@ def _build_summary(
             raise ValueError(f"source role mismatch for {source_id}")
 
     teacher_ids = [source_id for source_id in source_order if results[source_id]["source_role"] == "teacher-baseline"]
+    if not teacher_ids:
+        return _build_control_candidate_summary(manifest, manifest_hash, results, source_order)
+
     shared_ids = [source_id for source_id in source_order if source_id not in teacher_ids]
     if len(teacher_ids) != 1 or not shared_ids:
         raise ValueError("calibration requires exactly one teacher and at least one shared-student source")
@@ -110,6 +113,52 @@ def _build_summary(
         "representation_convergence_primary": representation_primary,
         "decision": decision,
         "thresholds": thresholds,
+        "runs": {source_id: results[source_id] for source_id in source_order},
+    }
+
+
+def _build_control_candidate_summary(
+    manifest: dict[str, Any],
+    manifest_hash: str,
+    results: dict[str, dict[str, Any]],
+    source_order: list[str],
+) -> dict[str, Any]:
+    control_ids = [source_id for source_id in source_order if results[source_id]["source_role"] == "control"]
+    candidate_ids = [source_id for source_id in source_order if results[source_id]["source_role"] == "candidate"]
+    if len(control_ids) != 1 or not candidate_ids or len(control_ids) + len(candidate_ids) != len(source_order):
+        raise ValueError("calibration requires either teacher/shared-student or one control and candidate sources")
+
+    control_id = control_ids[0]
+    best_candidate_id = max(
+        candidate_ids,
+        key=lambda source_id: (
+            float(results[source_id]["best_calibrated_accuracy"]),
+            -source_order.index(source_id),
+        ),
+    )
+    control_accuracy = float(results[control_id]["best_calibrated_accuracy"])
+    candidate_accuracy = float(results[best_candidate_id]["best_calibrated_accuracy"])
+    control_online_accuracy = float(results[control_id]["online_probe_accuracy"])
+    candidate_online_accuracy = float(results[best_candidate_id]["online_probe_accuracy"])
+    calibrated_accuracy_gain = candidate_accuracy - control_accuracy
+
+    return {
+        "study_id": manifest["id"],
+        "manifest_sha256": manifest_hash,
+        "updated_at": datetime.now(UTC).isoformat(),
+        "control_source": control_id,
+        "control_calibrated_accuracy": control_accuracy,
+        "best_candidate_source": best_candidate_id,
+        "best_candidate_calibrated_accuracy": candidate_accuracy,
+        "best_candidate_calibration_gain": float(results[best_candidate_id]["calibration_gain"]),
+        "calibrated_accuracy_gain": calibrated_accuracy_gain,
+        "online_accuracy_gain": candidate_online_accuracy - control_online_accuracy,
+        "decision": (
+            "candidate-higher-calibrated-accuracy"
+            if calibrated_accuracy_gain > 0.0
+            else "control-higher-or-equal-calibrated-accuracy"
+        ),
+        "thresholds": cast(dict[str, Any], manifest["decision"]),
         "runs": {source_id: results[source_id] for source_id in source_order},
     }
 

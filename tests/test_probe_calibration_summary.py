@@ -72,3 +72,29 @@ def test_summary_rejects_missing_source_results() -> None:
 
     with pytest.raises(ValueError, match="result source IDs do not match"):
         script._build_summary(manifest, "manifest-hash", {})
+
+
+def test_summary_compares_control_and_candidate_sources() -> None:
+    script = load_summary_script_module()
+    manifest = {
+        "id": "control-candidate-calibration",
+        "sources": [
+            {"id": "control", "role": "control"},
+            {"id": "candidate", "role": "candidate"},
+        ],
+        "decision": {"selection": "Apply preregistered gates in the parent study."},
+    }
+    results = {
+        "control": make_result("control", "control", 0.39, 0.50),
+        "candidate": make_result("candidate", "candidate", 0.48, 0.60),
+    }
+
+    summary = script._build_summary(manifest, "manifest-hash", results)
+
+    assert summary["control_source"] == "control"
+    assert summary["best_candidate_source"] == "candidate"
+    assert summary["control_calibrated_accuracy"] == pytest.approx(0.50)
+    assert summary["best_candidate_calibrated_accuracy"] == pytest.approx(0.60)
+    assert summary["calibrated_accuracy_gain"] == pytest.approx(0.10)
+    assert summary["online_accuracy_gain"] == pytest.approx(0.09)
+    assert summary["decision"] == "candidate-higher-calibrated-accuracy"
