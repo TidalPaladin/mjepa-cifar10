@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 import torch
 
+from mjepa_cifar10.research.codex_notifications import notification_path_for_event
 from mjepa_cifar10.research.models import StudySpec
 from mjepa_cifar10.research.runtime import StateStore, cleanup_run_weights, launch_available_runs, reconcile_state
 from mjepa_cifar10.research.summary import summarize_study
@@ -83,11 +84,13 @@ resources:
         "config.yaml",
         "metrics.jsonl",
         "metadata.json",
-        "notification.json",
         "provenance.json",
         "terminal.json",
     ):
         assert (run_dir / artifact).is_file()
+    assert run.terminal_event_id is not None
+    assert notification_path_for_event(log_root, run.terminal_event_id).is_file()
+    assert not (run_dir / "notification.json").exists()
     tracker = json.loads((run_dir / "provenance.json").read_text(encoding="utf-8"))["external_tracker"]
     assert tracker["operation"] == "launch"
     assert tracker["requested_mode"] == "offline"

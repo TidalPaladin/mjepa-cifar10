@@ -106,3 +106,32 @@ def test_summary_compares_control_and_candidate_layers() -> None:
     assert summary["layers"][-1]["centroid_accuracy_gain"]["patch_mean"] == pytest.approx(0.1)
     assert summary["layers"][-1]["candidate_to_control_centered_energy_ratio"] == pytest.approx(0.9)
     assert summary["decision"] == "candidate-higher-final-patch-mean"
+
+
+def test_summary_compares_one_control_with_multiple_candidates() -> None:
+    script = load_script_module()
+    control_candidate_manifest = {
+        "id": "multi-candidate-diagnostic",
+        "sources": [
+            {"id": "control", "role": "control"},
+            {"id": "candidate-a", "role": "candidate"},
+            {"id": "candidate-b", "role": "candidate"},
+        ],
+        "decision": {"selection": "Apply preregistered gates in the parent study."},
+    }
+    results = {
+        "control": result("control", 0.40, 0.30, 0.40, 0.30, 0.80),
+        "candidate-a": result("candidate", 0.42, 0.32, 0.45, 0.32, 0.76),
+        "candidate-b": result("candidate", 0.43, 0.35, 0.48, 0.34, 0.72),
+    }
+
+    summary = script._build_summary(control_candidate_manifest, "manifest-hash", results)
+
+    assert summary["control_source"] == "control"
+    assert summary["candidate_source"] == "candidate-b"
+    assert summary["best_candidate_source"] == "candidate-b"
+    assert list(summary["candidate_summaries"]) == ["candidate-a", "candidate-b"]
+    assert summary["candidate_summaries"]["candidate-a"]["final_patch_mean_gain"] == pytest.approx(0.02)
+    assert summary["candidate_summaries"]["candidate-b"]["final_patch_mean_gain"] == pytest.approx(0.05)
+    assert summary["layers"] == summary["candidate_summaries"]["candidate-b"]["layers"]
+    assert summary["decision"] == "candidate-higher-final-patch-mean"

@@ -1,0 +1,238 @@
+{
+  "answer": "A shared-weight stop-gradient can train without collapse in crop-free single-view masked prediction and improves the shared-gradient control, but it does not match the retained multiview result. Neither isolated SigREG-strength follow-up restores the missing global or patch-label utility.",
+  "artifacts": {
+    "bottleneck_diagnostic_manifest_sha256": "a99ffba38eea5c3c4f4f7c08ca227c3975e248b5fe0c67f2228038633ca23034",
+    "bottleneck_diagnostic_summary_sha256": "0c57a75f319165e1924e3faed6297a620b3cfe6dd977312ad5dfc02bee722b79",
+    "bottleneck_probe_manifest_sha256": "76c72954de043ffc2e1aaf51c56c92e2b48027a5a09ad5a4f53d247611d8bba8",
+    "bottleneck_probe_summary_sha256": "c77ac1be82424aadcd9c4419eacbb1b823a19bd14a72ba5eabae9f4e104928d1",
+    "bottleneck_study_sha256": "b0b97ffcf0b9389dfe4510b7a7789c635661c804f3db0f637313ae978815dfc1",
+    "bottleneck_summary_sha256": "1e8242e30990c2db535b7519384506d7daab90509263447247d939dc1ccb2a8c",
+    "crop_free_control_curve_sha256": "68def35771f8f583b4a2964a55633c042a0c268cd3ebc71a711167da4bc99254",
+    "screen_diagnostic_manifest_sha256": "95ea8205b8d321a79f69b14fd9bd963287f4470e671f57486dcaf2166b66632e",
+    "screen_diagnostic_summary_sha256": "9fcecade4f805c45a49271fd25d653f3b482cc02450235b2b1580f47628650a1",
+    "screen_probe_manifest_sha256": "f70c877077bf2434dfca12b3b4c2f2d6c616dfa9b622d729c69ae0e2d8956e3e",
+    "screen_probe_summary_sha256": "6fba97b4bb84c73a8c8dde4b0987a407d8ffe00ccfb8d9d23f341e4ac210013d",
+    "screen_study_sha256": "b9c7bfc198b7de4dca410a1c9cc5c68d1aca2ea47591a5b2d43d821c31723c05",
+    "screen_summary_sha256": "02a0ab933150f94137a62c7608b65c22be26f37fddc07d78f110edd8e23c4487",
+    "smoke_study_sha256": "3b989fc0ec24e1732ae51446b1a54a90ff7873880fa3bc6c03f1aca26427a4ad"
+  },
+  "bottleneck_follow_up": {
+    "decision": "no-candidate-passed-preregistered-gates",
+    "lambda010": {
+      "crop_free_equivalence": {
+        "centered_patch_energy_ratio": 0.8854468184631725,
+        "failed_metrics": [
+          "online_final_accuracy",
+          "online_step_auc",
+          "frozen_accuracy",
+          "final_patch_centroid_accuracy",
+          "patch_cosine"
+        ],
+        "final_patch_centroid_accuracy_loss": 0.08879999690055845,
+        "frozen_accuracy_loss": 0.18920000000000003,
+        "online_final_accuracy_loss": 0.1834000051021576,
+        "online_step_auc_loss": 0.1411586163320449,
+        "passed": false,
+        "patch_cosine_increase": 0.07635791534233782
+      },
+      "metrics": {
+        "centered_patch_energy_ratio": 0.4898426369406659,
+        "final_patch_centroid_accuracy": 0.30300000309944153,
+        "frozen_accuracy": 0.4142,
+        "online_final_accuracy": 0.296999990940094,
+        "online_step_auc": 0.2556390820392247,
+        "patch_cosine": 0.5035059142097795
+      },
+      "pathway_response": {
+        "centered_patch_energy_ratio": 1.0119549909746652,
+        "failed_metrics": [
+          "frozen_accuracy_gain",
+          "online_final_accuracy",
+          "online_step_auc",
+          "final_patch_centroid_accuracy"
+        ],
+        "final_patch_centroid_accuracy_loss": 0.0268000066280365,
+        "frozen_accuracy_gain": -0.013600000000000001,
+        "online_final_accuracy_loss": 0.03600001335144043,
+        "online_step_auc_loss": 0.00888959466366057,
+        "passed": false,
+        "patch_cosine_increase": -0.005101860529856728
+      },
+      "safety_gate_passed": true,
+      "wandb": {
+        "diagnostic": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/i6yg5mff",
+        "pretraining": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/e3970238",
+        "probe": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/ehjtw4al"
+      }
+    },
+    "patch_residual010": {
+      "crop_free_equivalence": {
+        "centered_patch_energy_ratio": 0.9228664133272078,
+        "failed_metrics": [
+          "online_final_accuracy",
+          "online_step_auc",
+          "frozen_accuracy",
+          "final_patch_centroid_accuracy",
+          "patch_cosine"
+        ],
+        "final_patch_centroid_accuracy_loss": 0.07740001254081724,
+        "frozen_accuracy_loss": 0.18180000000000007,
+        "online_final_accuracy_loss": 0.16920000314712524,
+        "online_step_auc_loss": 0.12731143453159178,
+        "passed": false,
+        "patch_cosine_increase": 0.05214754094796842
+      },
+      "metrics": {
+        "centered_patch_energy_ratio": 0.5105437255201747,
+        "final_patch_centroid_accuracy": 0.31439998745918274,
+        "frozen_accuracy": 0.4216,
+        "online_final_accuracy": 0.31119999289512634,
+        "online_step_auc": 0.26948626383967783,
+        "patch_cosine": 0.4792955398154101
+      },
+      "pathway_response": {
+        "centered_patch_energy_ratio": 1.0547209086936247,
+        "failed_metrics": [
+          "final_patch_centroid_accuracy_gain",
+          "frozen_accuracy",
+          "online_final_accuracy"
+        ],
+        "final_patch_centroid_accuracy_gain": -0.015400022268295288,
+        "frozen_accuracy_loss": 0.006200000000000039,
+        "online_final_accuracy_loss": 0.02180001139640808,
+        "online_step_auc_loss": -0.00495758713679256,
+        "passed": false,
+        "patch_cosine_increase": -0.029312234924226133
+      },
+      "safety_gate_passed": true,
+      "wandb": {
+        "diagnostic": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/skj4u4q4",
+        "pretraining": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/c5e2a0dc",
+        "probe": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/v4g70d1r"
+      }
+    }
+  },
+  "compute": {
+    "bottleneck_diagnostic_active_seconds_sum": 48.117551324889064,
+    "bottleneck_pretraining_active_seconds_sum": 3138.5211466457695,
+    "bottleneck_probe_active_seconds_sum": 197.6818334683776,
+    "program_gpu_active_hours_including_smoke_and_evaluations": 1.872636757662209,
+    "program_gpu_active_seconds_including_smoke_and_evaluations": 6741.492327583954,
+    "program_wall_finished_at": "2026-08-03T19:05:40.743506+00:00",
+    "program_wall_seconds": 5213.63578558,
+    "program_wall_started_at": "2026-08-03T17:38:47.107727+00:00",
+    "scientific_pretraining_active_seconds_sum": 6277.294069586322,
+    "screen_diagnostic_active_seconds_sum": 32.91208494827151,
+    "screen_pretraining_active_seconds_sum": 3138.7729229405522,
+    "screen_probe_active_seconds_sum": 133.22792372852564,
+    "smoke_active_seconds": 52.25886452756822
+  },
+  "crop_free_equivalence": {
+    "candidate": "single-view-target-stopgrad-seed0",
+    "centered_patch_energy_ratio": 0.8749863643741247,
+    "failed_metrics": [
+      "online_final_accuracy",
+      "online_step_auc",
+      "frozen_accuracy",
+      "final_patch_centroid_accuracy",
+      "patch_cosine"
+    ],
+    "final_patch_centroid_accuracy_loss": 0.06199999027252201,
+    "frozen_accuracy_loss": 0.17559999999999998,
+    "online_final_accuracy_loss": 0.14739999175071716,
+    "online_step_auc_loss": 0.13226902166838434,
+    "passed": false,
+    "patch_cosine_increase": 0.08145977587219463,
+    "thresholds": {
+      "candidate_to_multiview_centered_patch_energy_ratio_minimum": 0.8,
+      "final_patch_centroid_accuracy_loss_maximum": 0.03,
+      "frozen_accuracy_loss_maximum": 0.03,
+      "online_final_accuracy_loss_maximum": 0.03,
+      "online_step_auc_loss_maximum": 0.03,
+      "patch_cosine_maximum_increase": 0.05
+    }
+  },
+  "data": {
+    "official_test_set_used": false,
+    "split": "fixed-45000-train-5000-validation",
+    "split_sha256": "bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b"
+  },
+  "decision": "crop-free-single-view-stopgrad-is-safe-but-not-equivalent",
+  "interpretation": "Stopping shared full-view targets removes part of the target-chasing shortcut: final online, frozen CLS, and final patch-centroid accuracy all improve over the exact shared-gradient control. It does not repair the lower initial semantic intercept or the large global and patch-label gaps to multiview training. Doubling direct or patch-residual SigREG changes representation geometry without improving label-aligned information, so insufficient regularization strength is not the supported bottleneck.",
+  "limitations": [
+    "All scientific comparisons are seed-0 screens, so the effect sizes are not confirmation estimates.",
+    "The result does not prove that literal image crops are theoretically necessary; it shows that the tested single-view objective needs multiview crops or another source of independent view diversity to match the retained reference at this horizon.",
+    "No fine-tuning or official CIFAR-10 test evaluation was authorized or performed."
+  ],
+  "multiview_reference": {
+    "centered_patch_energy_ratio": 0.5532151979391176,
+    "final_patch_centroid_accuracy": 0.3918,
+    "frozen_accuracy": 0.6034,
+    "online_final_accuracy": 0.4803999960422516,
+    "online_first_accuracy": 0.30140000581741333,
+    "online_step_auc": 0.3967976983712696,
+    "patch_cosine": 0.4271479988674417,
+    "run_id": "pretrain-target-stopgrad-seed0",
+    "source_commit": "db26c134dadda811396fe9db554a5a6572b1510f",
+    "study_id": "lejepa-target-stopgrad-v1-screen"
+  },
+  "operation_id": "lejepa-single-view-stopgrad-v1-result-v1",
+  "provenance": {
+    "evaluation_parent": "e665a5ae49d6b84bad1c3fc31cd4d631a0971fe9",
+    "mjepa": "578a2f92441394f232732348b6e9f569237b2744",
+    "training_parent": "1134b145f5550fb5540dc53a77ae3ead2f21b274",
+    "vit": "bf15705454975f04912538cdc790d399eea69e67"
+  },
+  "retention": {
+    "all_checkpoints": "retained",
+    "all_probe_caches": "retained",
+    "all_results_and_curves": "retained",
+    "destructive_retention_applied": false
+  },
+  "schema_version": 1,
+  "single_view_stopgrad_mechanism": {
+    "comparison_to_shared_gradient": {
+      "centered_patch_energy_ratio": 1.1248714485153841,
+      "final_online_accuracy_gain": 0.015599995851516724,
+      "final_patch_centroid_accuracy_gain": 0.02279999852180481,
+      "first_online_accuracy_gain": -0.038200005888938904,
+      "frozen_accuracy_gain": 0.019000000000000017,
+      "online_step_auc_gain": -0.000020232914167407,
+      "patch_cosine_increase": -0.04105492111511311
+    },
+    "mechanism_gate": {
+      "failed_metrics": [
+        "first_validation_accuracy_gain",
+        "final_patch_centroid_accuracy_gain"
+      ],
+      "passed": false
+    },
+    "safety_gate_passed": true,
+    "shared_gradient_control": {
+      "centered_patch_energy_ratio": 0.4303209537804202,
+      "final_patch_centroid_accuracy": 0.3070000112056732,
+      "frozen_accuracy": 0.4088,
+      "online_final_accuracy": 0.3174000084400177,
+      "online_first_accuracy": 0.22280000150203705,
+      "online_step_auc": 0.2645489096170527,
+      "patch_cosine": 0.5496626950026012,
+      "wandb": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/f0703395"
+    },
+    "stopped_target": {
+      "centered_patch_energy_ratio": 0.4840557547612602,
+      "final_patch_centroid_accuracy": 0.329800009727478,
+      "frozen_accuracy": 0.4278,
+      "online_final_accuracy": 0.3330000042915344,
+      "online_first_accuracy": 0.18459999561309814,
+      "online_step_auc": 0.26452867670288527,
+      "patch_cosine": 0.5086077747396363,
+      "wandb": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/083f32c6"
+    }
+  },
+  "status": "completed",
+  "study_ids": [
+    "lejepa-single-view-stopgrad-v1-smoke",
+    "lejepa-single-view-stopgrad-v1-screen",
+    "lejepa-single-view-stopgrad-v1-bottleneck-screen"
+  ]
+}

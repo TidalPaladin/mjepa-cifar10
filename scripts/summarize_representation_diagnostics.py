@@ -161,60 +161,78 @@ def _build_control_candidate_summary(
 ) -> dict[str, Any]:
     control_ids = [source_id for source_id in source_order if results[source_id]["source_role"] == "control"]
     candidate_ids = [source_id for source_id in source_order if results[source_id]["source_role"] == "candidate"]
-    if len(control_ids) != 1 or len(candidate_ids) != 1 or len(source_order) != 2:
+    if len(control_ids) != 1 or not candidate_ids or len(control_ids) + len(candidate_ids) != len(source_order):
         raise ValueError("representation diagnostics require either teacher/candidate or control/candidate sources")
 
     control_id = control_ids[0]
-    candidate_id = candidate_ids[0]
     control_layers = results[control_id]["layers"]
-    candidate_layers = results[candidate_id]["layers"]
-    if len(control_layers) != len(candidate_layers) or not control_layers:
+    if not control_layers:
         raise ValueError("control and candidate must report the same nonempty layer count")
 
-    layers: list[dict[str, Any]] = []
-    for control_layer, candidate_layer in zip(control_layers, candidate_layers, strict=True):
-        if control_layer["layer"] != candidate_layer["layer"]:
-            raise ValueError("control and candidate layer indices do not align")
-        control_energy = float(control_layer["patch_diversity"]["centered_patch_energy_ratio"])
-        if control_energy <= 0:
-            raise ValueError("control centered patch energy must be positive")
-        layers.append(
-            {
-                "layer": int(control_layer["layer"]),
-                "centroid_accuracy_gain": {
-                    route: float(candidate_layer["centroid_accuracy"][route])
-                    - float(control_layer["centroid_accuracy"][route])
-                    for route in ("cls", "patch_mean", "cls_patch_mean")
-                },
-                "control_centroid_accuracy": control_layer["centroid_accuracy"],
-                "candidate_centroid_accuracy": candidate_layer["centroid_accuracy"],
-                "candidate_cpa_excess": float(candidate_layer["cls_patch_alignment"]["cpa_mean"])
-                - float(control_layer["cls_patch_alignment"]["cpa_mean"]),
-                "candidate_patch_pair_cosine_excess": float(
-                    candidate_layer["patch_diversity"]["mean_within_image_pairwise_cosine"]
-                )
-                - float(control_layer["patch_diversity"]["mean_within_image_pairwise_cosine"]),
-                "candidate_to_control_centered_energy_ratio": float(
-                    candidate_layer["patch_diversity"]["centered_patch_energy_ratio"]
-                )
-                / control_energy,
-            }
-        )
+    candidate_summaries: dict[str, dict[str, Any]] = {}
+    for candidate_id in candidate_ids:
+        candidate_layers = results[candidate_id]["layers"]
+        if len(control_layers) != len(candidate_layers):
+            raise ValueError("control and candidate must report the same nonempty layer count")
 
-    final_patch_gain = float(layers[-1]["centroid_accuracy_gain"]["patch_mean"])
+        layers: list[dict[str, Any]] = []
+        for control_layer, candidate_layer in zip(control_layers, candidate_layers, strict=True):
+            if control_layer["layer"] != candidate_layer["layer"]:
+                raise ValueError("control and candidate layer indices do not align")
+            control_energy = float(control_layer["patch_diversity"]["centered_patch_energy_ratio"])
+            if control_energy <= 0:
+                raise ValueError("control centered patch energy must be positive")
+            layers.append(
+                {
+                    "layer": int(control_layer["layer"]),
+                    "centroid_accuracy_gain": {
+                        route: float(candidate_layer["centroid_accuracy"][route])
+                        - float(control_layer["centroid_accuracy"][route])
+                        for route in ("cls", "patch_mean", "cls_patch_mean")
+                    },
+                    "control_centroid_accuracy": control_layer["centroid_accuracy"],
+                    "candidate_centroid_accuracy": candidate_layer["centroid_accuracy"],
+                    "candidate_cpa_excess": float(candidate_layer["cls_patch_alignment"]["cpa_mean"])
+                    - float(control_layer["cls_patch_alignment"]["cpa_mean"]),
+                    "candidate_patch_pair_cosine_excess": float(
+                        candidate_layer["patch_diversity"]["mean_within_image_pairwise_cosine"]
+                    )
+                    - float(control_layer["patch_diversity"]["mean_within_image_pairwise_cosine"]),
+                    "candidate_to_control_centered_energy_ratio": float(
+                        candidate_layer["patch_diversity"]["centered_patch_energy_ratio"]
+                    )
+                    / control_energy,
+                }
+            )
+        candidate_summaries[candidate_id] = {
+            "final_patch_mean_gain": float(layers[-1]["centroid_accuracy_gain"]["patch_mean"]),
+            "layers": layers,
+        }
+
+    best_candidate_id = max(
+        candidate_ids,
+        key=lambda source_id: (
+            float(candidate_summaries[source_id]["final_patch_mean_gain"]),
+            -source_order.index(source_id),
+        ),
+    )
+    best_candidate = candidate_summaries[best_candidate_id]
+    final_patch_gain = float(best_candidate["final_patch_mean_gain"])
     return {
         "study_id": manifest["id"],
         "manifest_sha256": manifest_hash,
         "updated_at": datetime.now(UTC).isoformat(),
         "control_source": control_id,
-        "candidate_source": candidate_id,
+        "candidate_source": best_candidate_id,
+        "best_candidate_source": best_candidate_id,
         "decision": (
             "candidate-higher-final-patch-mean"
             if final_patch_gain > 0.0
             else "control-higher-or-equal-final-patch-mean"
         ),
         "thresholds": manifest["decision"],
-        "layers": layers,
+        "candidate_summaries": candidate_summaries,
+        "layers": best_candidate["layers"],
         "runs": {source_id: results[source_id] for source_id in source_order},
     }
 
