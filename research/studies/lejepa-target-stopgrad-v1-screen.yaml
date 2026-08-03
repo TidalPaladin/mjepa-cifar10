@@ -1,0 +1,129 @@
+id: lejepa-target-stopgrad-v1-screen
+question: Does preventing the shared full-view target from following masked-prediction error recover label-bearing patch and global information without an EMA copy?
+hypothesis: Detaching only the shared student's masked-prediction targets will remove a target-chasing shortcut, raising early and final probe quality plus patch-mean label utility while preserving the spatial diversity maintained by patch-residual SigREG.
+rejection_condition: Reject the mechanism if the stopped-target run collapses, fails to improve frozen accuracy by 0.01 and final patch-mean centroid accuracy by 0.03, or violates the preregistered spatial-retention limits relative to the fixed control.
+checkpoint_plan: Retain the candidate checkpoint, backbone, curve, fixed-probe cache, diagnostic result, W&B runs, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: shared-target-control
+  config: config/pretrain/vit-small-lejepa-token-patch-residual-40e.yaml
+  hypothesis: The completed shared-gradient control defines the exact 40-epoch comparison without another baseline launch.
+  mechanism: Reuse the full metric curve and retained checkpoint from the fresh patch-residual control.
+  changes: []
+
+baseline_reference:
+  study_id: lejepa-patch-rank-v1-screen
+  run_id: pretrain-patch-residual-control-seed0
+  metrics: research/baselines/lejepa-patch-rank-v1-control-seed0.metrics.jsonl
+  metrics_sha256: c6608eacb35312fe331698cde4714e73c241996fc0d415c523c6ccfd2f4cff0d
+
+variants:
+  - id: target-stopgrad
+    config: config/pretrain/vit-small-lejepa-target-stopgrad-40e.yaml
+    hypothesis: A non-negotiable prediction target will improve early semantic structure and prevent late patch tokens from converging on the same weak global code.
+    mechanism: Reuse one student for masked and full views, but detach the full-view visual targets only where they enter visual and auxiliary-CLS masked-prediction losses.
+    changes:
+      - Enable stop_gradient_target.
+      - Do not instantiate or update an EMA teacher.
+      - Preserve gradients from full views through SigREG, multiview invariance, and patch-residual SigREG.
+
+methodology:
+  linked_program: lejepa-target-stopgrad-v1
+  trigger:
+    source_study: lejepa-patch-rank-v1-screen
+    source_run: pretrain-patch-residual-control-seed0
+    source_online_final_accuracy: 0.3898000121116638
+    source_online_step_auc: 0.31841419253032655
+    source_frozen_accuracy: 0.4988
+    source_final_patch_centroid_accuracy: 0.3124000132083893
+    evidence:
+      - Stronger global and cross-sample patch SigREG raised geometric rank but reduced frozen accuracy and patch-mean label utility.
+      - The shared-gradient target can lower its own prediction error by moving with the predictor, unlike an EMA or explicit stop-gradient target.
+  scientific_run_allocation:
+    new_pretraining_runs: 1
+    seed: 0
+    no_automatic_confirmation: true
+  controls:
+    epochs: 40
+    validation_interval_epochs: 5
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2 on the first global view.
+    masked_task: Preserve visual-token and partitioned independent CLS masked prediction.
+    views: Two global and two local crops; the first global view remains the prediction anchor.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, 5% linear warmup followed by a constant rate.
+    probe_boundary: Final full-view CLS enters the online classifier through an explicit detach; only the classifier head uses learning rate 0.01 and weight decay 1e-6.
+    prediction_target_boundary: Detach masked visual targets after the shared full-view forward and before every JEPA prediction loss.
+    auxiliary_gradient_boundary: Keep target and additional full views connected to SigREG, same-image invariance, and patch-residual SigREG.
+    teacher_state: No teacher parameters, EMA update, or teacher optimizer state.
+    terminal_probe: Freeze both encoders and apply the established normalized final-two-CLS six-rate 100-epoch probe bank.
+    layerwise_diagnostic: Apply deterministic normalized nearest-centroid probes for CLS, patch mean, and their concatenation at every block.
+  primary_endpoints:
+    - First-validation, final, peak, and step-AUC online-probe differences versus the immutable control curve.
+    - Fixed frozen-probe accuracy difference after the common 40-epoch horizon.
+    - Final patch-mean nearest-centroid accuracy and block-8-to-12 change relative to the retained control.
+  secondary_endpoints:
+    - Common-horizon active-time AUC and active seconds.
+    - CLS and patch effective rank, variance, top-eigenvalue fraction, pairwise cosine, centered patch energy, and CLS-patch alignment.
+  safety_gate:
+    finite_fraction_required: 1.0
+    target_cls_std_mean_minimum: 0.10
+    target_cls_top_eigenvalue_fraction_maximum: 0.50
+    target_cls_mean_pairwise_cosine_maximum: 0.90
+    target_patch_mean_std_mean_minimum: 0.10
+    target_patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    target_patch_mean_mean_pairwise_cosine_maximum: 0.90
+    visual_target_relative_improvement_minimum: 0.01
+  mechanism_support_gate:
+    first_validation_accuracy_gain_minimum: 0.01
+    frozen_accuracy_gain_minimum: 0.01
+    final_patch_centroid_accuracy_gain_minimum: 0.03
+    candidate_to_control_centered_patch_energy_ratio_minimum: 0.80
+    candidate_patch_cosine_maximum_increase: 0.05
+    rule: Support the target-chasing hypothesis only if every safety, frozen-quality, patch-label-utility, early-accuracy, and spatial-retention threshold passes.
+  stopping:
+    - Run the one candidate through the full 40-epoch horizon unless a nonfinite value, safety event, mechanical failure, or timeout intervenes.
+    - Complete the frozen probe and layerwise diagnostic before interpreting the mechanism.
+    - Do not launch confirmation, fine-tuning, official-test evaluation, or another variant from this single-seed study.
+  retention: Retain every referenced and candidate artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-target-stopgrad-v1-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 43200
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.01
+  convergence_gain: 0.15
+  auc_gain: 0.10
+  maximum_accuracy_loss: 0.005
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

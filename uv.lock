@@ -466,8 +466,8 @@ wheels = [
 
 [[package]]
 name = "mjepa"
-version = "0.1.dev71+g52f898bcc"
-source = { git = "https://github.com/TidalPaladin/mjepa.git?rev=52f898bcc9f44d2f59199da359fa74438f2724ed#52f898bcc9f44d2f59199da359fa74438f2724ed" }
+version = "0.1.dev72+g578a2f924"
+source = { git = "https://github.com/TidalPaladin/mjepa.git?rev=578a2f92441394f232732348b6e9f569237b2744#578a2f92441394f232732348b6e9f569237b2744" }
 dependencies = [
     { name = "einops" },
     { name = "ninja" },
@@ -515,7 +515,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "filelock", specifier = "==3.31.1" },
-    { name = "mjepa", git = "https://github.com/TidalPaladin/mjepa.git?rev=52f898bcc9f44d2f59199da359fa74438f2724ed" },
+    { name = "mjepa", git = "https://github.com/TidalPaladin/mjepa.git?rev=578a2f92441394f232732348b6e9f569237b2744" },
     { name = "notify-wake-runtime", git = "https://github.com/TidalPaladin/skills.git?subdirectory=notify-wake&rev=61a4a819c58243d54e3c99c684ec23ad88e6dfef" },
     { name = "pyyaml", specifier = "==6.0.3" },
     { name = "safetensors", specifier = "==0.8.0" },

@@ -1,0 +1,71 @@
+id: lejepa-target-stopgrad-v1-smoke
+question: Does a shared-weight, stopped prediction target complete one masked multiview training cycle without creating an EMA teacher or disconnecting auxiliary full-view gradients?
+hypothesis: The new target boundary will train, validate, checkpoint, and emit finite collapse diagnostics while the predictor, masked context branch, SigREG, invariance, and patch-residual paths remain active.
+rejection_condition: Reject the mechanical implementation if the run creates teacher parameters, fails one train-validation-checkpoint cycle, produces nonfinite metrics, or cannot recover and summarize its artifacts.
+checkpoint_plan: Retain the smoke checkpoint, backbone, curve, W&B run, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: target-stopgrad-smoke
+  config: config/pretrain/vit-small-lejepa-target-stopgrad-smoke.yaml
+  hypothesis: One epoch is sufficient to exercise the new prediction-target boundary before scientific comparison.
+  mechanism: Reuse the student for the unmasked forward, detach only features consumed as masked-prediction targets, and leave every auxiliary full-view objective connected.
+  changes:
+    - Enable stop_gradient_target with target_encoder_mode shared.
+    - Shorten the fixed 40-epoch candidate to one mechanical epoch.
+
+variants: []
+
+methodology:
+  linked_program: lejepa-target-stopgrad-v1
+  purpose: Mechanical validation only; accuracy and collapse values are not scientific evidence.
+  invariants:
+    - No teacher module or EMA parameter copy is instantiated.
+    - The first global view remains the masked-prediction anchor.
+    - Visual and auxiliary CLS prediction targets are detached at the loss boundary.
+    - Target and additional-view SigREG, multiview invariance, and patch-residual SigREG retain shared-student gradients.
+    - Final full-view CLS features remain detached at the online-classifier boundary.
+    - The official test set is prohibited.
+  stopping:
+    - Complete the configured cycle unless a safety or mechanical failure requires repair.
+    - Never promote, confirm, or select from smoke metrics.
+  retention: Retain every smoke artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-target-stopgrad-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

@@ -292,6 +292,10 @@ LEJEPA_PATCH_RANK_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-patch-rank-sample050-40e.yaml": (0.05, 0.05, 40),
     REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-patch-rank-sample050-smoke.yaml": (0.05, 0.05, 1),
 }
+LEJEPA_TARGET_STOPGRAD_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-target-stopgrad-40e.yaml": 40,
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-target-stopgrad-smoke.yaml": 1,
+}
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-adaln-blind.yaml": "adaln_blind",
@@ -659,6 +663,34 @@ def test_lejepa_patch_rank_configs_isolate_cross_sample_regularization(
         "global_scale": [0.75, 1.0],
         "local_scale": [0.30, 0.75],
     }
+
+
+@pytest.mark.parametrize(("config_path", "expected_epochs"), LEJEPA_TARGET_STOPGRAD_CONFIGS.items())
+def test_lejepa_target_stopgrad_configs_change_only_gradient_boundary_and_horizon(
+    config_path: Path,
+    expected_epochs: int,
+) -> None:
+    baseline = yaml.full_load(
+        (REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-patch-residual-40e.yaml").read_text()
+    )
+    candidate = yaml.full_load(config_path.read_text())
+    baseline_jepa = baseline["jepa"]
+    candidate_jepa = candidate["jepa"]
+
+    assert isinstance(baseline_jepa, JEPAConfig)
+    assert isinstance(candidate_jepa, JEPAConfig)
+    assert candidate_jepa.target_encoder_mode == "shared"
+    assert candidate_jepa.stop_gradient_target
+    assert not baseline_jepa.stop_gradient_target
+    for field in fields(JEPAConfig):
+        if field.name != "stop_gradient_target":
+            assert getattr(candidate_jepa, field.name) == getattr(baseline_jepa, field.name)
+    assert candidate["trainer"].num_epochs == expected_epochs
+    assert candidate["trainer"].check_val_every_n_epoch == (5 if expected_epochs == 40 else 1)
+    assert candidate["trainer"].batch_size == baseline["trainer"].batch_size
+    assert candidate["trainer"].accumulate_grad_batches == baseline["trainer"].accumulate_grad_batches
+    for section in ("backbone", "multi_crop", "optimizer"):
+        assert candidate[section] == baseline[section]
 
 
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:
