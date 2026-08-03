@@ -2269,3 +2269,27 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 ### 2026-08-03 amendment: bottleneck probe manifest prose
 
 - The probe manifest grammar was corrected after the protocol entry and before launch. No source, recipe, endpoint, threshold, or decision rule changed. Its authoritative preregistration SHA-256 is `793a458295d430bdc3cb85a8d109f7f9765468e26dfa2e4bc87484c8bb638a72`, replacing the earlier `eb131d212abaa617dcf957cff21630405f234078765ca5af03841016b21370ba` value.
+<!-- autoresearch-operation:{"content_sha256":"acbc81fcf6a8a7c809e8fcfcfafb0943890412a8ea6fff9a34d63dc625e0b7a9","operation_id":"01059212b2de4e74e6dc2870e8415999"} -->
+
+<!-- study:lejepa-single-view-stopgrad-v1-bottleneck-screen:phase:no-promotion -->
+## lejepa-single-view-stopgrad-v1-bottleneck-screen
+
+- Question: Can stronger global or patch-residual SigREG close the measured representation gap of crop-free single-view stopped-target MIM?
+- Hypothesis: The retained crop-free stopped-target run is limited by regularization strength rather than view diversity, so one of two isolated weight increases will materially improve its corresponding frozen-global or patch-level endpoint without sacrificing the other representation path.
+- Mechanisms and exact changes:
+  - `single-view-target-stopgrad-control`: Mechanism: Reuse the immutable validation curve and retained checkpoint from the completed crop-free screen. Changes: not recorded.
+  - `single-view-stopgrad-lambda010`: Mechanism: Double the direct LeJEPA regularization coefficient while preserving the crop-free stopped-target MIM formulation. Changes: Raise lejepa_lambda from 0.05 to 0.10.; Hold every other trainer, backbone, objective, view, mask, and optimizer field fixed.
+  - `single-view-stopgrad-patch-residual010`: Mechanism: Double patch-residual SigREG while preserving the crop-free stopped-target MIM formulation. Changes: Raise patch_residual_sigreg_loss_weight from 0.05 to 0.10.; Hold every other trainer, backbone, objective, view, mask, and optimizer field fixed.
+- Launch code provenance:
+  - `pretrain-single-view-stopgrad-lambda010-seed0`: parent=`1134b145f5550fb5540dc53a77ae3ead2f21b274` (`codex/research/lejepa-single-view-stopgrad-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+  - `pretrain-single-view-stopgrad-patch-residual010-seed0`: parent=`1134b145f5550fb5540dc53a77ae3ead2f21b274` (`codex/research/lejepa-single-view-stopgrad-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`bf15705454975f04912538cdc790d399eea69e67` (`codex/research/cls-context-routing-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-single-view-stopgrad-lambda010-seed0`: attempt=1; status=completed; decision=rejected; started=2026-08-03T18:27:06.168400+00:00; finished=2026-08-03T18:53:41.516887+00:00; terminal_event=aa428fed-a988-44c3-9479-1a3529f10883; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-lambda010-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/e3970238); checkpoint=retained; metrics=peak_accuracy=0.298200, final_accuracy=0.297000, step_to_90=censored, step_to_95=censored, active_seconds_to_90=censored, active_seconds_to_95=censored, step_auc=0.255639, active_time_auc=0.254946, active_seconds_at_step_horizon=1575.712, cls_path_latency_median_ms=31.455745, cls_path_latency_p90_ms=32.266239; error=none
+- `pretrain-single-view-stopgrad-patch-residual010-seed0`: attempt=1; status=completed; decision=rejected; started=2026-08-03T18:27:06.261769+00:00; finished=2026-08-03T18:53:28.291160+00:00; terminal_event=5e8e928c-42e1-4456-a365-d0a4e7817985; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-patch-residual010-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/c5e2a0dc); checkpoint=retained; metrics=peak_accuracy=0.311200, final_accuracy=0.311200, step_to_90=1305, step_to_95=censored, active_seconds_to_90=1174.511, active_seconds_to_95=censored, step_auc=0.269486, active_time_auc=0.269068, active_seconds_at_step_horizon=1562.809, cls_path_latency_median_ms=30.844416, cls_path_latency_p90_ms=31.715328; error=none

@@ -15,13 +15,13 @@ sources:
   - id: single-view-stopgrad-lambda010-seed0
     role: candidate
     run_dir: logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-lambda010-seed0
-    online_probe_accuracy: REQUIRED_TERMINAL_VALUE
+    online_probe_accuracy: 0.296999990940094
     objective_complexity_rank: 0
     objective_cost_rank: 0
   - id: single-view-stopgrad-patch-residual010-seed0
     role: candidate
     run_dir: logs/research/lejepa-single-view-stopgrad-v1-bottleneck-screen/runs/pretrain-single-view-stopgrad-patch-residual010-seed0
-    online_probe_accuracy: REQUIRED_TERMINAL_VALUE
+    online_probe_accuracy: 0.31119999289512634
     objective_complexity_rank: 0
     objective_cost_rank: 0
 
