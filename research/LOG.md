@@ -1970,3 +1970,13 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Unexercised gate: Training metrics emit every 50 optimizer steps. The one-epoch run ended before that boundary, and its W&B history contains neither `pretrain/loss_patch_residual_sigreg` nor `pretrain/loss_patch_residual_sigreg_weighted`. This is a smoke-design limitation, not a scientific result.
 - Repair: Add the separate `lejepa-token-diversity-v1-objective-logging-smoke` study with the identical combined objective and two epochs. It must cross optimizer step 50 and emit finite raw and weighted patch-residual SigREG values before the four-run scientific screen may launch.
 - Boundary: The repair smoke is mechanical, excluded from scientific run allocation, and cannot affect candidate selection or promotion. The completed one-epoch study and its artifacts remain immutable.
+<!-- autoresearch-operation:{"content_sha256":"14039c9ad5a113dabe42b68fab7e570c671a6e815f21d2bec4ddc369c282689a","operation_id":"lejepa-token-diversity-v1-objective-logging-smoke-result-v1"} -->
+
+
+## 2026-08-03 result: LeJEPA objective logging smoke repair
+
+- Study: `lejepa-token-diversity-v1-objective-logging-smoke`; run `pretrain-combined-objective-logging-smoke-seed0`; status: completed with exit code `0` at optimizer step `87`. The run used the same combined reduced-MIM and patch-residual objective as the first smoke and changed only the mechanical horizon from one epoch to two.
+- Logging gate: W&B recorded finite `pretrain/loss_patch_residual_sigreg=6.8217926025390625` and `pretrain/loss_patch_residual_sigreg_weighted=0.34108963012695315` at optimizer step `50`. Their ratio is exactly the configured residual weight `0.05`.
+- Integration gate: Both validation cycles and the terminal checkpoint completed; target CLS, patch-mean, and within-image patch finite fractions were all `1.0`. The official test set was not used. Smoke accuracies are excluded from scientific evidence.
+- Lifecycle: First-cycle event `9ca1f305-ed29-5a09-8318-e3dac02e4d7d` and terminal event `b40d1216-16cf-45e1-85b9-6771ab36fbd9` were each accepted on their first delivery attempt. W&B run: https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/dca31c76.
+- Decision: The mechanical gate passes. Launch the preregistered four-run `lejepa-token-diversity-v1-objective-screen` without changing candidates, hyperparameters, endpoints, or selection thresholds.
