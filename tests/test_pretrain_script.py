@@ -278,6 +278,12 @@ LEJEPA_TOKEN_DIVERSITY_CONFIGS = {
         0.25,
         1,
     ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-lejepa-token-logging-smoke.yaml": (
+        "cls_patch_mean",
+        0.05,
+        0.25,
+        2,
+    ),
 }
 CLS_CONFIGS = {
     REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-legacy.yaml": "legacy_cross_attention",
@@ -588,7 +594,7 @@ def test_lejepa_token_diversity_configs_isolate_preregistered_objectives(
     assert isinstance(jepa_config, JEPAConfig)
     assert isinstance(optimizer_config, OptimizerConfig)
     assert trainer_config.num_epochs == expected_epochs
-    assert trainer_config.check_val_every_n_epoch == (1 if expected_epochs == 1 else 5)
+    assert trainer_config.check_val_every_n_epoch == (5 if expected_epochs == 40 else 1)
     assert trainer_config.batch_size * trainer_config.accumulate_grad_batches == MULTIVIEW_EFFECTIVE_BATCH_SIZE
     assert jepa_config.target_encoder_mode == "shared"
     assert jepa_config.enable_cls_prediction

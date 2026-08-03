@@ -1,0 +1,71 @@
+id: lejepa-token-diversity-v1-objective-logging-smoke
+question: Do reduced masked-prediction weighting and patch-residual SigREG emit their raw and weighted training metrics in a managed run?
+hypothesis: Two epochs cross the step-50 logging boundary while retaining the same combined objective, gradient paths, validation, checkpoint, and notification coverage as the completed one-epoch smoke.
+
+baseline:
+  id: combined-objective-logging-smoke
+  config: config/pretrain/vit-small-lejepa-token-logging-smoke.yaml
+  hypothesis: The second epoch will exercise the normal training metric emission path without producing scientific evidence.
+  mechanism: Repeat the combined mechanical objective through optimizer step 50 so W&B receives raw and weighted patch-residual SigREG.
+  changes:
+    - Extend the completed mechanical smoke from one epoch to two in a new immutable study.
+
+variants: []
+
+methodology:
+  linked_program: lejepa-token-diversity-v1
+  repairs_study: lejepa-token-diversity-v1-objective-smoke
+  purpose: Mechanical logging validation only; accuracy and collapse values are not scientific evidence.
+  invariants:
+    - The target encoder mode remains shared and no teacher is instantiated.
+    - Masked-target, additional-view, and patch-residual objectives retain student gradients.
+    - The online classifier receives detached CLS features and cannot update the encoder.
+    - The official test set is prohibited.
+  success:
+    - The run exits with code zero after at least 50 optimizer steps.
+    - W&B contains finite pretrain/loss_patch_residual_sigreg and pretrain/loss_patch_residual_sigreg_weighted values.
+    - Validation, checkpoint, and lifecycle notifications complete normally.
+  stopping:
+    - Complete two epochs unless a safety or mechanical failure requires repair.
+    - Never promote, confirm, or select from smoke metrics.
+  retention: Retain the smoke checkpoint, metrics, W&B record, and lifecycle artifacts.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: lejepa-token-diversity-v1-objective-logging-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: ef0ba60ab55eded71e665fb8cf2b1de0b493cce4
+  vit: bf15705454975f04912538cdc790d399eea69e67
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []
