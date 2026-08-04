@@ -27,8 +27,9 @@ methodology:
   linked_program: ijepa-token-specialization-v1
   literature_basis: Marouani et al., Revisiting [CLS] and Patch Token Interaction in Vision Transformers, ICLR 2026; extend its CLS-versus-patch split by grouping I-JEPA register tokens with CLS as the global stream.
   mechanical_retry:
-    failed_attempt: Candidate attempt 1 stopped before its first optimizer step because Inductor generalized the full-view teacher and masked-view student sequence lengths into an invalid symbolic backward graph.
-    repair: Candidate attempt 2 pins vit 6d298af42b88f5d734554df28fef0198d6b0aed3, which compiles the specialized attention kernel with concrete shapes; model arithmetic, initialization, objective, and every study endpoint are unchanged.
+    failed_attempt_1: Candidate attempt 1 stopped before its first optimizer step because Inductor generalized the full-view teacher and masked-view student sequence lengths into an invalid symbolic backward graph.
+    failed_attempt_2: Candidate attempt 2 stopped before training because the W&B resume path recomputed a noisy launch-only latency benchmark and attempted to replace its immutable config value.
+    repair: Candidate attempt 3 pins vit 6d298af42b88f5d734554df28fef0198d6b0aed3, compiles the specialized attention kernel with concrete shapes, and reuses the durable launch benchmark on retry; model arithmetic, initialization, objective, and every study endpoint are unchanged.
     paired_control: The active control retains launch commit f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec and is unaffected because it never calls the specialized attention kernel.
   scientific_run_allocation:
     new_pretraining_runs: 2

@@ -1227,8 +1227,14 @@ def test_pretrain_checkpoint_argument_is_forwarded_to_full_state_restore(mocker,
 def test_pretrain_resume_preserves_launch_cls_path_benchmark(tmp_path: Path) -> None:
     pretrain_script = load_pretrain_script_module()
 
-    assert pretrain_script.should_benchmark_cls_prediction_path(None) is True
-    assert pretrain_script.should_benchmark_cls_prediction_path(tmp_path / "checkpoint.pt") is False
+    run_log_dir = tmp_path / "run"
+    run_log_dir.mkdir()
+    benchmark_path = run_log_dir / pretrain_script.CLS_PATH_BENCHMARK_FILENAME
+
+    assert pretrain_script.should_benchmark_cls_prediction_path(None, run_log_dir) is True
+    benchmark_path.write_text("{}")
+    assert pretrain_script.should_benchmark_cls_prediction_path(None, run_log_dir) is False
+    assert pretrain_script.should_benchmark_cls_prediction_path(tmp_path / "checkpoint.pt", run_log_dir) is False
 
 
 def test_pretrain_resume_rejects_different_wandb_run_id(mocker, tmp_path: Path) -> None:

@@ -70,6 +70,7 @@ from mjepa_cifar10.research.runtime import (
 SEED: Final = 0
 WANDB_TAG_MAX_LENGTH: Final = 64
 WANDB_TAG_HASH_LENGTH: Final = 12
+CLS_PATH_BENCHMARK_FILENAME: Final = "cls-path-benchmark.json"
 
 
 class ResumeState(NamedTuple):
@@ -223,9 +224,10 @@ def apply_checkpoint_image_size(backbone_config: ViTConfig, metadata: Checkpoint
     return replace(backbone_config, img_size=list(metadata.img_size))
 
 
-def should_benchmark_cls_prediction_path(checkpoint: Path | None) -> bool:
-    """Preserve the immutable launch benchmark when restoring a checkpoint."""
-    return checkpoint is None
+def should_benchmark_cls_prediction_path(checkpoint: Path | None, run_log_dir: Path | None) -> bool:
+    """Run the launch benchmark only when no checkpoint or durable result exists."""
+    benchmark_exists = run_log_dir is not None and (run_log_dir / CLS_PATH_BENCHMARK_FILENAME).is_file()
+    return checkpoint is None and not benchmark_exists
 
 
 def build_managed_lifecycle_reporter(
@@ -455,14 +457,14 @@ def main(args: Namespace) -> None:
                 "cls_global_pool_consistency_loss_weight": cls_global_pool_consistency_loss_weight,
             },
         )
-        if should_benchmark_cls_prediction_path(args.checkpoint):
+        if should_benchmark_cls_prediction_path(args.checkpoint, run_log_dir):
             cls_path_benchmark = benchmark_cls_prediction_path(unwrapped_jepa)
             cls_path_metrics = cls_path_benchmark.to_metrics()
             wandb.config.update({"cls_path_benchmark": cls_path_benchmark.to_dict()})
             wandb.log(cls_path_metrics, step=initial_step)
             append_metric_record(run_log_dir, initial_step, cls_path_metrics)
             if run_log_dir is not None:
-                write_cls_path_benchmark(run_log_dir / "cls-path-benchmark.json", cls_path_benchmark)
+                write_cls_path_benchmark(run_log_dir / CLS_PATH_BENCHMARK_FILENAME, cls_path_benchmark)
     if dist.is_initialized():
         dist.barrier()
 
