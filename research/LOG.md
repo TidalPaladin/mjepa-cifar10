@@ -2320,3 +2320,23 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Compute: Four scientific pretraining runs used `6,277.294` summed GPU-active seconds. Including the one-epoch smoke and all frozen probes and diagnostics, the program used `6,741.492` GPU-active seconds (`1.873` hours) over a `5,213.636`-second wall span.
 - Provenance and recovery: Training parent `1134b145f5550fb5540dc53a77ae3ead2f21b274`; evaluation parent `e665a5ae49d6b84bad1c3fc31cd4d631a0971fe9`; `mjepa=578a2f92441394f232732348b6e9f569237b2744`; `vit=bf15705454975f04912538cdc790d399eea69e67`. Managed first-cycle and terminal lifecycle events were accepted for every pretraining run. Probe watch `e328333c-49c5-451c-b8cd-753860457409` and diagnostic watch `8177c975-6421-400d-ac93-caa7552e793e` both closed successfully with accepted delivery and released goal-wait ownership.
 - Retention: Every checkpoint, backbone, curve, probe cache, diagnostic result, W&B record, lifecycle event, and notification artifact remains retained. No destructive retention was applied.
+<!-- autoresearch-operation:{"content_sha256":"c7c99bdbcc8b96f1549c4133c5140261e1ec795e76d0134dc8e394df2b9613bd","operation_id":"6f9a8c9b1261ec498abcba4934e0bedf"} -->
+
+<!-- study:ijepa-token-specialization-v1-smoke:phase:no-promotion -->
+## ijepa-token-specialization-v1-smoke
+
+- Question: Does an I-JEPA encoder with separate global-token and visual-token parameter paths complete one train-validation-checkpoint cycle?
+- Hypothesis: Cloned global and visual normalization, LayerScale, and early QKV branches preserve the baseline function at initialization and train with finite gradients under the existing EMA-teacher I-JEPA objective.
+- Mechanisms and exact changes:
+  - `token-specialized-smoke`: Mechanism: Split the global and visual paths for normalization and LayerScale in both encoder blocks and for QKV in the first block. Changes: Treat the two CLS and two register tokens as the global-token prefix.; Clone visual parameters from the corresponding global parameters at initialization.; Keep attention, output projections, MLP projections, the final output norm, predictor, and I-JEPA objective shared.
+- Launch code provenance:
+  - `pretrain-token-specialized-smoke-seed0`: parent=`e95ba177564e13d4ea20b658f18cf63a29c49903` (`codex/research/ijepa-token-specialization-v1`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec` (`codex/research/ijepa-token-specialization-v1`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/ijepa-token-specialization-v1-smoke/summary.json`; external_detail=True
+- Conclusion: The baseline smoke run completed; no candidates were configured for promotion.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-token-specialized-smoke-seed0`: attempt=1; status=completed; decision=baseline; started=2026-08-04T00:33:20.969771+00:00; finished=2026-08-04T00:34:16.770989+00:00; terminal_event=1984bffc-d349-4b17-b766-8d95c7aae356; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/ijepa-token-specialization-v1-smoke/runs/pretrain-token-specialized-smoke-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/b106dcab); checkpoint=retained; metrics=peak_accuracy=0.158400, final_accuracy=0.158400, step_to_90=87, step_to_95=87, active_seconds_to_90=40.809, active_seconds_to_95=40.809, step_auc=0.158400, active_time_auc=0.158400, active_seconds_at_step_horizon=40.809, cls_path_latency_median_ms=3.772384, cls_path_latency_p90_ms=3.812352; error=none
