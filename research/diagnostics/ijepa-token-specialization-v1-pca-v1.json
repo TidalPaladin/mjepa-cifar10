@@ -1,0 +1,55 @@
+{
+  "decision_impact": "none-posthoc-exploratory",
+  "interpretation": "Token specialization increases spatial contrast primarily by removing image-level content shared across patches. After subtracting each image's patch-token mean, the specialized model retains a smaller positive neighbor-excess gain, which supports slightly stronger local organization but not a large spatial reorganization by itself.",
+  "method": {
+    "display_examples": 10,
+    "display_examples_disjoint_from_pca_fit": true,
+    "evaluation_examples": 5000,
+    "gradient_mode": "torch.inference_mode",
+    "model_mode": "eval",
+    "official_test_set_used": false,
+    "pca_basis": "three components fitted independently per model",
+    "pca_centering": "subtract each image's patch-token mean before fitting and projection",
+    "pca_fit_examples": 640,
+    "pca_fit_examples_per_class": 64,
+    "spatial_metric": "visual-token cosine similarity grouped by Manhattan distance on the 8x8 token grid",
+    "split": "fixed-45000-train-5000-validation",
+    "split_sha256": "bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b"
+  },
+  "result_artifact": {
+    "local_path": "logs/research/ijepa-token-specialization-v1-pca/result.json",
+    "sha256": "e080761a2cbeb37f180704d5acdb61995347ecaf0bdd86765887ce96dc1fc3ee"
+  },
+  "schema_version": 1,
+  "sources": {
+    "baseline": {
+      "checkpoint_sha256": "b5be328126c7e14b72e7f39ea4ddcb9a74df6587f44a2c30dc9ef2cbcba3cc79",
+      "pca_top3_explained_variance": 0.11713062413036823,
+      "raw": {
+        "adjacent_cosine": 0.7581578220257492,
+        "neighbor_excess": 0.33310673975814054,
+        "nonadjacent_cosine": 0.4250510822676087
+      },
+      "within_image_centered": {
+        "adjacent_cosine": 0.5459309056620407,
+        "neighbor_excess": 0.5927984968525062,
+        "nonadjacent_cosine": -0.04686759119046544
+      }
+    },
+    "specialized": {
+      "checkpoint_sha256": "d43ba133a73bf47c687e243dc92f5fc812e3e06026864f9a3ba4103ff5d44bab",
+      "pca_top3_explained_variance": 0.14572042599320412,
+      "raw": {
+        "adjacent_cosine": 0.7201467571499972,
+        "neighbor_excess": 0.3980206437562705,
+        "nonadjacent_cosine": 0.3221261133937267
+      },
+      "within_image_centered": {
+        "adjacent_cosine": 0.5573073509078301,
+        "neighbor_excess": 0.6044617545255438,
+        "nonadjacent_cosine": -0.04715440361771377
+      }
+    }
+  },
+  "status": "completed"
+}
