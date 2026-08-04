@@ -28,6 +28,12 @@ methodology:
     source_final_cls_patch_alignment: -0.002502408645447567
     source_final_patch_pairwise_cosine: 0.3442408186710335
     rationale: The specialized model preserved online quality and substantially separated CLS and patch-token geometry. The remaining question is whether its seven registers still provide necessary global scratch capacity.
+  mechanical_retry:
+    failed_attempt_1: Both paired runs stopped before their first optimizer step when the landed token-specialized attention kernel's dynamic large-batch backward raised an Inductor CantSplit error.
+    root_cause: The landed hardening change removed concrete-shape compilation from the specialized attention kernel; the existing batch-size-2 regression did not exercise the batch-size-512 scheduler path.
+    regression: A CUDA test now covers batch size 512 with both eight and one global token and reproduces each failed run's compiler path.
+    repair: Pin vit 1618b5b08437775e32c4e3f245a74ddf389ccb96, which restores concrete-shape compilation for only the specialized attention kernel while preserving model arithmetic and extends the regression test to both experimental prefix sizes.
+    scientific_status: Attempt 1 produced no training metrics and does not count as a scientific observation; both variants retry from initialization as attempt 2 with their existing W&B identities.
   scientific_run_allocation:
     new_pretraining_runs: 2
     seeds: [0]
@@ -35,7 +41,7 @@ methodology:
     no_automatic_confirmation: true
   paired_environment:
     shared_seed: 0
-    code_revision: Both models use the landed token-specialization implementation from vit PR 120.
+    code_revision: Both models use the landed token-specialization implementation from vit PR 120 plus the identical concrete-shape compiler repair recorded above.
     isolation: The two configs differ only in backbone num_register_tokens; the pair launches concurrently on physical GPUs 1 and 2.
     initialization_note: Common parameters use the same seed, but removing prefix tokens changes attention inputs immediately and does not imply functionally identical step-zero outputs.
   controls:
@@ -100,7 +106,7 @@ wandb:
 code_shas:
   parent: REQUIRED
   mjepa: 578a2f92441394f232732348b6e9f569237b2744
-  vit: 859b7ac772ba16d9febd3c6d746de818d2cc11fb
+  vit: 1618b5b08437775e32c4e3f245a74ddf389ccb96
 
 resources:
   physical_gpus: [1, 2]

@@ -11,7 +11,7 @@ REFERENCE_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "vit-small-ijepa-tok
 CANDIDATE_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "vit-small-ijepa-token-specialization-no-registers.yaml"
 STUDY_PATH = REPO_ROOT / "research" / "studies" / "ijepa-token-specialization-v2-no-registers.yaml"
 DIAGNOSTIC_PATH = REPO_ROOT / "research" / "diagnostics" / "ijepa-token-specialization-v2-no-registers.yaml"
-EXPECTED_VIT_SHA = "859b7ac772ba16d9febd3c6d746de818d2cc11fb"
+EXPECTED_VIT_SHA = "1618b5b08437775e32c4e3f245a74ddf389ccb96"
 
 
 def test_candidate_changes_only_the_register_token_count() -> None:

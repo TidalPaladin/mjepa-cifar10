@@ -14,7 +14,7 @@ resolution-markers = [
 ]
 
 [manifest]
-overrides = [{ name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=859b7ac772ba16d9febd3c6d746de818d2cc11fb" }]
+overrides = [{ name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=1618b5b08437775e32c4e3f245a74ddf389ccb96" }]
 
 [[package]]
 name = "annotated-types"
@@ -523,7 +523,7 @@ requires-dist = [
     { name = "torchmetrics", specifier = "==1.9.0" },
     { name = "torchvision", specifier = "==0.28.0" },
     { name = "tqdm", specifier = "==4.68.4" },
-    { name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=859b7ac772ba16d9febd3c6d746de818d2cc11fb" },
+    { name = "vit", git = "https://github.com/TidalPaladin/vit.git?rev=1618b5b08437775e32c4e3f245a74ddf389ccb96" },
     { name = "wandb", specifier = "==0.28.1" },
 ]
 
@@ -1732,8 +1732,8 @@ wheels = [
 
 [[package]]
 name = "vit"
-version = "0.1.2.dev13+g859b7ac77"
-source = { git = "https://github.com/TidalPaladin/vit.git?rev=859b7ac772ba16d9febd3c6d746de818d2cc11fb#859b7ac772ba16d9febd3c6d746de818d2cc11fb" }
+version = "0.1.2.dev14+g1618b5b08"
+source = { git = "https://github.com/TidalPaladin/vit.git?rev=1618b5b08437775e32c4e3f245a74ddf389ccb96#1618b5b08437775e32c4e3f245a74ddf389ccb96" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
