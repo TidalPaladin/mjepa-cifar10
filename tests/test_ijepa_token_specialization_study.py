@@ -7,7 +7,8 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 STUDY_PATH = REPO_ROOT / "research" / "studies" / "ijepa-token-specialization-v1-screen.yaml"
 SMOKE_STUDY_PATH = REPO_ROOT / "research" / "studies" / "ijepa-token-specialization-v1-smoke.yaml"
 DIAGNOSTIC_PATH = REPO_ROOT / "research" / "diagnostics" / "ijepa-token-specialization-v1-screen.yaml"
-EXPECTED_VIT_SHA = "f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec"
+EXPECTED_VIT_SHA = "6d298af42b88f5d734554df28fef0198d6b0aed3"
+CONTROL_LAUNCH_VIT_SHA = "f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec"
 
 
 def test_screen_is_a_fresh_paired_ijepa_comparison() -> None:
@@ -25,6 +26,7 @@ def test_screen_is_a_fresh_paired_ijepa_comparison() -> None:
     assert not study["promotion"]["confirmation_enabled"]
     assert study["evaluation"]["official_test_roles"] == []
     assert study["code_shas"]["vit"] == EXPECTED_VIT_SHA
+    assert CONTROL_LAUNCH_VIT_SHA in study["methodology"]["mechanical_retry"]["paired_control"]
 
 
 def test_smoke_exercises_only_the_specialized_candidate() -> None:

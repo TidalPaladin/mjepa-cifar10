@@ -58,6 +58,6 @@ wandb:
 code_shas:
   parent: REQUIRED
   mjepa: 578a2f92441394f232732348b6e9f569237b2744
-  vit: f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec
+  vit: 6d298af42b88f5d734554df28fef0198d6b0aed3
 
 log_root: logs/research
