@@ -2385,3 +2385,44 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - PCA concentration: The first three within-image PCA components explain `11.71%` of baseline patch variance and `14.57%` of specialized patch variance.
 - Interpretation: Separate token paths primarily remove global content shared across visual tokens. The positive centered neighbor-excess gain supports slightly stronger local spatial organization, but it is much smaller than the raw gain and does not establish dense downstream utility.
 - Reproduction: `scripts/visualize_patch_token_pca.py`; structured summary `research/diagnostics/ijepa-token-specialization-v1-pca-v1.json`; local result SHA-256 `e080761a2cbeb37f180704d5acdb61995347ecaf0bdd86765887ce96dc1fc3ee`.
+<!-- autoresearch-operation:{"content_sha256":"77bf0dccc07f84ad26d14d9513505da8fa7d14e6294e6baabb9e53530cb1759b","operation_id":"a30b9ddcc1f6a0c338789479c44e10d6"} -->
+
+<!-- study:ijepa-token-specialization-v2-no-registers:phase:no-promotion -->
+## ijepa-token-specialization-v2-no-registers
+
+- Question: Do separate global/visual encoder pathways make register tokens unnecessary for I-JEPA global quality and patch-token specialization?
+- Hypothesis: With specialized normalization, LayerScale, and early QKV paths, removing all seven register tokens will preserve the seven-register model's online CLS-probe curve and layerwise patch geometry because the dedicated global pathway already prevents global and visual features from competing for shared parameters.
+- Mechanisms and exact changes:
+  - `token-specialized-register7`: Mechanism: Train the landed specialized encoder with one CLS token, seven register tokens, separate global/visual normalization and LayerScale in all blocks, and separate QKV projections in the first four blocks. Changes: not recorded.
+  - `token-specialized-register0`: Mechanism: Remove all seven register tokens while preserving the specialized global/visual paths and every training choice. Changes: Set backbone num_register_tokens from 7 to 0.
+- Launch code provenance:
+  - `pretrain-token-specialized-register0-seed0`: parent=`d9d290c659a4a35daa67e5eaf80cc2f9ec024fe0` (`codex/research/ijepa-token-specialization-v2-no-registers`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`1618b5b08437775e32c4e3f245a74ddf389ccb96` (`codex/research/ijepa-token-specialization-v2-no-registers`)
+  - `pretrain-token-specialized-register7-seed0`: parent=`d9d290c659a4a35daa67e5eaf80cc2f9ec024fe0` (`codex/research/ijepa-token-specialization-v2-no-registers`), mjepa=`578a2f92441394f232732348b6e9f569237b2744` (`codex/research/lejepa-target-stopgrad-v1`), vit=`1618b5b08437775e32c4e3f245a74ddf389ccb96` (`codex/research/ijepa-token-specialization-v2-no-registers`)
+- Phase: no-promotion
+- Winner: none
+- External tracker: provider=W&B; account=tidalpaladin; project=mjepa-cifar10; authorized=True; approved_data_classes=metrics, configs, provenance
+- Detail location: local summary and raw metrics under `/home/tidal/Documents/mjepa-cifar10/logs/research/ijepa-token-specialization-v2-no-registers/summary.json`; external_detail=True
+- Conclusion: No seed-0 candidate met a promotion threshold.
+- Follow-up: record interpretation and the next falsifiable hypothesis.
+- Checkpoint disposition: see each run below; deleted weights are not recoverable.
+
+- `pretrain-token-specialized-register0-seed0`: attempt=2; status=completed; decision=rejected; started=2026-08-04T17:06:11.060361+00:00; finished=2026-08-04T20:12:58.001419+00:00; terminal_event=6e1520e1-05d9-43e1-85de-7dae5a278154; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/ijepa-token-specialization-v2-no-registers/runs/pretrain-token-specialized-register0-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0fc0f486); checkpoint=retained; metrics=peak_accuracy=0.913400, final_accuracy=0.911800, step_to_90=8265, step_to_95=11310, active_seconds_to_90=5336.437, active_seconds_to_95=7287.999, step_auc=0.786390, active_time_auc=0.785073, active_seconds_at_step_horizon=11191.558, cls_path_latency_median_ms=30.909440, cls_path_latency_p90_ms=31.646721; error=none
+- `pretrain-token-specialized-register7-seed0`: attempt=2; status=completed; decision=baseline; started=2026-08-04T17:06:10.961960+00:00; finished=2026-08-04T20:32:56.954400+00:00; terminal_event=5947ceef-ddb5-4efc-925c-344f2421a9c3; artifacts=`/home/tidal/Documents/mjepa-cifar10/logs/research/ijepa-token-specialization-v2-no-registers/runs/pretrain-token-specialized-register7-seed0`; W&B=[run](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/40b3c5d9); checkpoint=retained; metrics=peak_accuracy=0.921000, final_accuracy=0.921000, step_to_90=7830, step_to_95=10875, active_seconds_to_90=5595.485, active_seconds_to_95=7758.324, step_auc=0.789380, active_time_auc=0.774513, active_seconds_at_step_horizon=12390.589, cls_path_latency_median_ms=31.506432, cls_path_latency_p90_ms=32.138241; error=none
+<!-- autoresearch-operation:{"content_sha256":"a655c4a6e88601720d447bc489176f1e7e21b40a57e31245f13a32228ad91e01","operation_id":"ijepa-token-specialization-v2-no-registers-result-v1"} -->
+## I-JEPA specialized pathways without register tokens (2026-08-04)
+
+- Outcome: `specialized-pathways-reduce-register-pressure-but-do-not-negate-registers`. The zero-register model improved final token separation and stayed within the patch-mean semantic tolerance, but it failed the peak online, final online, and final CLS-centroid accuracy limits.
+
+| Variant | Peak / final online | Step to 90% / 95% | Step / active-time AUC | Final CLS / patch centroid | Final CPA / patch cosine | Centered patch energy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Seven registers | `0.9210 / 0.9210` | `7,830 / 10,875` | `0.78938 / 0.77451` | `0.8774 / 0.8638` | `0.02863 / 0.30379` | `0.68490` |
+| Zero registers | `0.9134 / 0.9118` | `8,265 / 11,310` | `0.78639 / 0.78507` | `0.8644 / 0.8570` | `0.01029 / 0.29623` | `0.69808` |
+
+- Register-negation gate: Peak online loss was `0.00760` against a `0.005` maximum, final online loss was `0.00920` against `0.005`, and final CLS-centroid loss was `0.01300` against `0.010`. Those three endpoints failed. Step-to-target ratios, both AUC losses, final patch-mean loss (`0.00680`), final CPA increase (`-0.01834`), final patch-cosine increase (`-0.00756`), and centered-energy ratio (`1.01925`) passed.
+- Layerwise result: The zero-register model's largest CLS and patch-mean centroid gains both occur at block 7 (`+0.0488` and `+0.0202`). The gains disappear by block 12, where CLS and patch-mean accuracy are lower by `0.0130` and `0.0068`. CPA is lower in blocks 2 through 12, but within-image patch cosine is higher in blocks 4 through 11 and reaches a `+0.03947` excess at block 8.
+- Interpretation: Separate global and visual parameters handle part of the routing pressure that registers otherwise absorb. They do not replace the top-layer semantic benefit of seven registers in this configuration. The control retains better endpoint accuracy and a higher centered patch effective-rank fraction (`0.47742` versus `0.45475`).
+- Mechanical retry: Both attempt-1 runs stopped at optimizer step zero on the same compiled symbolic-backward failure. Attempt 2 completed with unchanged variants, seeds, W&B identities, and endpoints after the reviewed `vit` fix. No scientific training steps from attempt 1 entered the comparison.
+- Tracking: Pretraining W&B runs [seven registers](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/40b3c5d9) and [zero registers](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0fc0f486); diagnostic runs [seven registers](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/ts1xsja0) and [zero registers](https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/2p4doy98).
+- Compute and provenance: The two pretraining runs and diagnostics used `23,644.588` summed GPU-active seconds (`6.568` hours) over a `12,721.590`-second wall span. Training and diagnostics used parent `d9d290c659a4a35daa67e5eaf80cc2f9ec024fe0`, `mjepa=578a2f92441394f232732348b6e9f569237b2744`, and `vit=1618b5b08437775e32c4e3f245a74ddf389ccb96` on the fixed split `bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b`. The diagnostic watch `d37e9cf6-de08-41cc-ae93-f6a268707a4f` closed successfully, delivery was accepted, and owned goal-wait state was released.
+- Retention and scope: Both checkpoints, backbones, complete curves, layerwise results, W&B records, and lifecycle evidence remain retained. No destructive retention was applied. This is a paired seed-0 screen; no confirmation, fine-tuning, or official-test evaluation was performed.
+- Structured result: `research/diagnostics/ijepa-token-specialization-v2-no-registers-result-v1.json`.

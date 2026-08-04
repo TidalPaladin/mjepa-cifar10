@@ -1,0 +1,259 @@
+{
+  "answer": "Separate global and visual pathways reduce the geometric symptoms that register tokens are meant to absorb, but they do not make registers unnecessary in this I-JEPA configuration. Removing all seven registers improved final CLS-patch separation and preserved final patch-mean label utility within the preregistered tolerance, while losing too much online and frozen-CLS accuracy to pass the register-negation gate.",
+  "artifacts": {
+    "diagnostic_candidate_result_sha256": "77d15072bd03a6b67fb9d309eaec50c9a628a83616e3c553da78384170f35d8d",
+    "diagnostic_control_result_sha256": "d1ca98a6776afb5c30b7e8eb8f123236f6ecf8dd74486bacb2ea65143c94d57b",
+    "diagnostic_manifest_sha256": "d75a2049ddb8e4f394fe349ab9c45aa86abdf54449e4728de4c3450f8b803b21",
+    "diagnostic_summary_sha256": "1614578b388353e1724f071c7e3e5349d5dbe051dffdb710d75f94b00a339203",
+    "pretraining_summary_sha256": "49bb156b0b78f293321966471f2c22e2e057486163a08590e4fc1f39642d40c0"
+  },
+  "compute": {
+    "diagnostic_active_seconds_sum": 62.442195910960436,
+    "pretraining_active_seconds_sum": 23582.146129712462,
+    "program_active_hours": 6.567941201562062,
+    "program_active_seconds": 23644.588325623423,
+    "program_wall_finished_at": "2026-08-04T20:38:12.552342+00:00",
+    "program_wall_seconds": 12721.590384,
+    "program_wall_started_at": "2026-08-04T17:06:10.961960+00:00"
+  },
+  "data": {
+    "official_test_set_used": false,
+    "split": "fixed-45000-train-5000-validation",
+    "split_sha256": "bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b"
+  },
+  "decision": "specialized-pathways-reduce-register-pressure-but-do-not-negate-registers",
+  "interpretation": "The zero-register encoder is faster and its final visual tokens are less aligned with CLS, less mutually similar within an image, and slightly higher in centered energy. Those changes show that separate global and visual parameter paths absorb part of the routing role normally assigned to registers. However, the seven-register control is better at final semantic aggregation: it leads by 0.76 percentage points in peak online accuracy, 0.92 points in final online accuracy, 1.30 points in frozen CLS-centroid accuracy, and 0.68 points in frozen patch-mean centroid accuracy. The candidate's strongest semantic advantage occurs in blocks 6 through 9, peaking at block 7, but disappears by block 12. Registers therefore remain beneficial for top-layer semantic quality even after pathway specialization.",
+  "layerwise": {
+    "final_candidate_minus_control": {
+      "centered_patch_effective_rank_fraction": -0.02267029427980627,
+      "centered_patch_energy_ratio": 1.0192469159028645,
+      "cls_centroid_accuracy": -0.012999951839447021,
+      "cls_patch_alignment": -0.018343448427208933,
+      "cls_patch_mean_centroid_accuracy": -0.010599970817565918,
+      "patch_mean_centroid_accuracy": -0.0067999958992004395,
+      "patch_pairwise_cosine": -0.007558392121788993
+    },
+    "observations": "Removing registers initially hurts CLS accuracy, improves both CLS and patch-mean centroid accuracy in the middle of the encoder, then gives back those gains in the final three blocks. The largest CLS and patch-mean gains occur at block 7 (+4.88 and +2.02 points). The candidate has lower CLS-patch alignment in blocks 2 through 12, but within-image patch similarity is worse in blocks 4 through 11 and exceeds the final-layer tolerance transiently in blocks 6 through 9.",
+    "selected_extrema": {
+      "best_cls_centroid_gain": {
+        "block": 7,
+        "value": 0.048799991607666016
+      },
+      "best_patch_mean_centroid_gain": {
+        "block": 7,
+        "value": 0.020200014114379883
+      },
+      "largest_cls_patch_alignment_decrease": {
+        "block": 4,
+        "value": 0.05275044840228093
+      },
+      "largest_patch_pairwise_cosine_increase": {
+        "block": 8,
+        "value": 0.03947450283845377
+      },
+      "lowest_centered_patch_energy_ratio": {
+        "block": 8,
+        "value": 0.9433447953529359
+      },
+      "worst_cls_centroid_gain": {
+        "block": 2,
+        "value": -0.026600003242492676
+      },
+      "worst_patch_mean_centroid_gain": {
+        "block": 12,
+        "value": -0.0067999958992004395
+      }
+    }
+  },
+  "limitations": [
+    "This is a paired seed-0 mechanism screen, not a multi-seed confirmation estimate.",
+    "Nearest-centroid accuracy on CIFAR-10 measures label-aligned utility but does not cover detection, segmentation, or spatial correspondence.",
+    "The comparison removes seven register tokens but does not isolate which individual register or global-token interaction produces the retained semantic benefit.",
+    "No fine-tuning or official CIFAR-10 test evaluation was authorized or performed."
+  ],
+  "mechanical_retries": {
+    "attempt_1": "Both runs stopped at optimizer step zero because the landed specialized attention path hit the same compiled symbolic-backward failure at the scientific batch size.",
+    "attempt_2": "Both paired runs completed after the separately reviewed vit compilation fix, preserving the original variants, seeds, W&B identities, metrics, and endpoints. Attempt 1 contributed no scientific training steps."
+  },
+  "online_convergence": {
+    "candidate_register0": {
+      "active_seconds_at_step_horizon": 11191.557551564649,
+      "active_seconds_to_90": 5336.43650390394,
+      "active_seconds_to_95": 7287.999461265281,
+      "active_time_auc": 0.7850730736682112,
+      "final_accuracy": 0.9118000268936157,
+      "isolated_cls_path_latency_median_ms": 30.90944004058838,
+      "peak_accuracy": 0.9133999943733215,
+      "step_auc": 0.7863899976015091,
+      "step_horizon": 17400,
+      "step_to_90": 8265,
+      "step_to_95": 11310
+    },
+    "candidate_relative_to_control": {
+      "active_seconds_at_step_horizon_ratio": 0.9032305028109973,
+      "active_seconds_to_90_ratio": 0.9537039302993454,
+      "active_seconds_to_95_ratio": 0.9393781320418741,
+      "active_time_auc_loss": -0.010560272713798224,
+      "final_accuracy_loss": 0.009199976921081543,
+      "isolated_cls_path_latency_ratio": 0.9810517564487309,
+      "peak_accuracy_loss": 0.007600009441375732,
+      "step_auc_loss": 0.002990003675222397,
+      "step_to_90_ratio": 1.0555555555555556,
+      "step_to_95_ratio": 1.04
+    },
+    "control_register7": {
+      "active_seconds_at_step_horizon": 12390.588578147814,
+      "active_seconds_to_90": 5595.485490165651,
+      "active_seconds_to_95": 7758.323525611311,
+      "active_time_auc": 0.774512800954413,
+      "final_accuracy": 0.9210000038146973,
+      "isolated_cls_path_latency_median_ms": 31.506431579589844,
+      "peak_accuracy": 0.9210000038146973,
+      "step_auc": 0.7893800012767315,
+      "step_horizon": 17400,
+      "step_to_90": 7830,
+      "step_to_95": 10875
+    }
+  },
+  "operation_id": "ijepa-token-specialization-v2-no-registers-result-v1",
+  "provenance": {
+    "mjepa": "578a2f92441394f232732348b6e9f569237b2744",
+    "parent": "d9d290c659a4a35daa67e5eaf80cc2f9ec024fe0",
+    "vit": "1618b5b08437775e32c4e3f245a74ddf389ccb96"
+  },
+  "register_negation_gate": {
+    "failure_reasons": [
+      "online-peak-accuracy-loss",
+      "online-final-accuracy-loss",
+      "final-cls-centroid-accuracy-loss"
+    ],
+    "observed": {
+      "active_time_auc_loss": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 0.01,
+        "value": -0.010560272713798224
+      },
+      "candidate_to_control_centered_patch_energy_ratio": {
+        "comparator": ">=",
+        "passed": true,
+        "threshold": 0.9,
+        "value": 1.0192469159028645
+      },
+      "final_cls_centroid_accuracy_loss": {
+        "comparator": "<=",
+        "passed": false,
+        "threshold": 0.01,
+        "value": 0.012999951839447021
+      },
+      "final_cls_patch_alignment_increase": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 0.02,
+        "value": -0.018343448427208933
+      },
+      "final_patch_mean_centroid_accuracy_loss": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 0.01,
+        "value": 0.0067999958992004395
+      },
+      "final_patch_pairwise_cosine_increase": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 0.02,
+        "value": -0.007558392121788993
+      },
+      "online_final_accuracy_loss": {
+        "comparator": "<=",
+        "passed": false,
+        "threshold": 0.005,
+        "value": 0.009199976921081543
+      },
+      "online_peak_accuracy_loss": {
+        "comparator": "<=",
+        "passed": false,
+        "threshold": 0.005,
+        "value": 0.007600009441375732
+      },
+      "step_auc_loss": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 0.01,
+        "value": 0.002990003675222397
+      },
+      "step_to_90_ratio": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 1.1,
+        "value": 1.0555555555555556
+      },
+      "step_to_95_ratio": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 1.1,
+        "value": 1.04
+      }
+    },
+    "passed": false,
+    "rule": "Call specialized pathways sufficient to negate registers only if every online-quality, convergence, AUC, frozen-semantic, alignment, similarity, and centered-energy threshold passes."
+  },
+  "retention": {
+    "all_checkpoints": "retained",
+    "all_curves_and_diagnostics": "retained",
+    "destructive_retention_applied": false
+  },
+  "runs": {
+    "token-specialized-register0-seed0": {
+      "checkpoint_sha256": "5059c126068068b62696ec04ec84ce0109016e0ac979c3829716265fa83674ae",
+      "final_diagnostics": {
+        "centered_patch_effective_rank_fraction": 0.454753307576478,
+        "centered_patch_energy_ratio": 0.6980784122789161,
+        "cls_centroid_accuracy": 0.8644000291824341,
+        "cls_patch_alignment": 0.010289102234638995,
+        "cls_patch_mean_centroid_accuracy": 0.8676000237464905,
+        "patch_mean_centroid_accuracy": 0.8569999933242798,
+        "patch_pairwise_cosine": 0.2962343270434997
+      },
+      "role": "candidate",
+      "wandb": {
+        "diagnostic": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/2p4doy98",
+        "pretraining": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/0fc0f486"
+      }
+    },
+    "token-specialized-register7-seed0": {
+      "checkpoint_sha256": "496f7623fc8bbe1bea807831fcf0f296181a0a132b49d9f9b61d0778882a1231",
+      "final_diagnostics": {
+        "centered_patch_effective_rank_fraction": 0.4774236018562843,
+        "centered_patch_energy_ratio": 0.6848962713422071,
+        "cls_centroid_accuracy": 0.8773999810218811,
+        "cls_patch_alignment": 0.028632550661847927,
+        "cls_patch_mean_centroid_accuracy": 0.8781999945640564,
+        "patch_mean_centroid_accuracy": 0.8637999892234802,
+        "patch_pairwise_cosine": 0.3037927191652887
+      },
+      "role": "control",
+      "wandb": {
+        "diagnostic": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/ts1xsja0",
+        "pretraining": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/40b3c5d9"
+      }
+    }
+  },
+  "schema_version": 1,
+  "scope": {
+    "confirmation_run_launched": false,
+    "fine_tuning_performed": false,
+    "official_test_evaluation_performed": false,
+    "scientific_pretraining_runs": 2,
+    "seed": 0
+  },
+  "status": "completed",
+  "study_id": "ijepa-token-specialization-v2-no-registers",
+  "watch": {
+    "accepted_rpc_method": "turn/steer",
+    "event_id": "13f9c443-e2f1-431e-8890-5277fecacc1a",
+    "goal_wait_state": "released",
+    "status": "succeeded",
+    "watch_id": "d37e9cf6-de08-41cc-ae93-f6a268707a4f"
+  }
+}
