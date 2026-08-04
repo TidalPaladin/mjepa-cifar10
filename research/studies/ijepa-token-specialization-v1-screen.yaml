@@ -1,0 +1,116 @@
+id: ijepa-token-specialization-v1-screen
+question: Does separating CLS/register and visual-token parameter paths reduce global homogenization of I-JEPA patch tokens while preserving global representation quality?
+hypothesis: Separate pre-attention and pre-MLP normalization plus LayerScale in all blocks, together with separate QKV projections in the first third of the encoder, will lower CLS-patch alignment and within-image patch similarity, improve patch-mean label utility, and preserve the baseline CLS probe curve.
+rejection_condition: Reject the mechanism if the candidate collapses, loses more than 0.005 peak online accuracy or 0.01 final CLS-centroid accuracy, fails to lower both final CLS-patch alignment and within-image patch cosine, or reduces centered patch energy below 90% of the paired baseline.
+checkpoint_plan: Retain both fresh checkpoints, backbones, curves, layerwise diagnostics, W&B runs, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: ijepa-control
+  config: config/pretrain/vit-small.yaml
+  hypothesis: The current ViT-S/4 I-JEPA baseline measures token behavior when CLS, register, and visual tokens share all encoder normalization, LayerScale, and projection parameters.
+  mechanism: Train the existing EMA-teacher masked-prediction objective with one CLS token, seven register tokens, and fully shared encoder blocks.
+  changes: []
+
+variants:
+  - id: token-specialized
+    config: config/pretrain/vit-small-ijepa-token-specialization.yaml
+    hypothesis: Early projection specialization will let patches preserve local variation while all-block normalization specialization prevents global and visual streams from competing for the same feature statistics.
+    mechanism: Treat CLS and register tokens as one global stream; split its normalization, LayerScale, and early QKV parameters from visual-token parameters while retaining shared token interaction through attention.
+    changes:
+      - Use separate pre-attention and pre-MLP LayerNorm parameters in all 12 encoder blocks.
+      - Use separate attention and MLP LayerScale parameters in all 12 encoder blocks.
+      - Use separate QKV projections in blocks 1 through 4, the first third of the encoder.
+      - Clone every visual branch from the corresponding global branch so both architectures are functionally identical at initialization under a paired seed.
+      - Keep attention, output projections, MLP projections, final output norm, predictor, EMA teacher, masks, augmentations, optimizer, and loss weights unchanged.
+
+methodology:
+  linked_program: ijepa-token-specialization-v1
+  literature_basis: Marouani et al., Revisiting [CLS] and Patch Token Interaction in Vision Transformers, ICLR 2026; extend its CLS-versus-patch split by grouping I-JEPA register tokens with CLS as the global stream.
+  scientific_run_allocation:
+    new_pretraining_runs: 2
+    seeds: [0]
+    concurrent_pair: true
+    no_automatic_confirmation: true
+  paired_initialization:
+    shared_seed: 0
+    construction: Specialized branches are deterministic parameter clones and consume no random draws, preserving identical common parameters and outputs at step zero.
+  controls:
+    epochs: 400
+    validation_interval_epochs: 10
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2.
+    objective: Existing visual-token and partitioned independent CLS I-JEPA prediction with the EMA teacher and unchanged SigREG weight.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, constant rate, and identical parameter-group rules.
+    probe_boundary: Final full-view CLS enters the online classifier through the existing explicit detach.
+    terminal_diagnostic: Freeze both encoders and apply deterministic normalized nearest-centroid probes for CLS, patch mean, and their concatenation at every block.
+  primary_endpoints:
+    - First-validation, final, peak, step-AUC, and convergence differences in the paired online CLS-probe curves.
+    - Final and layerwise patch-mean nearest-centroid accuracy.
+    - Final and layerwise CLS-patch alignment and within-image patch pairwise cosine.
+  secondary_endpoints:
+    - CLS and patch-mean effective rank, variance, top-eigenvalue fraction, and pairwise cosine.
+    - Centered patch energy and effective-rank fraction, active time, throughput, and parameter count.
+  safety_gate:
+    finite_fraction_required: 1.0
+    cls_std_mean_minimum: 0.10
+    cls_top_eigenvalue_fraction_maximum: 0.50
+    cls_mean_pairwise_cosine_maximum: 0.90
+    patch_mean_std_mean_minimum: 0.10
+    patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    patch_mean_mean_pairwise_cosine_maximum: 0.90
+  mechanism_support_gate:
+    online_peak_accuracy_loss_maximum: 0.005
+    final_cls_centroid_accuracy_loss_maximum: 0.01
+    final_patch_mean_centroid_accuracy_gain_minimum: 0.01
+    final_cls_patch_alignment_decrease_minimum: 0.02
+    final_patch_pairwise_cosine_decrease_minimum: 0.02
+    candidate_to_control_centered_patch_energy_ratio_minimum: 0.90
+    rule: Support token specialization only if every safety, global-quality, patch-label-utility, homogenization, and spatial-energy threshold passes against the fresh paired control.
+  stopping:
+    - Run both fresh models through the full 400-epoch horizon unless a nonfinite value, safety event, mechanical failure, or timeout intervenes.
+    - Complete the layerwise diagnostic before interpreting the mechanism.
+    - Do not launch confirmation, fine-tuning, or official-test evaluation.
+  retention: Retain every artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: ijepa-token-specialization-v1-screen
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 0.005
+  convergence_gain: 0.05
+  auc_gain: 0.01
+  maximum_accuracy_loss: 0.005
+  confirmation_enabled: false
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

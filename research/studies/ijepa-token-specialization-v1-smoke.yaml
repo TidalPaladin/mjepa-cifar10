@@ -1,0 +1,73 @@
+id: ijepa-token-specialization-v1-smoke
+question: Does an I-JEPA encoder with separate global-token and visual-token parameter paths complete one train-validation-checkpoint cycle?
+hypothesis: Cloned global and visual normalization, LayerScale, and early QKV branches preserve the baseline function at initialization and train with finite gradients under the existing EMA-teacher I-JEPA objective.
+rejection_condition: Reject the implementation if the candidate emits nonfinite metrics, fails checkpoint recovery, changes the I-JEPA teacher/objective path, or cannot complete one train-validation-checkpoint cycle.
+checkpoint_plan: Retain the smoke checkpoint, backbone, curve, W&B run, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: token-specialized-smoke
+  config: config/pretrain/vit-small-ijepa-token-specialization-smoke.yaml
+  hypothesis: One epoch exercises both token-specific paths, the shared attention operation, EMA target updates, masking, and the detached online-probe boundary.
+  mechanism: Split the global and visual paths for normalization and LayerScale in both encoder blocks and for QKV in the first block.
+  changes:
+    - Treat the two CLS and two register tokens as the global-token prefix.
+    - Clone visual parameters from the corresponding global parameters at initialization.
+    - Keep attention, output projections, MLP projections, the final output norm, predictor, and I-JEPA objective shared.
+
+variants: []
+
+methodology:
+  linked_program: ijepa-token-specialization-v1
+  purpose: Mechanical validation only; accuracy and representation metrics are not scientific evidence.
+  invariants:
+    - The candidate is functionally identical to the shared-token architecture at initialization for the same seed.
+    - Pre-attention and pre-MLP LayerNorm plus LayerScale are separate in every encoder block.
+    - QKV projections are separate only in the configured first half of the smoke backbone.
+    - The attention operation, output projections, MLP projections, final output norm, masking, EMA teacher, predictor, and loss weights are unchanged.
+    - Full-view CLS features remain detached at the online-classifier boundary.
+    - No fine-tuning or official-test evaluation is allowed.
+  stopping:
+    - Complete the configured cycle unless a safety or mechanical failure requires repair.
+    - Never promote, confirm, or select from smoke metrics.
+  retention: Retain every smoke artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: ijepa-token-specialization-v1-smoke
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 1
+  timeout_seconds: 3600
+  max_pretraining_trials: 1
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.0
+  confirmation_enabled: false
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []

@@ -6,6 +6,7 @@
 - `scripts/pretrain.py` is the CLI entrypoint used by the Makefile targets.
 - `config/pretrain/` holds YAML experiment configs (e.g., `vit-small.yaml`).
 - The default ViT-S/4 layout is one CLS token, seven register tokens, and four independent CLS predictor partitions. Use the explicit `vit-small-four-cls-legacy.yaml` configs only to reproduce studies completed with the former four-CLS baseline.
+- I-JEPA token-specialization studies group CLS and register tokens as the global prefix. Separate pre-attention and pre-MLP normalization plus LayerScale in every encoder block, split QKV only in the configured leading blocks, and clone every added visual branch from its global branch so the shared and specialized backbones are identical at initialization. Keep attention, output and MLP projections, final normalization, predictor, teacher, and objective unchanged.
 - `logs/` is the default training output directory.
 - `research/studies/` contains committed study specifications; `research/baselines/` contains immutable, hashed metric curves approved for fixed-reference follow-ups; `research/LOG.md` is the append-only result record.
 - `.agents/skills/autoresearch/` defines the generic empirical-research safety contract vendored from the template.

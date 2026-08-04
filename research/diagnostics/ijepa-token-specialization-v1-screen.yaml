@@ -1,0 +1,63 @@
+id: ijepa-token-specialization-v1-diagnostics
+question: Where across the I-JEPA encoder does global/visual token specialization change semantic utility and spatial homogenization?
+hypothesis: The specialized encoder will diverge from the functionally identical control after the early split-QKV blocks, preserve or improve late patch-mean centroid accuracy, and end with lower CLS-patch alignment and within-image patch cosine.
+mechanism: Compare every normalized transformer block of the fresh paired control and candidate using deterministic cosine nearest-centroid probes and spatial diagnostics.
+
+sources:
+  - id: ijepa-control-seed0
+    role: control
+    run_dir: logs/research/ijepa-token-specialization-v1-screen/runs/pretrain-ijepa-control-seed0
+  - id: token-specialized-seed0
+    role: candidate
+    run_dir: logs/research/ijepa-token-specialization-v1-screen/runs/pretrain-token-specialized-seed0
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+diagnostics:
+  batch_size: 256
+  num_workers: 24
+  layer_normalization: final-backbone-output-norm
+  centroid_probe: layernorm-cosine-nearest-centroid
+  routes: [cls, patch_mean, cls_patch_mean]
+  patch_metrics:
+    - cls_patch_alignment
+    - mean_within_image_pairwise_cosine
+    - centered_patch_energy_ratio
+    - centered_patch_effective_rank_fraction
+  gradient_mode: torch.inference_mode
+
+decision:
+  source: research/studies/ijepa-token-specialization-v1-screen.yaml
+  online_peak_accuracy_loss_maximum: 0.005
+  final_cls_centroid_accuracy_loss_maximum: 0.01
+  final_patch_mean_centroid_accuracy_gain_minimum: 0.01
+  final_cls_patch_alignment_decrease_minimum: 0.02
+  final_patch_pairwise_cosine_decrease_minimum: 0.02
+  candidate_to_control_centered_patch_energy_ratio_minimum: 0.90
+  selection: Apply the preregistered mechanism-support gate only after both pretraining and diagnostic results are terminal.
+
+resources:
+  physical_gpus: [1]
+  workers: 1
+  timeout_seconds: 7200
+  retention: Retain results, complete W&B curves, and both source checkpoints. No destructive retention is authorized.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: ijepa-token-specialization-v1-diagnostics
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec
+
+log_root: logs/research

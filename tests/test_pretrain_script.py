@@ -22,6 +22,16 @@ SELECTED_NUM_REGISTER_TOKENS = 7
 SELECTED_CLS_CONTEXT_TOKENS = 4
 SELECTED_CLS_PREDICTION_MODE = "partitioned_independent_cross_attention"
 MULTIVIEW_EFFECTIVE_BATCH_SIZE = 1024
+TOKEN_SPECIALIZATION_CONFIGS = {
+    REPO_ROOT / "config" / "pretrain" / "vit-small-ijepa-token-specialization.yaml": (
+        DEFAULT_PRETRAIN_CONFIG_PATH,
+        4,
+    ),
+    REPO_ROOT / "config" / "pretrain" / "vit-small-ijepa-token-specialization-smoke.yaml": (
+        REPO_ROOT / "config" / "pretrain" / "smoke.yaml",
+        1,
+    ),
+}
 HISTORICAL_FOUR_CLS_STUDY_IDS = (
     "cls-global-target-v1",
     "cls-partition-count-v1",
@@ -816,6 +826,28 @@ def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:
     assert finetune_config["backbone"].num_register_tokens == SELECTED_NUM_REGISTER_TOKENS
     assert pretrain_config == selected_pretrain_config
     assert finetune_config == selected_finetune_config
+
+
+@pytest.mark.parametrize(("candidate_path", "control_and_qkv_blocks"), TOKEN_SPECIALIZATION_CONFIGS.items())
+def test_token_specialization_configs_change_only_backbone_specialization(
+    candidate_path: Path,
+    control_and_qkv_blocks: tuple[Path, int],
+) -> None:
+    control_path, expected_qkv_blocks = control_and_qkv_blocks
+    control = yaml.full_load(control_path.read_text())
+    candidate = yaml.full_load(candidate_path.read_text())
+    control_backbone = control["backbone"]
+    candidate_backbone = candidate["backbone"]
+
+    assert isinstance(control_backbone, ViTConfig)
+    assert isinstance(candidate_backbone, ViTConfig)
+    assert candidate_backbone.specialize_global_token_norms
+    assert candidate_backbone.specialize_global_token_qkv_blocks == expected_qkv_blocks
+    for field in fields(ViTConfig):
+        if field.name not in ("specialize_global_token_norms", "specialize_global_token_qkv_blocks"):
+            assert getattr(candidate_backbone, field.name) == getattr(control_backbone, field.name)
+    for section in ("trainer", "jepa", "optimizer"):
+        assert candidate[section] == control[section]
 
 
 @pytest.mark.parametrize("study_id", HISTORICAL_FOUR_CLS_STUDY_IDS)
