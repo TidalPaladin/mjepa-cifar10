@@ -1,0 +1,66 @@
+id: ijepa-token-specialization-v2-no-registers-diagnostics
+question: Does removing registers from the specialized encoder preserve semantic utility and spatial patch diversity at every layer?
+hypothesis: The zero-register encoder will match the seven-register encoder's final CLS and patch-mean centroid accuracy while keeping CLS-patch alignment, within-image patch cosine, and centered patch energy within the preregistered bounds.
+mechanism: Compare every normalized transformer block of the fresh paired seven-register control and zero-register candidate using deterministic cosine nearest-centroid probes and spatial diagnostics.
+
+sources:
+  - id: token-specialized-register7-seed0
+    role: control
+    run_dir: logs/research/ijepa-token-specialization-v2-no-registers/runs/pretrain-token-specialized-register7-seed0
+  - id: token-specialized-register0-seed0
+    role: candidate
+    run_dir: logs/research/ijepa-token-specialization-v2-no-registers/runs/pretrain-token-specialized-register0-seed0
+
+data:
+  root: /mnt/data/cifar10/cifar-10-batches-py
+  split: fixed-45000-train-5000-validation
+  train_transform: deterministic-validation-transform
+  official_test_set: prohibited
+
+diagnostics:
+  batch_size: 256
+  num_workers: 24
+  layer_normalization: final-backbone-output-norm
+  centroid_probe: layernorm-cosine-nearest-centroid
+  routes: [cls, patch_mean, cls_patch_mean]
+  patch_metrics:
+    - cls_patch_alignment
+    - mean_within_image_pairwise_cosine
+    - centered_patch_energy_ratio
+    - centered_patch_effective_rank_fraction
+  gradient_mode: torch.inference_mode
+
+decision:
+  source: research/studies/ijepa-token-specialization-v2-no-registers.yaml
+  online_peak_accuracy_loss_maximum: 0.005
+  online_final_accuracy_loss_maximum: 0.005
+  convergence_ratio_maximum: 1.10
+  common_horizon_auc_loss_maximum: 0.01
+  final_cls_centroid_accuracy_loss_maximum: 0.01
+  final_patch_mean_centroid_accuracy_loss_maximum: 0.01
+  final_cls_patch_alignment_increase_maximum: 0.02
+  final_patch_pairwise_cosine_increase_maximum: 0.02
+  candidate_to_control_centered_patch_energy_ratio_minimum: 0.90
+  selection: Apply the register-negation gate only after both pretraining and diagnostic results are terminal.
+
+resources:
+  physical_gpus: [1]
+  workers: 1
+  timeout_seconds: 7200
+  retention: Retain results, complete W&B curves, and both source checkpoints. No destructive retention is authorized.
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: ijepa-token-specialization-v2-no-registers-diagnostics
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: 859b7ac772ba16d9febd3c6d746de818d2cc11fb
+
+log_root: logs/research

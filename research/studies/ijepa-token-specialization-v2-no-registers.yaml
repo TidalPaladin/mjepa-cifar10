@@ -1,0 +1,126 @@
+id: ijepa-token-specialization-v2-no-registers
+question: Do separate global/visual encoder pathways make register tokens unnecessary for I-JEPA global quality and patch-token specialization?
+hypothesis: With specialized normalization, LayerScale, and early QKV paths, removing all seven register tokens will preserve the seven-register model's online CLS-probe curve and layerwise patch geometry because the dedicated global pathway already prevents global and visual features from competing for shared parameters.
+rejection_condition: Reject the hypothesis if the no-register model collapses, loses more than 0.005 peak or final online accuracy, exceeds 1.10 times the seven-register convergence horizon, loses more than 0.01 common-horizon AUC, loses more than 0.01 final CLS or patch-mean centroid accuracy, increases final CLS-patch alignment or within-image patch cosine by more than 0.02, or retains less than 90 percent of centered patch energy.
+checkpoint_plan: Retain both fresh checkpoints, backbones, curves, layerwise diagnostics, W&B runs, and lifecycle evidence. No destructive retention is authorized.
+
+baseline:
+  id: token-specialized-register7
+  config: config/pretrain/vit-small-ijepa-token-specialization.yaml
+  hypothesis: Seven register tokens remain necessary scratch space even after global and visual token paths are specialized.
+  mechanism: Train the landed specialized encoder with one CLS token, seven register tokens, separate global/visual normalization and LayerScale in all blocks, and separate QKV projections in the first four blocks.
+  changes: []
+
+variants:
+  - id: token-specialized-register0
+    config: config/pretrain/vit-small-ijepa-token-specialization-no-registers.yaml
+    hypothesis: The dedicated global pathway replaces the role of registers as global-information scratch space without degrading CLS semantics or making visual tokens more global.
+    mechanism: Remove all seven register tokens while preserving the specialized global/visual paths and every training choice.
+    changes:
+      - Set backbone num_register_tokens from 7 to 0.
+
+methodology:
+  linked_program: ijepa-token-specialization-v1
+  trigger:
+    source_study: ijepa-token-specialization-v1-screen
+    source_run: pretrain-token-specialized-seed0
+    source_peak_online_accuracy: 0.9020000100135803
+    source_final_cls_patch_alignment: -0.002502408645447567
+    source_final_patch_pairwise_cosine: 0.3442408186710335
+    rationale: The specialized model preserved online quality and substantially separated CLS and patch-token geometry. The remaining question is whether its seven registers still provide necessary global scratch capacity.
+  scientific_run_allocation:
+    new_pretraining_runs: 2
+    seeds: [0]
+    concurrent_pair: true
+    no_automatic_confirmation: true
+  paired_environment:
+    shared_seed: 0
+    code_revision: Both models use the landed token-specialization implementation from vit PR 120.
+    isolation: The two configs differ only in backbone num_register_tokens; the pair launches concurrently on physical GPUs 1 and 2.
+    initialization_note: Common parameters use the same seed, but removing prefix tokens changes attention inputs immediately and does not imply functionally identical step-zero outputs.
+  controls:
+    epochs: 400
+    validation_interval_epochs: 10
+    effective_batch_size: 1024
+    data_split: fixed-45000-train-5000-validation
+    official_test_set: prohibited
+    masking: Context ratio 0.50, target ratio 0.25, contiguous scale 2.
+    objective: Existing visual-token and partitioned independent CLS I-JEPA prediction with the EMA teacher and unchanged SigREG weight.
+    specialization: Separate global/visual LayerNorm and LayerScale in all 12 blocks, with separate QKV projections in blocks 1 through 4.
+    optimization: AdamW learning rate 0.002, weight decay 0.2, constant rate, and identical parameter-group rules.
+    probe_boundary: Final full-view CLS enters the online classifier through the existing explicit detach.
+    terminal_diagnostic: Freeze both encoders and apply deterministic normalized nearest-centroid probes for CLS, patch mean, and their concatenation at every block.
+  primary_endpoints:
+    - Peak and final online CLS-probe accuracy, first-validation accuracy, step and active-time AUC, and time to the fixed 95-percent target.
+    - Final and layerwise CLS and patch-mean nearest-centroid accuracy.
+    - Final and layerwise CLS-patch alignment, within-image patch cosine, centered patch energy, and centered patch effective rank.
+  secondary_endpoints:
+    - CLS and patch-mean effective rank, variance, top-eigenvalue fraction, pairwise cosine, parameter count, throughput, and active time.
+    - Difference from the historical seven-register specialized curve, reported descriptively rather than used as a gate.
+  safety_gate:
+    finite_fraction_required: 1.0
+    cls_std_mean_minimum: 0.10
+    cls_top_eigenvalue_fraction_maximum: 0.50
+    cls_mean_pairwise_cosine_maximum: 0.90
+    patch_mean_std_mean_minimum: 0.10
+    patch_mean_top_eigenvalue_fraction_maximum: 0.50
+    patch_mean_mean_pairwise_cosine_maximum: 0.90
+  register_negation_gate:
+    online_peak_accuracy_loss_maximum: 0.005
+    online_final_accuracy_loss_maximum: 0.005
+    convergence_ratio_maximum: 1.10
+    common_horizon_auc_loss_maximum: 0.01
+    final_cls_centroid_accuracy_loss_maximum: 0.01
+    final_patch_mean_centroid_accuracy_loss_maximum: 0.01
+    final_cls_patch_alignment_increase_maximum: 0.02
+    final_patch_pairwise_cosine_increase_maximum: 0.02
+    candidate_to_control_centered_patch_energy_ratio_minimum: 0.90
+    rule: Conclude that specialization negates the need for registers only if every safety, online-equivalence, semantic-utility, homogenization, and spatial-energy threshold passes against the fresh seven-register control.
+  stopping:
+    - Run both models through the full 400-epoch horizon unless a nonfinite value, safety event, mechanical failure, or timeout intervenes.
+    - Complete the layerwise diagnostic before interpreting whether registers are unnecessary.
+    - Do not launch confirmation, fine-tuning, or official-test evaluation.
+  retention: Retain every artifact. No destructive retention is authorized.
+
+data: ${CIFAR10_DATA}
+log_root: logs/research
+model_class: vit-small
+seeds: [0]
+
+wandb:
+  entity: tidalpaladin
+  project: mjepa-cifar10
+  group: ijepa-token-specialization-v2-no-registers
+  authorized: true
+  approved_data_classes: [metrics, configs, provenance]
+  emitted_data_classes:
+    launch: [metrics, configs, provenance]
+    summary: [metrics, provenance]
+
+code_shas:
+  parent: REQUIRED
+  mjepa: 578a2f92441394f232732348b6e9f569237b2744
+  vit: 859b7ac772ba16d9febd3c6d746de818d2cc11fb
+
+resources:
+  physical_gpus: [1, 2]
+  max_concurrent_jobs: 2
+  timeout_seconds: 86400
+  max_pretraining_trials: 2
+  minimum_free_gib: 50
+  fallback_checkpoint_gib: 3
+
+promotion:
+  accuracy_gain: 1.0
+  convergence_gain: 0.99
+  auc_gain: 1.0
+  maximum_accuracy_loss: 0.005
+  equivalence_convergence_ratio: 1.10
+  equivalence_auc_loss: 0.01
+  confirmation_enabled: false
+
+evaluation:
+  finetune_config: null
+  shots_per_class: [null]
+  seeds: [0]
+  official_test_roles: []
