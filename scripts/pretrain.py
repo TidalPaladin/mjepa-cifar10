@@ -15,6 +15,7 @@ from typing import Final, NamedTuple
 
 import torch
 import torch.distributed as dist
+import wandb
 import yaml
 from mjepa.jepa import (
     ADALN_BLIND_CLS_PREDICTION_MODE,
@@ -38,7 +39,6 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
 from vit import ViTConfig
 
-import wandb
 from mjepa_cifar10.data import cifar10_split_fingerprint, get_test_dataloader, get_train_dataloader, get_val_dataloader
 from mjepa_cifar10.experiment import append_metric_record, write_run_metadata
 from mjepa_cifar10.pretrain import (

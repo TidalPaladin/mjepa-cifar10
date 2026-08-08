@@ -32,7 +32,7 @@ dynamic = [
 ]
 
 [tool.uv.sources]
-vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "5884448b157ff13529fc49fb8e86283868540607" }
+vit = { git = "https://github.com/TidalPaladin/vit.git", rev = "6bbb29ec95a6376f8fbcd8de7f298ac9f4fd9eea" }
 mjepa = { git = "https://github.com/TidalPaladin/mjepa.git", rev = "6bb1c3bda0afc1be0025f9a395d8b985aaeca02b" }
 notify-wake-runtime = { git = "https://github.com/TidalPaladin/skills.git", rev = "61a4a819c58243d54e3c99c684ec23ad88e6dfef", subdirectory = "notify-wake" }
 
@@ -83,7 +83,7 @@ typeCheckingMode = "standard"
 [tool.uv]
 required-version = "==0.11.28"
 override-dependencies = [
-    "vit @ git+https://github.com/TidalPaladin/vit.git@5884448b157ff13529fc49fb8e86283868540607",
+    "vit @ git+https://github.com/TidalPaladin/vit.git@6bbb29ec95a6376f8fbcd8de7f298ac9f4fd9eea",
 ]
 
 [tool.pytest.ini_options]
