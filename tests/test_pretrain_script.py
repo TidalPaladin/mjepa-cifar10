@@ -14,6 +14,9 @@ from vit import ViTConfig
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_PRETRAIN_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "vit-small.yaml"
 DEFAULT_FINETUNE_CONFIG_PATH = REPO_ROOT / "config" / "finetune" / "vit-small.yaml"
+DEFAULT_SMOKE_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "smoke.yaml"
+SHARED_PATH_PRETRAIN_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "vit-small-shared-path-legacy.yaml"
+SHARED_PATH_FINETUNE_CONFIG_PATH = REPO_ROOT / "config" / "finetune" / "vit-small-shared-path-legacy.yaml"
 LEGACY_PRETRAIN_CONFIG_PATH = REPO_ROOT / "config" / "pretrain" / "vit-small-four-cls-legacy.yaml"
 LEGACY_FINETUNE_CONFIG_PATH = REPO_ROOT / "config" / "finetune" / "vit-small-four-cls-legacy.yaml"
 LEGACY_SINGLE_CLS_FINETUNE_CONFIG_PATH = REPO_ROOT / "config" / "finetune" / "vit-small-single-cls-four-registers.yaml"
@@ -21,6 +24,9 @@ SELECTED_NUM_CLS_TOKENS = 1
 SELECTED_NUM_REGISTER_TOKENS = 7
 SELECTED_CLS_CONTEXT_TOKENS = 4
 SELECTED_CLS_PREDICTION_MODE = "partitioned_independent_cross_attention"
+SELECTED_SPECIALIZED_QKV_BLOCKS = 4
+SMOKE_SPECIALIZED_QKV_BLOCKS = 1
+TOKEN_SPECIALIZATION_FIELDS = frozenset(("specialize_global_token_norms", "specialize_global_token_qkv_blocks"))
 HISTORICAL_FOUR_CLS_STUDY_IDS = (
     "cls-global-target-v1",
     "cls-partition-count-v1",
@@ -178,21 +184,38 @@ def test_pretrain_configs_preserve_gram_anchoring_and_predictor_mode(config_path
 def test_vit_small_defaults_to_selected_partitioned_single_cls_design() -> None:
     pretrain_config = yaml.full_load(DEFAULT_PRETRAIN_CONFIG_PATH.read_text())
     finetune_config = yaml.full_load(DEFAULT_FINETUNE_CONFIG_PATH.read_text())
-    selected_pretrain_config = yaml.full_load(
-        (REPO_ROOT / "config" / "pretrain" / "vit-small-single-cls-register-partitioned-independent.yaml").read_text()
-    )
-    selected_finetune_config = yaml.full_load(
-        (REPO_ROOT / "config" / "finetune" / "vit-small-single-cls.yaml").read_text()
-    )
+    shared_pretrain_config = yaml.full_load(SHARED_PATH_PRETRAIN_CONFIG_PATH.read_text())
+    shared_finetune_config = yaml.full_load(SHARED_PATH_FINETUNE_CONFIG_PATH.read_text())
 
     assert pretrain_config["backbone"].num_cls_tokens == SELECTED_NUM_CLS_TOKENS
     assert pretrain_config["backbone"].num_register_tokens == SELECTED_NUM_REGISTER_TOKENS
+    assert pretrain_config["backbone"].specialize_global_token_norms is True
+    assert pretrain_config["backbone"].specialize_global_token_qkv_blocks == SELECTED_SPECIALIZED_QKV_BLOCKS
     assert pretrain_config["jepa"].cls_context_tokens == SELECTED_CLS_CONTEXT_TOKENS
     assert pretrain_config["jepa"].cls_prediction_mode == SELECTED_CLS_PREDICTION_MODE
     assert finetune_config["backbone"].num_cls_tokens == SELECTED_NUM_CLS_TOKENS
     assert finetune_config["backbone"].num_register_tokens == SELECTED_NUM_REGISTER_TOKENS
-    assert pretrain_config == selected_pretrain_config
-    assert finetune_config == selected_finetune_config
+    assert finetune_config["backbone"].specialize_global_token_norms is True
+    assert finetune_config["backbone"].specialize_global_token_qkv_blocks == SELECTED_SPECIALIZED_QKV_BLOCKS
+    for field in fields(ViTConfig):
+        if field.name not in TOKEN_SPECIALIZATION_FIELDS:
+            assert getattr(pretrain_config["backbone"], field.name) == getattr(
+                shared_pretrain_config["backbone"], field.name
+            )
+            assert getattr(finetune_config["backbone"], field.name) == getattr(
+                shared_finetune_config["backbone"], field.name
+            )
+    for section in ("trainer", "jepa", "optimizer"):
+        assert pretrain_config[section] == shared_pretrain_config[section]
+    for section in ("trainer", "optimizer"):
+        assert finetune_config[section] == shared_finetune_config[section]
+
+
+def test_smoke_config_exercises_token_specialization() -> None:
+    config = yaml.full_load(DEFAULT_SMOKE_CONFIG_PATH.read_text())
+
+    assert config["backbone"].specialize_global_token_norms is True
+    assert config["backbone"].specialize_global_token_qkv_blocks == SMOKE_SPECIALIZED_QKV_BLOCKS
 
 
 @pytest.mark.parametrize("study_id", HISTORICAL_FOUR_CLS_STUDY_IDS)

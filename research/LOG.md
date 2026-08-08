@@ -1325,3 +1325,21 @@ Append one entry per completed or terminated study. Record the hypothesis, mecha
 - Configuration migration: `config/pretrain/vit-small.yaml` and `config/finetune/vit-small.yaml` now select the one-CLS, seven-register layout. Completed studies retain the former defaults through explicit `vit-small-four-cls-legacy.yaml` configs.
 - Limitations: all architecture selection evidence is seed 0, the selected design did not pass the original strict equivalence thresholds, and no new supervised or official-test evaluation was run for this closeout.
 - Retention: preserve all previously retained checkpoints and backbones. No artifact deletion is authorized by this closeout.
+
+<!-- autoresearch-operation:{"operation_id":"ijepa-token-specialization-default-adoption-v1"} -->
+## 2026-08-08 closeout: adopt token-specialized encoder paths
+
+- Scope: make token-specialized global and visual pathways the production default. This is a user-authorized engineering decision, not a retrospective claim that the seed-0 screen passed its preregistered mechanism-support gate.
+- Selected architecture: retain one CLS token, seven register tokens, and four independent CLS predictor partitions. Add separate global/visual pre-attention and pre-MLP normalization plus LayerScale in every encoder block, and separate QKV projections in the first four blocks.
+- Selection evidence:
+
+  | Design | Peak accuracy | Final accuracy | Step to 95% target | CLS-patch alignment | Patch-mean centroid accuracy | Common-step active time |
+  |---|---:|---:|---:|---:|---:|---:|
+  | Shared global/visual paths | 0.898800 | 0.898200 | 7,830 | 0.562338 | 0.841400 | 11,176.521 s |
+  | Token-specialized paths | 0.902000 | 0.901200 | 9,570 | -0.002497 | 0.847600 | 12,495.243 s |
+
+- Rationale: specialization raised peak accuracy by 0.0032 and final accuracy by 0.0030 while reducing CLS-patch alignment by 0.5648 and within-image patch cosine by 0.0993. It preserved the model input/output contract and increased final patch-mean centroid accuracy by 0.0062.
+- Tradeoffs: the candidate added 1,797,120 backbone parameters, increased common-step active time by 11.80%, and reached the 95% convergence target 1,740 steps later. Its final patch-mean gain missed the preregistered 0.01 threshold, so the mechanism-support gate did not pass.
+- Configuration migration: `config/pretrain/vit-small.yaml`, `config/finetune/vit-small.yaml`, and `config/pretrain/smoke.yaml` enable token specialization. Explicit `vit-small-shared-path-legacy.yaml` configs preserve shared-path checkpoint compatibility.
+- Evidence: `research/diagnostics/ijepa-token-specialization-v1-result-v1.json` records the fixed 45,000/5,000 split, exact provenance, W&B runs, convergence curves, layerwise diagnostics, compute, and retained artifacts.
+- Limitations: the comparison is paired seed 0 only. It did not include multi-seed confirmation, supervised fine-tuning, the official CIFAR-10 test set, detection, segmentation, or correspondence evaluation.

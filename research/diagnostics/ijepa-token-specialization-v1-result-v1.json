@@ -1,0 +1,321 @@
+{
+  "answer": "Separate global-token and visual-token paths substantially changed I-JEPA token geometry and slightly improved global accuracy, but they did not produce the preregistered one-point final patch-mean centroid gain. The architecture therefore changed the intended mechanism without passing the mechanism-support gate.",
+  "artifacts": {
+    "control_metrics_sha256": "99d55c9cdef394a869d437cd86d63ef4b64e4963bf6e8d6b421ea1d6a256e20c",
+    "diagnostic_manifest_sha256": "91e4c61c57db6e751e5f8117573cdc0c96090dd940fcfd950dc17297b5815ce2",
+    "diagnostic_summary_sha256": "b2bce4e2d18eea27b2d59fece02a73814e6c6b526b7d25092256275f88f49733",
+    "screen_manifest_sha256": "82d1ed48481fe6e3463c00263eda2f6b77a8fdfd0e1f890b21f62c74275d0a6e",
+    "screen_summary_sha256": "cc6e153e38dd23b46c4edfb917b88e7dcef0dbe037c9dbeb082396c6b9f3ff4d",
+    "smoke_manifest_sha256": "8cfc96ee70f5717eafbc601c206385b1364d570779e6fd1d36a6ae17a575dc72",
+    "smoke_summary_sha256": "d44d4ba3dae7bb2d77df441c8c0c6ed918c1d2fa57957a5a5009c1383751baad",
+    "specialized_metrics_sha256": "e395a346ee66fd01cd96a2b3d6dc25e3018a872b0c5d5ba7ae6b6ad488950000"
+  },
+  "compute": {
+    "diagnostic_active_seconds_sum": 40.71404726803303,
+    "pretraining_active_seconds_sum": 23671.76388714835,
+    "program_active_hours_including_smoke_and_diagnostics": 6.598135199695308,
+    "program_active_seconds_including_smoke_and_diagnostics": 23753.28671890311,
+    "program_wall_finished_at": "2026-08-04T05:04:50.759484+00:00",
+    "program_wall_seconds": 16289.789704,
+    "program_wall_started_at": "2026-08-04T00:33:20.969771+00:00",
+    "screen_wall_seconds": 15699.195783,
+    "smoke_active_seconds": 40.808784486725926
+  },
+  "data": {
+    "official_test_set_used": false,
+    "split": "fixed-45000-train-5000-validation",
+    "split_sha256": "bf789cefb53952724b4c8674eb1a7dbcd164a0b5ec843a30e466ce6e1239b86b"
+  },
+  "decision": "mechanism-changed-but-support-gate-not-passed",
+  "interpretation": "The shared I-JEPA encoder ends with substantial CLS-like information in visual tokens: the control has 0.5623 CLS-patch alignment and 0.4436 within-image patch cosine. Separate normalization, LayerScale, and early QKV paths reduce those values to -0.0025 and 0.3442 while preserving spatial energy and improving the online peak by 0.32 percentage points. This is a real routing effect, visible from block 1, but dense semantic utility is mixed through the middle blocks and the final patch-mean gain is only 0.62 percentage points. The tested separation is therefore useful architectural evidence, not a promoted I-JEPA replacement.",
+  "layerwise": {
+    "first_specialized_block": 1,
+    "observations": "CLS-patch separation begins immediately. Patch-mean accuracy is below control in blocks 2, 6-9, recovers in blocks 10-12, and finishes modestly higher. The largest patch-mean deficit is at block 8 (-2.96 points), while the largest gain is at block 5 (+1.42 points).",
+    "per_block_candidate_minus_control": [
+      {
+        "block": 1,
+        "centered_patch_energy_ratio": 1.0173044598315308,
+        "cls_centroid_accuracy_gain": -0.04039999842643738,
+        "cls_patch_alignment_decrease": 0.30672535098318476,
+        "patch_mean_centroid_accuracy_gain": 0.003999978303909302,
+        "patch_pairwise_cosine_decrease": 0.011521549091481564
+      },
+      {
+        "block": 2,
+        "centered_patch_energy_ratio": 0.9890315578356657,
+        "cls_centroid_accuracy_gain": -0.02799999713897705,
+        "cls_patch_alignment_decrease": 0.272945137386175,
+        "patch_mean_centroid_accuracy_gain": -0.004400014877319336,
+        "patch_pairwise_cosine_decrease": -0.003686547051890754
+      },
+      {
+        "block": 3,
+        "centered_patch_energy_ratio": 0.9633336543651263,
+        "cls_centroid_accuracy_gain": -0.011799991130828857,
+        "cls_patch_alignment_decrease": 0.25634271818426785,
+        "patch_mean_centroid_accuracy_gain": 0.0004000067710876465,
+        "patch_pairwise_cosine_decrease": -0.02202348985933289
+      },
+      {
+        "block": 4,
+        "centered_patch_energy_ratio": 0.9257501007777633,
+        "cls_centroid_accuracy_gain": 0.015200018882751465,
+        "cls_patch_alignment_decrease": 0.24593838471251364,
+        "patch_mean_centroid_accuracy_gain": 0.006399989128112793,
+        "patch_pairwise_cosine_decrease": -0.050368462301945416
+      },
+      {
+        "block": 5,
+        "centered_patch_energy_ratio": 0.9190000442670688,
+        "cls_centroid_accuracy_gain": 0.008799999952316284,
+        "cls_patch_alignment_decrease": 0.2400379628038732,
+        "patch_mean_centroid_accuracy_gain": 0.014200001955032349,
+        "patch_pairwise_cosine_decrease": -0.05824063913588984
+      },
+      {
+        "block": 6,
+        "centered_patch_energy_ratio": 0.9061718350317676,
+        "cls_centroid_accuracy_gain": -0.002200007438659668,
+        "cls_patch_alignment_decrease": 0.26353495162101465,
+        "patch_mean_centroid_accuracy_gain": -0.0012000203132629395,
+        "patch_pairwise_cosine_decrease": -0.06859145253315474
+      },
+      {
+        "block": 7,
+        "centered_patch_energy_ratio": 0.9078760218471219,
+        "cls_centroid_accuracy_gain": -0.01819998025894165,
+        "cls_patch_alignment_decrease": 0.2782526679536328,
+        "patch_mean_centroid_accuracy_gain": -0.0209999680519104,
+        "patch_pairwise_cosine_decrease": -0.06772838204403603
+      },
+      {
+        "block": 8,
+        "centered_patch_energy_ratio": 0.9261215154405413,
+        "cls_centroid_accuracy_gain": 0.001399993896484375,
+        "cls_patch_alignment_decrease": 0.3159664096916386,
+        "patch_mean_centroid_accuracy_gain": -0.029600024223327637,
+        "patch_pairwise_cosine_decrease": -0.05413367658813034
+      },
+      {
+        "block": 9,
+        "centered_patch_energy_ratio": 0.9461725386324141,
+        "cls_centroid_accuracy_gain": -0.0054000020027160645,
+        "cls_patch_alignment_decrease": 0.3604569522180187,
+        "patch_mean_centroid_accuracy_gain": -0.014800012111663818,
+        "patch_pairwise_cosine_decrease": -0.0391635592476231
+      },
+      {
+        "block": 10,
+        "centered_patch_energy_ratio": 0.9736150778476482,
+        "cls_centroid_accuracy_gain": 0.001399993896484375,
+        "cls_patch_alignment_decrease": 0.41480444747230505,
+        "patch_mean_centroid_accuracy_gain": 0.0031999945640563965,
+        "patch_pairwise_cosine_decrease": -0.019209979414261003
+      },
+      {
+        "block": 11,
+        "centered_patch_energy_ratio": 1.0546712314942999,
+        "cls_centroid_accuracy_gain": 0.002400040626525879,
+        "cls_patch_alignment_decrease": 0.49126252820277005,
+        "patch_mean_centroid_accuracy_gain": 0.006400048732757568,
+        "patch_pairwise_cosine_decrease": 0.03184495085116268
+      },
+      {
+        "block": 12,
+        "centered_patch_energy_ratio": 1.1927421507959488,
+        "cls_centroid_accuracy_gain": 0.009000003337860107,
+        "cls_patch_alignment_decrease": 0.5648341861544933,
+        "patch_mean_centroid_accuracy_gain": 0.006199955940246582,
+        "patch_pairwise_cosine_decrease": 0.09931864083094483
+      }
+    ]
+  },
+  "limitations": [
+    "This is a paired seed-0 screen, not a multi-seed confirmation estimate.",
+    "Nearest-centroid accuracy on CIFAR-10 measures label-aligned utility but does not cover detection, segmentation, or spatial correspondence.",
+    "The specialized backbone has 1,797,120 additional parameters (+6.33%) and required 11.80% more active pretraining time at the common step horizon.",
+    "No fine-tuning or official CIFAR-10 test evaluation was authorized or performed."
+  ],
+  "mechanism_support_gate": {
+    "failure_reasons": [
+      "final-patch-mean-centroid-accuracy-gain"
+    ],
+    "observed": {
+      "candidate_to_control_centered_patch_energy_ratio": {
+        "comparator": ">=",
+        "passed": true,
+        "threshold": 0.9,
+        "value": 1.1927421507959488
+      },
+      "final_cls_centroid_accuracy_loss": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 0.01,
+        "value": -0.009000003337860107
+      },
+      "final_cls_patch_alignment_decrease": {
+        "comparator": ">=",
+        "passed": true,
+        "threshold": 0.02,
+        "value": 0.5648341861544933
+      },
+      "final_patch_mean_centroid_accuracy_gain": {
+        "comparator": ">=",
+        "passed": false,
+        "threshold": 0.01,
+        "value": 0.006199955940246582
+      },
+      "final_patch_pairwise_cosine_decrease": {
+        "comparator": ">=",
+        "passed": true,
+        "threshold": 0.02,
+        "value": 0.09931864083094483
+      },
+      "online_peak_accuracy_loss": {
+        "comparator": "<=",
+        "passed": true,
+        "threshold": 0.005,
+        "value": -0.0031999945640563965
+      }
+    },
+    "passed": false,
+    "thresholds": {
+      "candidate_to_control_centered_patch_energy_ratio_minimum": 0.9,
+      "final_cls_centroid_accuracy_loss_maximum": 0.01,
+      "final_cls_patch_alignment_decrease_minimum": 0.02,
+      "final_patch_mean_centroid_accuracy_gain_minimum": 0.01,
+      "final_patch_pairwise_cosine_decrease_minimum": 0.02,
+      "online_peak_accuracy_loss_maximum": 0.005,
+      "rule": "Support token specialization only if every safety, global-quality, patch-label-utility, homogenization, and spatial-energy threshold passes against the fresh paired control."
+    }
+  },
+  "online_convergence": {
+    "candidate_minus_control": {
+      "active_seconds_at_step_horizon_increase_fraction": 0.1179904202772768,
+      "active_time_auc_gain": -0.021409192548132228,
+      "final_accuracy_gain": 0.003000020980834961,
+      "first_validation_accuracy_gain": 0.0006000101566314697,
+      "peak_accuracy_gain": 0.0031999945640563965,
+      "step_auc_gain": -0.007464997097849868,
+      "step_to_90_extra": 435,
+      "step_to_95_extra": 1740
+    },
+    "control": {
+      "active_seconds_at_step_horizon": 11176.520753124729,
+      "active_seconds_to_90": 3912.175728339702,
+      "active_seconds_to_95": 5029.9419052787125,
+      "active_time_auc": 0.7942525201528883,
+      "final_accuracy": 0.8981999754905701,
+      "first_validation_accuracy": 0.37139999866485596,
+      "first_validation_step": 435,
+      "peak_accuracy": 0.8988000154495239,
+      "step_auc": 0.7944150000810624,
+      "step_horizon": 17400,
+      "step_to_90": 6090,
+      "step_to_95": 7830
+    },
+    "specialized": {
+      "active_seconds_at_step_horizon": 12495.243134023622,
+      "active_seconds_to_90": 4703.034295652062,
+      "active_seconds_to_95": 6893.079513376579,
+      "active_time_auc": 0.772843327604756,
+      "final_accuracy": 0.901199996471405,
+      "first_validation_accuracy": 0.3720000088214874,
+      "first_validation_step": 435,
+      "peak_accuracy": 0.9020000100135803,
+      "step_auc": 0.7869500029832125,
+      "step_horizon": 17400,
+      "step_to_90": 6525,
+      "step_to_95": 9570
+    }
+  },
+  "operation_id": "ijepa-token-specialization-v1-result-v1",
+  "provenance": {
+    "diagnostic_parent": "77583e6946d60d4cc801ae543002b3382266c120",
+    "mjepa": "578a2f92441394f232732348b6e9f569237b2744",
+    "training_control_parent": "23a9ec3f103dfb4d6c6b9adb6254421b4aa025de",
+    "training_control_vit": "f3b114c391414b2c2a4a0f4e04d7e9cadf9301ec",
+    "training_specialized_parent": "77583e6946d60d4cc801ae543002b3382266c120",
+    "training_specialized_vit": "6d298af42b88f5d734554df28fef0198d6b0aed3"
+  },
+  "retention": {
+    "all_checkpoints": "retained",
+    "all_curves_and_diagnostics": "retained",
+    "destructive_retention_applied": false
+  },
+  "runs": {
+    "ijepa-control-seed0": {
+      "backbone_parameter_count": 28408722,
+      "checkpoint_disposition": "retained",
+      "checkpoint_sha256": "b5be328126c7e14b72e7f39ea4ddcb9a74df6587f44a2c30dc9ef2cbcba3cc79",
+      "final_diagnostics": {
+        "centered_patch_effective_rank_fraction": 0.49756469211475907,
+        "centered_patch_energy_ratio": 0.5394952103398574,
+        "cls_centroid_accuracy": 0.8519999980926514,
+        "cls_patch_alignment": 0.5623375089406967,
+        "patch_mean_centroid_accuracy": 0.8414000272750854,
+        "patch_pairwise_cosine": 0.44355701220305205
+      },
+      "safety_gate_passed": true,
+      "safety_observed": {
+        "cls_finite_fraction": 1.0,
+        "cls_mean_pairwise_cosine": 0.09942883036564157,
+        "cls_std_mean": 0.9288452841527551,
+        "cls_top_eigenvalue_fraction": 0.03273366489752914,
+        "patch_mean_finite_fraction": 1.0,
+        "patch_mean_mean_pairwise_cosine": 0.18276389612223037,
+        "patch_mean_std_mean": 0.6310498755065941,
+        "patch_mean_top_eigenvalue_fraction": 0.033035872818873394
+      },
+      "wandb": {
+        "diagnostic": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/5hdzm54i",
+        "pretraining": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/3d9e5f35"
+      }
+    },
+    "token-specialized-seed0": {
+      "backbone_parameter_count": 30205842,
+      "checkpoint_disposition": "retained",
+      "checkpoint_sha256": "d43ba133a73bf47c687e243dc92f5fc812e3e06026864f9a3ba4103ff5d44bab",
+      "final_diagnostics": {
+        "centered_patch_effective_rank_fraction": 0.4416790847109312,
+        "centered_patch_energy_ratio": 0.6434786775248743,
+        "cls_centroid_accuracy": 0.8610000014305115,
+        "cls_patch_alignment": -0.002496677213796647,
+        "patch_mean_centroid_accuracy": 0.847599983215332,
+        "patch_pairwise_cosine": 0.3442383713721072
+      },
+      "safety_gate_passed": true,
+      "safety_observed": {
+        "cls_finite_fraction": 1.0,
+        "cls_mean_pairwise_cosine": 0.05484521557730245,
+        "cls_std_mean": 0.9264721700376111,
+        "cls_top_eigenvalue_fraction": 0.035754925776863324,
+        "patch_mean_finite_fraction": 1.0,
+        "patch_mean_mean_pairwise_cosine": 0.28222173496403813,
+        "patch_mean_std_mean": 0.44555507355226115,
+        "patch_mean_top_eigenvalue_fraction": 0.03915647770177432
+      },
+      "wandb": {
+        "diagnostic": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/zfbuqal9",
+        "pretraining": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/41b50b9d"
+      }
+    }
+  },
+  "schema_version": 1,
+  "scope": {
+    "confirmation_run_launched": false,
+    "fine_tuning_performed": false,
+    "official_test_evaluation_performed": false,
+    "scientific_pretraining_runs": 2,
+    "seed": 0
+  },
+  "smoke_validation": {
+    "active_seconds": 40.808784486725926,
+    "run_id": "pretrain-token-specialized-smoke-seed0",
+    "status": "completed",
+    "terminal_event_id": "1984bffc-d349-4b17-b766-8d95c7aae356",
+    "wandb": "https://wandb.ai/tidalpaladin/mjepa-cifar10/runs/b106dcab"
+  },
+  "status": "completed",
+  "study_id": "ijepa-token-specialization-v1-screen"
+}

@@ -23,6 +23,8 @@ backbone: !!python/object:vit.ViTConfig
   drop_path_rate: 0.0
   num_register_tokens: 2
   num_cls_tokens: 2
+  specialize_global_token_norms: true
+  specialize_global_token_qkv_blocks: 1
   pos_enc: rope
   rope_base: 100
   rope_rescale_coords: 2.0

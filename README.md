@@ -28,8 +28,16 @@ Use `make update` after changing a dependency pin. This upgrades `uv.lock` and s
 
 The default ViT-S/4 configuration uses one backbone CLS token, seven register
 tokens, and four independently lifted channel partitions as the auxiliary CLS
-predictor context. Completed studies that used the former four-CLS baseline
-refer to the explicit `vit-small-four-cls-legacy.yaml` configs.
+predictor context. The CLS/register prefix and visual tokens use separate
+pre-attention and pre-MLP normalization and LayerScale parameters in every
+encoder block, with separate QKV projections in the first four blocks. These
+branches start from identical weights, so specialization preserves the initial
+function and the model input/output contract.
+
+Use `vit-small-shared-path-legacy.yaml` to resume or fine-tune checkpoints made
+with shared global/visual paths. Completed studies that used the former
+four-CLS baseline refer to the explicit `vit-small-four-cls-legacy.yaml`
+configs.
 
 To run model training:
 
